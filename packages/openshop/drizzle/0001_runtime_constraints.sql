@@ -1,3 +1,70 @@
+CREATE TABLE IF NOT EXISTS installations (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop text NOT NULL UNIQUE,
+  access_token text,
+  scopes text,
+  nonce text,
+  installed_at timestamp with time zone NOT NULL DEFAULT now(),
+  uninstalled_at timestamp with time zone
+);
+
+CREATE TABLE IF NOT EXISTS flow_runs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop text NOT NULL,
+  flow_name text NOT NULL,
+  status text NOT NULL DEFAULT 'pending',
+  input json,
+  error text,
+  deadline_at timestamp with time zone,
+  parent_run_id text,
+  attempts integer NOT NULL DEFAULT 0,
+  available_at timestamp with time zone,
+  worker_id text,
+  retry_policy json,
+  started_at timestamp with time zone,
+  completed_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS step_results (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  step_name text NOT NULL,
+  attempt integer NOT NULL DEFAULT 1,
+  status text NOT NULL DEFAULT 'pending',
+  output json,
+  error text,
+  duration_ms integer,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  flow_run_id text NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS provider_configs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop text NOT NULL,
+  provider_name text NOT NULL,
+  config json DEFAULT '{}'::json,
+  last_checked_at timestamp with time zone,
+  last_check_ok boolean,
+  updated_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS cron_overrides (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  shop text NOT NULL,
+  cron_key text NOT NULL,
+  enabled boolean NOT NULL DEFAULT true,
+  updated_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS logs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  flow_run_id text,
+  level text NOT NULL DEFAULT 'info',
+  message text,
+  payload json,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+
 ALTER TABLE step_results ADD COLUMN IF NOT EXISTS attempt integer NOT NULL DEFAULT 1;
 
 WITH ranked_steps AS (

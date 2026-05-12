@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
 import { useLocation } from 'preact-iso'
 import { apiFetch } from '../fetch'
-import type { InputEvent, RunDetail, LogEntry, StepResult } from '../types'
+import { eventValue } from '../events'
+import type { RunDetail, LogEntry, StepResult } from '../types'
 import { statusTone } from '../types'
 
 interface AppBridgeModal extends HTMLElement {
@@ -28,7 +29,7 @@ function formatSize(json: string): string {
 
 function buildStepRows(steps: StepResult[]) {
   const sorted = [...steps].sort((a, b) => {
-    const timeDiff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    const timeDiff = new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime()
     if (timeDiff !== 0) return timeDiff
     return a.id.localeCompare(b.id)
   })
@@ -195,8 +196,8 @@ export default function FlowRun({ id }: { id?: string }) {
   }, [fetchLogs])
 
 
-  const handleQueryInput = (e: InputEvent) => {
-    const val = e.target.value
+  const handleQueryInput = (event: Event) => {
+    const val = eventValue(event)
     setQuery(val)
     syncUrl(val, levels)
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -399,14 +400,23 @@ export default function FlowRun({ id }: { id?: string }) {
       <s-section heading="Logs">
         {/* Search bar */}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
-          <s-search-field
-            placeholder='|= "text" != "exclude" |~ "regex" C:3'
-            value={query}
-            onInput={handleQueryInput}
-            onClear={() => { setQuery(''); syncUrl('', levels); fetchLogs() }}
-            style={{ flex: 1 }}
-          />
-          <s-button variant="secondary" onClick={() => setShowHelp(!showHelp)}>?</s-button>
+          <div style={{ flex: 1 }}>
+            <s-search-field
+              label="Search logs"
+              labelAccessibilityVisibility="exclusive"
+              placeholder='|= "text" != "exclude" |~ "regex" C:3'
+              value={query}
+              onInput={handleQueryInput}
+            />
+          </div>
+          <s-button
+            variant="secondary"
+            accessibilityLabel="Show log query syntax"
+            aria-expanded={showHelp}
+            onClick={() => setShowHelp(!showHelp)}
+          >
+            ?
+          </s-button>
         </div>
 
         {/* Level toggles + export */}
@@ -453,27 +463,33 @@ export default function FlowRun({ id }: { id?: string }) {
 
         {/* Help */}
         {showHelp && (
-          <s-banner tone="info" heading="Query syntax" style={{ marginBottom: '12px' }}>
-            <div style={{ fontFamily: 'monospace', fontSize: '12px', lineHeight: '2' }}>
-              <div><strong>|= "text"</strong> — Contains (case-insensitive)</div>
-              <div><strong>!= "text"</strong> — Excludes</div>
-              <div><strong>|~ "regex"</strong> — Regex match</div>
-              <div><strong>C:N</strong> — Show N context lines around matches</div>
-              <div><strong>B:N / A:N</strong> — Before / After context only</div>
-              <div><strong>last:5m</strong> — Last 5 minutes (s/m/h/d)</div>
-              <div><strong>from:ISO to:ISO</strong> — Absolute date range</div>
-              <div><strong>between:start,end</strong> — Date range shorthand</div>
-              <div>Free text — Simple substring search</div>
-              <div style={{ marginTop: '4px' }}>Example: <code>|= "order" != "retry" last:1h C:2</code></div>
-            </div>
-          </s-banner>
+          <div style={{ marginBottom: '12px' }}>
+            <s-banner tone="info" heading="Query syntax">
+              <div style={{ fontFamily: 'monospace', fontSize: '12px', lineHeight: '2' }}>
+                <div><strong>|= "text"</strong> — Contains (case-insensitive)</div>
+                <div><strong>!= "text"</strong> — Excludes</div>
+                <div><strong>|~ "regex"</strong> — Regex match</div>
+                <div><strong>C:N</strong> — Show N context lines around matches</div>
+                <div><strong>B:N / A:N</strong> — Before / After context only</div>
+                <div><strong>last:5m</strong> — Last 5 minutes (s/m/h/d)</div>
+                <div><strong>from:ISO to:ISO</strong> — Absolute date range</div>
+                <div><strong>between:start,end</strong> — Date range shorthand</div>
+                <div>Free text — Simple substring search</div>
+                <div style={{ marginTop: '4px' }}>Example: <code>|= "order" != "retry" last:1h C:2</code></div>
+              </div>
+            </s-banner>
+          </div>
         )}
 
         {/* Log viewer */}
         {filteredLogs.length === 0 ? (
           <s-text color="subdued">{totalLogs === 0 ? 'No logs.' : 'No matching logs.'}</s-text>
         ) : (
-          <div style={{
+          <div
+            tabIndex={0}
+            role="log"
+            aria-label="Run logs"
+            style={{
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
             fontSize: '12px',
             lineHeight: '1.7',
@@ -510,7 +526,7 @@ export default function FlowRun({ id }: { id?: string }) {
                 }}
               >
                 <span style={{ color: '#8c9196', flexShrink: 0, minWidth: '75px' }}>
-                  {new Date(log.createdAt).toLocaleTimeString()}
+                  {new Date(log.createdAt ?? 0).toLocaleTimeString()}
                 </span>
                 <span style={{
                   color: logLevelColor[log.level] ?? 'inherit',

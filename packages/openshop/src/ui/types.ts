@@ -1,11 +1,6 @@
 import type { flowRuns, stepResults, logs, providerConfigs } from '../db/schema.js'
 import type { CronEntry, ProviderFieldDef } from '../types.js'
 
-/** Event type for Polaris web component input/change events */
-export interface InputEvent extends Event {
-  target: EventTarget & { value: string; checked?: boolean }
-}
-
 // ─── Inferred from Drizzle schema ───────────────────────────────────
 
 /** Row from flow_runs table (JSON-serialized: dates become strings) */
@@ -57,9 +52,13 @@ export interface CronItem extends CronEntry {
 }
 
 /** GET /api/providers response item */
+export type ProviderFieldSummary = Omit<ProviderFieldDef, 'validate'> & {
+  hasValue?: boolean
+}
+
 export interface ProviderSummary {
   name: string
-  fields: Record<string, ProviderFieldDef>
+  fields: Record<string, ProviderFieldSummary>
   config: Record<string, unknown>
   lastCheckedAt: string | null
   lastCheckOk: boolean | null
@@ -67,7 +66,10 @@ export interface ProviderSummary {
 
 // ─── Shared constants ───────────────────────────────────────────────
 
-export const statusTone: Record<string, string> = {
+export type BannerTone = 'auto' | 'info' | 'success' | 'critical' | 'warning'
+export type BadgeTone = BannerTone | 'neutral' | 'caution'
+
+export const statusTone: Record<string, BadgeTone> = {
   completed: 'success',
   failed: 'critical',
   running: 'warning',

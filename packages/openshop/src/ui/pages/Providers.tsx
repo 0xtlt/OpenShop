@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'preact/hooks'
-import { apiFetch } from '../fetch'
-import type { InputEvent, ProviderSummary } from '../types'
+import { apiFetch, apiJson } from '../fetch'
+import { eventValue } from '../events'
+import { ConfigFieldRenderer } from '../components/ConfigFieldRenderer'
+import type { BannerTone, ProviderSummary } from '../types'
 
 export default function Providers() {
   const [providers, setProviders] = useState<ProviderSummary[]>([])
@@ -8,16 +10,19 @@ export default function Providers() {
   const [form, setForm] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [checking, setChecking] = useState(false)
-  const [msg, setMsg] = useState<{ tone: string; text: string } | null>(null)
+  const [msg, setMsg] = useState<{ tone: BannerTone; text: string } | null>(null)
 
   const toForm = (cfg: Record<string, unknown>) =>
     Object.fromEntries(Object.entries(cfg).map(([k, v]) => [k, String(v ?? '')]))
 
   const load = useCallback(async () => {
-    const res = await apiFetch('/api/providers')
-    const data: Provider[] = await res.json()
-    setProviders(data)
-    if (data.length > 0) setForm(toForm(data[idx]?.config ?? {}))
+    try {
+      const data = await apiJson<ProviderSummary[]>('/api/providers')
+      setProviders(data)
+      if (data.length > 0) setForm(toForm(data[idx]?.config ?? {}))
+    } catch (error) {
+      setMsg({ tone: 'critical', text: error instanceof Error ? error.message : String(error) })
+    }
   }, [idx])
 
   useEffect(() => { load() }, [load])
@@ -26,6 +31,10 @@ export default function Providers() {
     setIdx(newIdx)
     setForm(toForm(providers[newIdx]?.config ?? {}))
     setMsg(null)
+  }
+
+  const updateField = (key: string, value: string) => {
+    setForm((current) => ({ ...current, [key]: value }))
   }
 
   const p = providers[idx]
@@ -83,7 +92,7 @@ export default function Providers() {
           <s-select
             label="Provider"
             value={String(idx)}
-            onChange={(e: InputEvent) => switchProvider(Number(e.target.value))}
+            onChange={(event) => switchProvider(Number(eventValue(event)))}
           >
             {providers.map((pr, i) => (
               <s-option key={pr.name} value={String(i)}>{pr.name}</s-option>
@@ -93,61 +102,15 @@ export default function Providers() {
       )}
 
       <s-section heading={p?.name ?? 'Provider'}>
-        {p && Object.entries(p.fields).map(([key, field]) => {
-          if (field.type === 'password') {
-            return (
-              <s-password-field
-                key={key}
-                label={field.label}
-                placeholder={field.placeholder}
-                value={form[key] ?? ''}
-                onInput={(e: InputEvent) => setForm({ ...form, [key]: e.target.value })}
-              />
-            )
-          }
-          if (field.type === 'number') {
-            return (
-              <s-number-field
-                key={key}
-                label={field.label}
-                placeholder={field.placeholder}
-                value={form[key] ?? ''}
-                onInput={(e: InputEvent) => setForm({ ...form, [key]: e.target.value })}
-              />
-            )
-          }
-          if (field.type === 'checkbox') {
-            return (
-              <s-checkbox
-                key={key}
-                label={field.label}
-                checked={form[key] === 'true'}
-                onChange={(e: InputEvent) => setForm({ ...form, [key]: String(e.target.checked) })}
-              />
-            )
-          }
-          if (field.type === 'select' && field.options) {
-            return (
-              <s-select
-                key={key}
-                label={field.label}
-                value={form[key] ?? ''}
-                onChange={(e: InputEvent) => setForm({ ...form, [key]: e.target.value })}
-              >
-                {field.options.map((o) => <s-option key={o.value} value={o.value}>{o.label}</s-option>)}
-              </s-select>
-            )
-          }
-          return (
-            <s-text-field
-              key={key}
-              label={field.label}
-              placeholder={field.placeholder}
-              value={form[key] ?? ''}
-              onInput={(e: InputEvent) => setForm({ ...form, [key]: e.target.value })}
-            />
-          )
-        })}
+        {p && Object.entries(p.fields).map(([key, field]) => (
+          <ConfigFieldRenderer
+            key={key}
+            fieldKey={key}
+            field={field}
+            value={form[key] ?? ''}
+            onChange={updateField}
+          />
+        ))}
       </s-section>
 
       {p?.lastCheckedAt && (

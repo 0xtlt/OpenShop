@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { getDb, getPool } from '#db/client'
+import { closeDb, getDb } from '#db/client'
 import type { OpenShopConfig, FlowDefinition, WebhookDefinition, FunctionDefinition } from '#types'
 
 export const TEST_SHOP = 'test-integration.myshopify.com'
@@ -10,8 +10,7 @@ export async function truncateAll() {
 }
 
 export async function shutdownDb() {
-  const pool = getPool()
-  await pool.end()
+  await closeDb()
 }
 
 export function createConfig(

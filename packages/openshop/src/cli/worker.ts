@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { pushSchema } from './schema.js'
+import { migrateSchema } from './schema.js'
 
 export async function startWorker(opts: { concurrency?: number } = {}) {
   const cwd = process.cwd()
@@ -9,9 +9,9 @@ export async function startWorker(opts: { concurrency?: number } = {}) {
   process.env.DATABASE_URL ??= 'postgresql://openshop:openshop@localhost:5432/openshop'
 
   try {
-    pushSchema(cwd, { silent: true })
+    await migrateSchema(cwd, { silent: true })
   } catch {
-    console.error('[openshop] Schema push failed')
+    console.error('[openshop] Database migration failed')
     process.exit(1)
   }
 

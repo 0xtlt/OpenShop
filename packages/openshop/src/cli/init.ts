@@ -90,8 +90,8 @@ export async function runInit(target?: string): Promise<InitResult> {
   console.log('')
   console.log('Next steps:')
   console.log(`  cd ${target}`)
-  console.log('  npm install')
-  console.log('  npm run shopify')
+  console.log('  pnpm install')
+  console.log('  pnpm run shopify')
 
   return { targetDir, packageName, appName }
 }

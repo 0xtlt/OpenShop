@@ -11,6 +11,9 @@ function getKey(): Buffer | null {
   if (_key) return _key
   const hex = process.env.ENCRYPTION_KEY
   if (!hex) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('ENCRYPTION_KEY must be set in production')
+    }
     if (!_warned) {
       _warned = true
       console.warn('[openshop] ENCRYPTION_KEY not set — provider credentials stored in plaintext')

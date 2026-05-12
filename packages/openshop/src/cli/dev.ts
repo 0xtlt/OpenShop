@@ -119,7 +119,7 @@ export async function startDev() {
   }, initialApiProcess.process)
 
   // 3. Watch all user directories — restart API subprocess on changes
-  const watchDirs = ['flows', 'providers', 'functions', 'webhooks', 'proxy', 'prisma']
+  const watchDirs = ['flows', 'providers', 'functions', 'webhooks', 'proxy']
     .map((d) => resolve(cwd, d))
     .filter(existsSync)
 

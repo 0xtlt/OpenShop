@@ -1,4 +1,4 @@
 roles = ["frontend", "backend"]
 
 [commands]
-dev = "bun run dev"
+dev = "pnpm run dev"

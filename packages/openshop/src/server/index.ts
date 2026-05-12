@@ -14,6 +14,27 @@ import type { OpenShopConfig } from '#types'
 
 export type ConfigGetter = () => OpenShopConfig
 
+const localOrigin = /^https?:\/\/(?:(?:[^:]+\.)?localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/
+
+function configuredOrigins(): string[] {
+  return [process.env.HOST, process.env.SHOPIFY_APP_URL]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => {
+      try { return new URL(value).origin } catch { return value.replace(/\/$/, '') }
+    })
+}
+
+function resolveCorsOrigin(origin: string): string | undefined {
+  if (!origin) return undefined
+  if (localOrigin.test(origin)) return origin
+  if (origin === 'https://admin.shopify.com') return origin
+  if (/^https:\/\/[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(origin)) return origin
+  if (configuredOrigins().includes(origin)) return origin
+  return undefined
+}
+
+const restrictedCors = cors({ origin: resolveCorsOrigin })
+
 export async function createServer(getConfig: ConfigGetter, options?: { staticDir?: string }) {
   const app = new Hono()
 
@@ -26,20 +47,20 @@ export async function createServer(getConfig: ConfigGetter, options?: { staticDi
   // Proxy routes (auto-discovered from proxy/ directory, HMAC-verified by Shopify)
   const proxyDir = resolve(process.cwd(), 'proxy')
   if (existsSync(proxyDir)) {
-    app.use('/proxy/*', cors())
+    app.use('/proxy/*', restrictedCors)
     const proxyRoutes = await createProxyRoutes(proxyDir, { authModes: ['appProxyHmac', 'customerAccountJwt'] })
     app.route('/proxy', proxyRoutes)
 
     // Extension-direct routes: same handlers, CORS enabled, JWT required
     // Mounted on /ext/* so Shopify CLI proxy doesn't intercept
     const extRoutes = await createProxyRoutes(proxyDir, { authModes: ['customerAccountJwt'] })
-    app.use('/ext/*', cors())
+    app.use('/ext/*', restrictedCors)
     app.route('/ext', extRoutes)
   }
 
   // CORS for dev only (not needed when serving from same origin in prod)
   if (!options?.staticDir) {
-    app.use('/api/*', cors())
+    app.use('/api/*', restrictedCors)
   }
 
   // Extract shop from session token / query param

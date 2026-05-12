@@ -10,6 +10,7 @@ export function createStepExecutor(
   logger: { info: (payload: Record<string, unknown>, message?: string) => void },
   signal?: AbortSignal,
   defaultTimeout?: number,
+  attempt = 1,
 ): StepFn {
   const stepFn = async function step<T>(name: string, fn: () => Promise<T> | T, options?: StepOptions): Promise<T> {
     if (signal?.aborted) throw new FlowCanceledError()
@@ -31,11 +32,30 @@ export function createStepExecutor(
 
     logger.info({ step: name }, `Step "${name}" started`)
 
-    const [stepRow] = await db.insert(stepResults).values({
-      flowRunId,
-      stepName: name,
-      status: 'running',
-    }).returning({ id: stepResults.id })
+    let stepRow: { id: string } | undefined
+    try {
+      [stepRow] = await db.insert(stepResults).values({
+        flowRunId,
+        stepName: name,
+        attempt,
+        status: 'running',
+      }).returning({ id: stepResults.id })
+    } catch (error) {
+      const [currentAttempt] = await db.select()
+        .from(stepResults)
+        .where(and(
+          eq(stepResults.flowRunId, flowRunId),
+          eq(stepResults.stepName, name),
+          eq(stepResults.attempt, attempt),
+        ))
+        .limit(1)
+
+      if (currentAttempt?.status === 'completed') return currentAttempt.output as T
+      if (currentAttempt?.status === 'failed') {
+        throw new Error(currentAttempt.error ?? `Step "${name}" already failed in attempt ${attempt}`)
+      }
+      throw error
+    }
 
     if (!stepRow) throw new Error(`Failed to create step record for "${name}"`)
 
@@ -127,6 +147,7 @@ export function createStepExecutor(
     await db.insert(stepResults).values({
       flowRunId,
       stepName: name,
+      attempt,
       status: 'sleeping',
       output: resumeAt.toISOString(),
     })

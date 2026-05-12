@@ -69,13 +69,12 @@ async function ensureInstallation(shop: string, sessionToken: string) {
 
     const data = await response.json() as { access_token: string; scope: string }
 
-    if (existing) {
-      await db.update(installations)
-        .set({ accessToken: data.access_token, scopes: data.scope, uninstalledAt: null })
-        .where(eq(installations.id, existing.id))
-    } else {
-      await db.insert(installations).values({ shop, accessToken: data.access_token, scopes: data.scope })
-    }
+    await db.insert(installations)
+      .values({ shop, accessToken: data.access_token, scopes: data.scope })
+      .onConflictDoUpdate({
+        target: installations.shop,
+        set: { accessToken: data.access_token, scopes: data.scope, uninstalledAt: null },
+      })
 
     console.log(`[openshop] Token exchange successful for ${shop}`)
   } catch { /* silent */ }

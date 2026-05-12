@@ -29,7 +29,7 @@ async function expectInitFailure(assert: any, target?: string) {
 }
 
 test.group('init cli', () => {
-  test('creates a minimal npm project', async ({ assert }) => {
+  test('creates a minimal pnpm project', async ({ assert }) => {
     await withTempDir(async () => {
       const result = await runInit('My App')
 
@@ -49,7 +49,7 @@ test.group('init cli', () => {
       assert.exists(packageJson.devDependencies.tsx)
       assert.notInclude(JSON.stringify(packageJson), 'workspace:*')
       assert.notInclude(JSON.stringify(packageJson), 'bun')
-      assert.include(shopifyWeb, 'dev = "npm run dev"')
+      assert.include(shopifyWeb, 'dev = "pnpm run dev"')
       assert.include(readFileSync(resolve(result.targetDir, '.gitignore'), 'utf8'), 'node_modules/')
       assert.exists(readFileSync(resolve(result.targetDir, 'openshop.config.ts'), 'utf8'))
       assert.exists(readFileSync(resolve(result.targetDir, 'flows', 'syncOrders.ts'), 'utf8'))

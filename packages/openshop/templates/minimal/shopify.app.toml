@@ -18,4 +18,4 @@ redirect_urls = [ "https://localhost:3000/auth/callback" ]
 roles = ["frontend", "backend"]
 
 [commands]
-dev = "npm run dev"
+dev = "pnpm run dev"

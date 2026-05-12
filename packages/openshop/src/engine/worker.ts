@@ -91,7 +91,7 @@ export class Worker {
       ))
 
     // Atomic claim using FOR UPDATE SKIP LOCKED
-    const claimed = await db.execute<{ id: string; flow_name: string; shop: string; input: unknown }>(sql`
+    const claimed = await db.execute<{ id: string; flow_name: string; shop: string; input: unknown; attempts: number }>(sql`
       WITH candidate AS (
         SELECT id FROM flow_runs
         WHERE (
@@ -110,7 +110,7 @@ export class Worker {
         available_at = ${leaseUntil},
         started_at = COALESCE(started_at, ${now})
       WHERE id = (SELECT id FROM candidate)
-      RETURNING id, flow_name, shop, input
+      RETURNING id, flow_name, shop, input, attempts
     `)
 
     const rows = claimed.rows ?? claimed
@@ -122,15 +122,16 @@ export class Worker {
       flowName: row.flow_name,
       shop: row.shop,
       input: row.input,
+      attempt: row.attempts,
     }
   }
 
-  #processRun(claimed: { id: string; flowName: string; shop: string; input: unknown }): void {
+  #processRun(claimed: { id: string; flowName: string; shop: string; input: unknown; attempt: number }): void {
     const promise = this.#executeAndCleanup(claimed)
     this.#activeRuns.set(claimed.id, promise)
   }
 
-  async #executeAndCleanup(claimed: { id: string; flowName: string; shop: string; input: unknown }): Promise<void> {
+  async #executeAndCleanup(claimed: { id: string; flowName: string; shop: string; input: unknown; attempt: number }): Promise<void> {
     const db = getDb()
     try {
       const flow = this.#openshopConfig.flows[claimed.flowName]
@@ -154,8 +155,10 @@ export class Worker {
           const leaseUntil = new Date(Date.now() + this.#config.leaseDurationMs)
           await db.update(flowRuns)
             .set({ availableAt: leaseUntil })
-            .where(eq(flowRuns.id, claimed.id))
+            .where(and(eq(flowRuns.id, claimed.id), eq(flowRuns.workerId, this.#workerId), eq(flowRuns.status, 'running')))
         },
+        workerId: this.#workerId,
+        attempt: claimed.attempt,
       })
     } catch (error) {
       try {

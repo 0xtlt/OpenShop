@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks'
-import { apiFetch } from '../fetch'
+import { apiFetch, apiJson } from '../fetch'
 import type { CronItem } from '../types'
 
 interface AppBridgeModal extends HTMLElement {
@@ -10,9 +10,12 @@ interface AppBridgeModal extends HTMLElement {
 export default function Crons() {
   const [crons, setCrons] = useState<CronItem[]>([])
   const [toggling, setToggling] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    apiFetch('/api/crons').then((r) => r.json()).then(setCrons)
+    apiJson<CronItem[]>('/api/crons')
+      .then((items) => { setCrons(items); setError(null) })
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }, [])
 
   const toggle = async (cron: CronItem) => {
@@ -86,6 +89,7 @@ export default function Crons() {
     </ui-modal>
 
     <s-page heading="Crons">
+      {error && <s-banner tone="critical">{error}</s-banner>}
       <s-section padding="none">
         <s-table>
           <s-table-header-row>
@@ -116,7 +120,7 @@ export default function Crons() {
                     {c.schedule}
                   </code>
                 </s-table-cell>
-                <s-table-cell>{shopsLabel(c.shops)}</s-table-cell>
+                <s-table-cell>{shopsLabel(c.shops ?? 'global')}</s-table-cell>
                 <s-table-cell>
                   <s-badge tone={c.enabled ? 'success' : 'neutral'}>
                     {c.enabled ? 'Enabled' : 'Disabled'}

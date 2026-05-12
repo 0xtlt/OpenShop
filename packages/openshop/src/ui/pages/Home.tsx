@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks'
 import { useLocation } from 'preact-iso'
-import { apiFetch } from '../fetch'
-import type { FlowRun, CronItem, ProviderSummary } from '../types'
+import { apiJson } from '../fetch'
+import type { FlowRun, CronItem, FlowSummary, ProviderSummary } from '../types'
 import { statusTone } from '../types'
 
 function timeAgo(date: string | null): string {
@@ -19,20 +19,30 @@ export default function Home() {
   const [recentRuns, setRecentRuns] = useState<FlowRun[]>([])
   const [crons, setCrons] = useState<CronItem[]>([])
   const [providers, setProviders] = useState<ProviderSummary[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
+    let inFlight = false
     const load = async () => {
-      const [fRes, rRes, cRes, pRes] = await Promise.all([
-        apiFetch('/api/flows'),
-        apiFetch('/api/runs?limit=10'),
-        apiFetch('/api/crons'),
-        apiFetch('/api/providers'),
-      ])
-      const flows = await fRes.json()
-      setFlowCount(flows.length)
-      setRecentRuns(await rRes.json())
-      setCrons(await cRes.json())
-      setProviders(await pRes.json())
+      if (inFlight) return
+      inFlight = true
+      try {
+        const [flows, runs, cronItems, providerItems] = await Promise.all([
+          apiJson<FlowSummary[]>('/api/flows'),
+          apiJson<FlowRun[]>('/api/runs?limit=10'),
+          apiJson<CronItem[]>('/api/crons'),
+          apiJson<ProviderSummary[]>('/api/providers'),
+        ])
+        setFlowCount(flows.length)
+        setRecentRuns(runs)
+        setCrons(cronItems)
+        setProviders(providerItems)
+        setLoadError(null)
+      } catch (error) {
+        setLoadError(error instanceof Error ? error.message : String(error))
+      } finally {
+        inFlight = false
+      }
     }
     load()
     const iv = setInterval(load, 10_000)
@@ -46,6 +56,7 @@ export default function Home() {
 
   return (
     <s-page heading="Dashboard">
+      {loadError && <s-banner tone="critical">{loadError}</s-banner>}
       {/* Alerts */}
       {failed.length > 0 && (
         <s-banner tone="critical" heading={`${failed.length} failed run${failed.length > 1 ? 's' : ''}`}>
@@ -147,7 +158,7 @@ export default function Home() {
           </s-table-body>
         </s-table>
         <s-box paddingBlockStart="base">
-          <s-button variant="plain" onClick={() => route('/flows')}>View all runs</s-button>
+          <s-button variant="tertiary" onClick={() => route('/flows')}>View all runs</s-button>
         </s-box>
       </s-section>
 

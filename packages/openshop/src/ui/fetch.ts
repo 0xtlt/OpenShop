@@ -26,3 +26,18 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
 
   return fetch(path, { ...init, headers })
 }
+
+export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await apiFetch(path, init)
+  const text = await res.text()
+  const data = text ? JSON.parse(text) : null
+
+  if (!res.ok) {
+    const message = data && typeof data === 'object' && 'error' in data
+      ? String((data as { error: unknown }).error)
+      : `Request failed with ${res.status}`
+    throw new Error(message)
+  }
+
+  return data as T
+}

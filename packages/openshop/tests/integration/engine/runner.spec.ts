@@ -34,6 +34,30 @@ test.group('runner', (group) => {
     assert.isNotNull(run.completedAt)
   })
 
+  test('returns lease_lost when the worker no longer owns the run', async ({ assert }) => {
+    let runId = ''
+    const db = getDb()
+    const flow = defineTestFlow(async () => {
+      await db.update(flowRuns)
+        .set({ workerId: 'worker-b' })
+        .where(eq(flowRuns.id, runId))
+    })
+    const config = createConfig({ 'test-flow': flow })
+    const dispatched = await dispatchFlow({ flowName: 'test-flow', config, shop: TEST_SHOP })
+    runId = dispatched.runId
+    await db.update(flowRuns)
+      .set({ status: 'running', workerId: 'worker-a', attempts: 1, availableAt: new Date(Date.now() + 30_000) })
+      .where(eq(flowRuns.id, runId))
+
+    const result = await runFlow({ runId, flowName: 'test-flow', config, shop: TEST_SHOP, workerId: 'worker-a', attempt: 1 })
+    assert.equal(result.status, 'lease_lost')
+
+    const [run] = await db.select().from(flowRuns).where(eq(flowRuns.id, runId)).limit(1)
+    assert.equal(run.status, 'running')
+    assert.equal(run.workerId, 'worker-b')
+    assert.isNull(run.completedAt)
+  })
+
   test('failing flow sets status to failed', async ({ assert }) => {
     const flow = defineTestFlow(async () => {
       throw new Error('boom')

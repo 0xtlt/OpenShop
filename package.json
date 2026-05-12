@@ -1,15 +1,22 @@
 {
   "name": "openshop-workspace",
   "private": true,
+  "packageManager": "pnpm@11.1.0",
+  "engines": {
+    "node": ">=26 <27",
+    "pnpm": ">=11 <12"
+  },
   "workspaces": ["packages/*", "apps/*"],
   "scripts": {
-    "check": "tsc --noEmit -p packages/openshop/tsconfig.json",
-    "dev": "bun run --filter openshop-demo dev",
-    "coverage:unit": "cd packages/openshop && ../../node_modules/.bin/c8 --clean --temp-directory ../../coverage/tmp --reporter=none ../../node_modules/.bin/tsx tests/bootstrap.ts",
-    "coverage:integration": "cd packages/openshop && ../../node_modules/.bin/c8 --clean=false --temp-directory ../../coverage/tmp --reporter=none ../../node_modules/.bin/tsx tests/bootstrap-integration.ts",
-    "coverage:demo": "cd apps/demo && DATABASE_URL=${DATABASE_URL:-postgresql://openshop:openshop@localhost:5432/openshop} node_modules/.bin/drizzle-kit push --config=drizzle.config.ts --force && DATABASE_URL=${DATABASE_URL:-postgresql://openshop:openshop@localhost:5432/openshop} ../../node_modules/.bin/c8 --clean=false --temp-directory ../../coverage/tmp --reporter=none ../../node_modules/.bin/tsx tests/bootstrap.ts",
-    "coverage:report": "c8 report",
-    "coverage": "rm -rf coverage && bun run coverage:unit && bun run coverage:integration && bun run coverage:demo && bun run coverage:report"
+    "check": "pnpm run check:core && pnpm run check:ui && pnpm --filter openshop-demo run lint",
+    "check:core": "tsc --noEmit -p packages/openshop/tsconfig.json",
+    "check:ui": "tsc --noEmit -p packages/openshop/tsconfig.ui.json",
+    "dev": "pnpm --filter openshop-demo dev",
+    "coverage:unit": "node scripts/run-c8.mjs --cwd packages/openshop --clean --temp-directory coverage/tmp --reporter=none -- pnpm exec tsx tests/bootstrap.ts",
+    "coverage:integration": "node scripts/run-c8.mjs --cwd packages/openshop --clean=false --temp-directory coverage/tmp --reporter=none -- pnpm exec tsx tests/bootstrap-integration.ts",
+    "coverage:demo": "DATABASE_URL=${DATABASE_URL:-postgresql://openshop:openshop@localhost:5432/openshop} pnpm --dir apps/demo exec drizzle-kit push --config=drizzle.config.ts --force && DATABASE_URL=${DATABASE_URL:-postgresql://openshop:openshop@localhost:5432/openshop} node scripts/run-c8.mjs --cwd apps/demo --clean=false --temp-directory coverage/tmp --reporter=none -- pnpm exec tsx tests/bootstrap.ts",
+    "coverage:report": "node scripts/run-c8.mjs report",
+    "coverage": "rm -rf coverage && pnpm run coverage:unit && pnpm run coverage:integration && pnpm run coverage:demo && pnpm run coverage:report"
   },
   "c8": {
     "all": true,
@@ -50,13 +57,6 @@
     "reports-dir": "coverage",
     "temp-directory": "coverage/tmp",
     "exclude-after-remap": true
-  },
-  "overrides": {
-    "brace-expansion": "5.0.5",
-    "esbuild": "0.28.0",
-    "lodash": "4.18.1",
-    "picomatch": "4.0.4",
-    "yaml": "2.8.4"
   },
   "devDependencies": {
     "@shopify/polaris-types": "^1.0.1",

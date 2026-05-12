@@ -1,7 +1,9 @@
+import type { ComponentChildren, JSX } from 'preact'
 import { useState, useEffect, useRef } from 'preact/hooks'
 import { useLocation } from 'preact-iso'
-import { apiFetch } from '../fetch'
-import type { InputEvent, FlowSummary, FlowRun } from '../types'
+import { apiFetch, apiJson } from '../fetch'
+import { eventValue } from '../events'
+import type { FlowSummary, FlowRun } from '../types'
 import { statusTone } from '../types'
 
 interface AppBridgeModal extends HTMLElement {
@@ -11,6 +13,18 @@ interface AppBridgeModal extends HTMLElement {
 
 function getModal(id: string): AppBridgeModal | null {
   return document.getElementById(id) as AppBridgeModal | null
+}
+
+type ModalButtonProps = {
+  children: ComponentChildren
+  variant?: 'primary'
+  tone?: 'critical'
+  onClick?: () => void | Promise<void>
+  disabled?: boolean
+}
+
+function ModalButton({ children, ...buttonProps }: ModalButtonProps) {
+  return <button {...(buttonProps as JSX.HTMLAttributes<HTMLButtonElement>)}>{children}</button>
 }
 
 type ArkJsonSchema =
@@ -73,21 +87,13 @@ export default function Flows({ name }: { name?: string }) {
     history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`)
   }
 
-  const onSearchInput = (e: InputEvent) => {
-    const val = e.target.value
+  const onSearchInput = (event: Event) => {
+    const val = eventValue(event)
     setSearchInput(val)
     syncSearchUrl(val)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => setSearch(val), 300)
   }
-
-  const onSearchClear = () => {
-    setSearchInput('')
-    setSearch('')
-    syncSearchUrl('')
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-  }
-
 
   useEffect(() => {
     apiFetch('/api/flows').then((r) => r.json()).then(setFlows)
@@ -103,14 +109,27 @@ export default function Flows({ name }: { name?: string }) {
     if (search) params.set('search', search)
     const base = filter ? `/api/flows/${filter}/runs` : '/api/runs'
     const url = `${base}?${params}`
+    let inFlight = false
+    let canceled = false
     const load = async () => {
-      const res = await apiFetch(url)
-      setRuns(await res.json())
-      setLoadingRuns(false)
+      if (inFlight) return
+      inFlight = true
+      try {
+        const data = await apiJson<FlowRun[]>(url)
+        if (!canceled) {
+          setRuns(data)
+          setError(null)
+        }
+      } catch (err) {
+        if (!canceled) setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        inFlight = false
+        if (!canceled) setLoadingRuns(false)
+      }
     }
     load()
     const iv = setInterval(load, 5000)
-    return () => clearInterval(iv)
+    return () => { canceled = true; clearInterval(iv) }
   }, [filter, search, page, refreshKey])
 
   const triggerRun = async () => {
@@ -142,7 +161,7 @@ export default function Flows({ name }: { name?: string }) {
       if (!res.ok) {
         setError(data.error)
       } else {
-        shopify.toast.show(`Flow "${selected}" started`)
+        window.shopify?.toast?.show(`Flow "${selected}" started`)
         route(`/runs/${data.runId}`)
       }
     } finally {
@@ -187,7 +206,7 @@ export default function Flows({ name }: { name?: string }) {
       })
       const data = await res.json()
       if (res.ok) {
-        shopify.toast.show(`Deleted ${data.deleted} run(s)${data.skipped ? `, ${data.skipped} skipped (active)` : ''}`)
+        window.shopify?.toast?.show(`Deleted ${data.deleted} run(s)${data.skipped ? `, ${data.skipped} skipped (active)` : ''}`)
         setCheckedIds(new Set())
         setRefreshKey((k) => k + 1)
       } else {
@@ -224,12 +243,15 @@ export default function Flows({ name }: { name?: string }) {
     {/* App Bridge modal — renders at admin level, no z-index issues */}
     <ui-modal id="run-modal">
       <div style={{ padding: '16px' }}>
-        <label style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>Input (JSON)</label>
+        <label htmlFor="flow-input-json" style={{ display: 'block', marginBottom: '4px', fontWeight: 600, fontSize: '13px' }}>Input (JSON)</label>
         <textarea
+          id="flow-input-json"
           value={inputJson}
-          onInput={(e: InputEvent) => { setInputJson(e.target.value); setInputError(null) }}
+          onInput={(event) => { setInputJson(eventValue(event)); setInputError(null) }}
           placeholder='{ "limit": 10 }'
           rows={6}
+          aria-invalid={Boolean(inputError)}
+          aria-describedby={inputError ? 'flow-input-json-error' : undefined}
           style={{
             width: '100%',
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
@@ -241,13 +263,13 @@ export default function Flows({ name }: { name?: string }) {
             boxSizing: 'border-box',
           }}
         />
-        {inputError && <span style={{ color: '#d72c0d', fontSize: '12px' }}>{inputError}</span>}
+        {inputError && <span id="flow-input-json-error" style={{ color: '#d72c0d', fontSize: '12px' }}>{inputError}</span>}
       </div>
       <ui-title-bar title={`Run ${selected ?? ''}`}>
-        <button variant="primary" onClick={triggerRun} disabled={triggering}>
+        <ModalButton variant="primary" onClick={triggerRun} disabled={triggering}>
           {triggering ? 'Running…' : 'Run'}
-        </button>
-        <button onClick={() => getModal('run-modal')?.hide()}>Cancel</button>
+        </ModalButton>
+        <ModalButton onClick={() => getModal('run-modal')?.hide()}>Cancel</ModalButton>
       </ui-title-bar>
     </ui-modal>
 
@@ -256,10 +278,10 @@ export default function Flows({ name }: { name?: string }) {
         <s-text>Are you sure you want to delete {checkedIds.size} run(s)? This action cannot be undone.</s-text>
       </div>
       <ui-title-bar title="Delete runs">
-        <button variant="primary" tone="critical" onClick={bulkDelete} disabled={deleting}>
+        <ModalButton variant="primary" tone="critical" onClick={bulkDelete} disabled={deleting}>
           {deleting ? 'Deleting…' : 'Delete'}
-        </button>
-        <button onClick={() => getModal('delete-modal')?.hide()}>Cancel</button>
+        </ModalButton>
+        <ModalButton onClick={() => getModal('delete-modal')?.hide()}>Cancel</ModalButton>
       </ui-title-bar>
     </ui-modal>
 
@@ -292,7 +314,7 @@ export default function Flows({ name }: { name?: string }) {
                 <s-table-cell>
                   <s-button variant="primary" onClick={() => {
                     setSelected(f.name)
-                    const example = schemaToExample(f.inputSchema)
+                    const example = schemaToExample(f.inputSchema as ArkJsonSchema | null)
                     setInputJson(example ? JSON.stringify(example, null, 2) : '{}')
                     setInputError(null)
                     getModal('run-modal')?.show()
@@ -316,8 +338,8 @@ export default function Flows({ name }: { name?: string }) {
             paginate
             hasPreviousPage={page > 0}
             hasNextPage={runs.length > pageSize}
-            onNextpage={() => setPage(page + 1)}
-            onPreviouspage={() => setPage(page - 1)}
+            onNextPage={() => setPage(page + 1)}
+            onPreviousPage={() => setPage(page - 1)}
           >
             <s-search-field
               slot="filters"
@@ -326,12 +348,11 @@ export default function Flows({ name }: { name?: string }) {
               placeholder="Search by flow name, status, or ID..."
               value={searchInput}
               onInput={onSearchInput}
-              onClear={onSearchClear}
             />
             <s-table-header-row>
               <s-table-header>
                 <div style={{ position: 'relative' }}>
-                  <s-checkbox checked={allChecked} onChange={toggleAll} />
+                  <s-checkbox label="Select all runs" labelAccessibilityVisibility="exclusive" checked={allChecked} onChange={toggleAll} />
                   {checkedIds.size > 0 && (
                     <div style={{
                       position: 'absolute',
@@ -346,8 +367,8 @@ export default function Flows({ name }: { name?: string }) {
                       marginRight: '-999px',
                       animation: 'fade-in 150ms ease',
                     }}>
-                      <s-checkbox checked={allChecked} onChange={toggleAll} />
-                      <span style={{ paddingLeft: '8px' }}><s-text tone="subdued">{checkedIds.size} selected</s-text></span>
+                      <s-checkbox label="Select all runs" labelAccessibilityVisibility="exclusive" checked={allChecked} onChange={toggleAll} />
+                      <span style={{ paddingLeft: '8px' }}><s-text color="subdued">{checkedIds.size} selected</s-text></span>
                       <s-button variant="tertiary" tone="critical" onClick={confirmBulkDelete} disabled={deleting}>
                         {deleting ? 'Deleting…' : 'Delete'}
                       </s-button>
@@ -365,7 +386,7 @@ export default function Flows({ name }: { name?: string }) {
               {pageRuns.length === 0 && !loadingRuns && (
                 <s-table-row>
                   <s-table-cell />
-                  <s-table-cell><s-text tone="subdued">No runs yet</s-text></s-table-cell>
+                  <s-table-cell><s-text color="subdued">No runs yet</s-text></s-table-cell>
                   {!filter && <s-table-cell />}
                   <s-table-cell />
                   <s-table-cell />
@@ -375,7 +396,14 @@ export default function Flows({ name }: { name?: string }) {
               {pageRuns.map((r) => (
                 <s-table-row key={r.id} clickDelegate={`run-link-${r.id}`}>
                   <s-table-cell>
-                    <s-checkbox checked={checkedIds.has(r.id)} onChange={() => toggleCheck(r.id)} />
+                    <span onClick={(event) => event.stopPropagation()}>
+                      <s-checkbox
+                        label={`Select run ${r.id.slice(0, 8)}`}
+                        labelAccessibilityVisibility="exclusive"
+                        checked={checkedIds.has(r.id)}
+                        onChange={() => toggleCheck(r.id)}
+                      />
+                    </span>
                   </s-table-cell>
                   <s-table-cell>
                     <s-link id={`run-link-${r.id}`} href={`/runs/${r.id}`}>#{r.id.slice(0, 8)}</s-link>

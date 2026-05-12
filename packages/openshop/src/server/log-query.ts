@@ -9,6 +9,14 @@ const DURATION_UNITS: Record<string, number> = {
   s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000,
 }
 
+function isSafeRegex(pattern: string): boolean {
+  if (pattern.length > 120) return false
+  if (/\\[1-9]/.test(pattern)) return false
+  if (/\([^)]*[+*][^)]*\)\s*[+*{]/.test(pattern)) return false
+  if (/(?:\.\*){2,}/.test(pattern)) return false
+  return true
+}
+
 export interface ParsedLogQuery {
   filters: LogFilter[]
   time: { from?: Date; to?: Date }
@@ -51,7 +59,7 @@ export function matchesLogFilters(log: { message: string | null; payload: unknow
     if (f.op === 'contains' && !text.includes(f.value)) return false
     if (f.op === 'excludes' && text.includes(f.value)) return false
     if (f.op === 'regex') {
-      if (f.value.length > 200) return false // Guard against ReDoS
+      if (!isSafeRegex(f.value)) return false
       try { if (!new RegExp(f.value, 'i').test(text)) return false }
       catch { return false }
     }

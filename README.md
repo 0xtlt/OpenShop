@@ -8,15 +8,15 @@ You write **flows** (jobs with checkpointed steps) and **providers** (external c
 
 ## Stack
 
-Bun, Hono, Drizzle + PostgreSQL, Preact, Vite 8, ArkType, Polaris Web Components
+Node.js 26, pnpm, Hono, Drizzle + PostgreSQL, Preact, Vite 8, ArkType, Polaris Web Components
 
 ## Quick start
 
 ```bash
-npx openshop init my-app
+pnpm dlx openshop init my-app
 cd my-app
-npm install
-npm run shopify
+pnpm install
+pnpm run shopify
 ```
 
 ## Project structure
@@ -154,14 +154,33 @@ packages/openshop/    # The framework
 apps/demo/            # Demo app
 
 # Install
-bun install
+pnpm install
+
+# Database
+docker compose up -d postgres
+# Creates both openshop and openshop_test
+
+# Checks
+pnpm run check
+pnpm run coverage:unit
+pnpm run coverage:integration
+pnpm run coverage:demo
 
 # Dev (standalone)
-cd apps/demo && bun run dev
+cd apps/demo && pnpm run dev
 
 # Dev (with Shopify)
-cd apps/demo && bun run shopify
+cd apps/demo && pnpm run shopify
 ```
+
+Production requires `ENCRYPTION_KEY` to be set. Generate one with:
+
+```bash
+openssl rand -hex 32
+```
+
+Use versioned Drizzle migrations for production schema changes. `openshop dev` still uses `drizzle-kit push --force` for local development only.
+Run `openshop migrate` before production deploys, or let `openshop start` / `openshop worker` apply OpenShop framework migrations on boot.
 
 ## License
 

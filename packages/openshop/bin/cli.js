@@ -44,7 +44,7 @@ if (existsSync(builtCli)) {
 const tsx = resolveLocalTsx()
 if (!tsx) {
   console.error('[openshop] Built CLI not found and tsx is unavailable.')
-  console.error('[openshop] Run `npm run build:cli` in the openshop package, or install tsx for local development.')
+  console.error('[openshop] Run `pnpm run build:cli` in the openshop package, or install tsx for local development.')
   process.exit(1)
 }
 

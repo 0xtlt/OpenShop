@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
-import { type } from 'arktype'
 import { getShop } from '#server/shop'
 import type { OpenShopConfig, FunctionDefinition, ShopifyFunctionType, DiscountMode } from '#types'
+import { validateFunctionConfig } from '#server/function-config'
 
 // ─── Mutation mapping ────────────────────────────────────────────────
 
@@ -225,19 +225,10 @@ export function createFunctionRoutes(getConfig: () => OpenShopConfig) {
     if (!mutations) return c.json({ error: `Function type "${def.type}" has no GraphQL API` }, 400)
 
     const body = await c.req.json()
-    const fnConfig = body.config ?? {}
+    const parsedConfig = validateFunctionConfig(def, body.config)
+    if (!parsedConfig.ok) return c.json({ error: parsedConfig.error }, 400)
+    const fnConfig = parsedConfig.config
     const mode: DiscountMode = body.mode ?? def.modes?.[0] ?? 'automatic'
-
-    // Validate config
-    for (const fieldName of Object.keys(def.config)) {
-      const fieldDef = def.config[fieldName]
-      if (fieldDef.validate && fnConfig[fieldName] !== undefined) {
-        const result = fieldDef.validate(fnConfig[fieldName])
-        if (result instanceof type.errors) {
-          return c.json({ error: `Field "${fieldName}": ${result.summary}` }, 400)
-        }
-      }
-    }
 
     const { createShopifyClient } = await import('../shopify/client.js')
     const shopify = await createShopifyClient(shop)
@@ -380,18 +371,9 @@ export function createFunctionRoutes(getConfig: () => OpenShopConfig) {
       return c.json({ error: `Function type "${def.type}" does not support update. Delete and recreate instead.` }, 400)
     }
 
-    const fnConfig = body.config ?? {}
-
-    // Validate config
-    for (const fieldName of Object.keys(def.config)) {
-      const fieldDef = def.config[fieldName]
-      if (fieldDef.validate && fnConfig[fieldName] !== undefined) {
-        const result = fieldDef.validate(fnConfig[fieldName])
-        if (result instanceof type.errors) {
-          return c.json({ error: `Field "${fieldName}": ${result.summary}` }, 400)
-        }
-      }
-    }
+    const parsedConfig = validateFunctionConfig(def, body.config)
+    if (!parsedConfig.ok) return c.json({ error: parsedConfig.error }, 400)
+    const fnConfig = parsedConfig.config
 
     const { createShopifyClient } = await import('../shopify/client.js')
     const shopify = await createShopifyClient(shop)
@@ -485,6 +467,9 @@ export function createFunctionRoutes(getConfig: () => OpenShopConfig) {
     if (!def) return c.json({ error: 'Function not found' }, 404)
 
     const rawMode = c.req.query('mode')
+    if (def.type === 'discount' && (def.modes?.length ?? 0) > 1 && rawMode !== 'automatic' && rawMode !== 'code') {
+      return c.json({ error: 'mode query parameter is required for discount functions with multiple modes' }, 400)
+    }
     const mode: DiscountMode = rawMode === 'automatic' || rawMode === 'code' ? rawMode : def.modes?.[0] ?? 'automatic'
     const mutations = getMutations(def, mode)
     if (!mutations) return c.json({ error: `Function type "${def.type}" has no GraphQL API` }, 400)

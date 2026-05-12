@@ -1,14 +1,9 @@
 import { useState, useEffect, useCallback } from 'preact/hooks'
 import { useLocation } from 'preact-iso'
 import { apiFetch } from '../fetch'
-import type { InputEvent } from '../types'
-
-interface FunctionField {
-  type: 'text' | 'password' | 'number' | 'select' | 'checkbox'
-  label: string
-  placeholder?: string
-  options?: { label: string; value: string }[]
-}
+import { eventValue } from '../events'
+import { ConfigFieldRenderer, type ConfigField } from '../components/ConfigFieldRenderer'
+import type { BannerTone } from '../types'
 
 interface FunctionDef {
   key: string
@@ -16,7 +11,7 @@ interface FunctionDef {
   handle: string
   modes?: string[]
   supportsUpdate: boolean
-  fields: Record<string, FunctionField>
+  fields: Record<string, ConfigField>
 }
 
 interface FunctionInstance {
@@ -130,7 +125,10 @@ function FunctionInstances({ handle }: { handle: string }) {
   const typeLabel = fnDef ? (TYPE_LABELS[fnDef.type] ?? fnDef.type) : ''
 
   return (
-    <s-page heading={fnDef?.key ?? handle} backAction={{ url: '/functions' }}>
+    <s-page heading={fnDef?.key ?? handle}>
+      <s-link slot="breadcrumb-actions" href="/functions" onClick={(event: Event) => { event.preventDefault(); route('/functions') }}>
+        Functions
+      </s-link>
       <s-button slot="primary-action" variant="primary" onClick={() => route(`/functions/${handle}/new`)}>
         Create instance
       </s-button>
@@ -158,18 +156,18 @@ function FunctionInstances({ handle }: { handle: string }) {
         <s-section>
           <s-text color="subdued">{instances.length} instance{instances.length !== 1 ? 's' : ''} — {typeLabel}</s-text>
           <s-table>
-            <s-table-header>
-              <s-table-header-cell>Title</s-table-header-cell>
-              <s-table-header-cell>Status</s-table-header-cell>
-              <s-table-header-cell>Configuration</s-table-header-cell>
-              <s-table-header-cell></s-table-header-cell>
-            </s-table-header>
+            <s-table-header-row>
+              <s-table-header listSlot="primary">Title</s-table-header>
+              <s-table-header listSlot="inline">Status</s-table-header>
+              <s-table-header listSlot="secondary">Configuration</s-table-header>
+              <s-table-header></s-table-header>
+            </s-table-header-row>
             <s-table-body>
               {instances.map((inst) => (
                 <s-table-row key={inst.id}>
                   <s-table-cell>{inst.title ?? '(untitled)'}</s-table-cell>
                   <s-table-cell>
-                    <s-badge tone={inst.status === 'ACTIVE' || inst.enabled ? 'success' : 'attention'}>
+                    <s-badge tone={inst.status === 'ACTIVE' || inst.enabled ? 'success' : 'warning'}>
                       {inst.status ?? (inst.enabled ? 'Active' : 'Inactive')}
                     </s-badge>
                   </s-table-cell>
@@ -199,9 +197,12 @@ function FunctionForm({ handle, instanceId }: { handle: string; instanceId?: str
   const [mode, setMode] = useState<string>('automatic')
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [msg, setMsg] = useState<{ tone: string; text: string } | null>(null)
+  const [msg, setMsg] = useState<{ tone: BannerTone; text: string } | null>(null)
   const { route } = useLocation()
   const isEdit = !!instanceId
+  const updateField = (key: string, value: string) => {
+    setForm((current) => ({ ...current, [key]: value }))
+  }
 
   useEffect(() => {
     apiFetch('/api/functions').then((r) => r.json()).then((defs: FunctionDef[]) => {
@@ -250,7 +251,10 @@ function FunctionForm({ handle, instanceId }: { handle: string; instanceId?: str
     if (!instanceId) return
     setDeleting(true)
     try {
-      const res = await apiFetch(`/api/functions/${handle}/instances/${encodeURIComponent(instanceId)}`, {
+      const params = new URLSearchParams()
+      if (fnDef?.type === 'discount') params.set('mode', mode)
+      const suffix = params.toString() ? `?${params}` : ''
+      const res = await apiFetch(`/api/functions/${handle}/instances/${encodeURIComponent(instanceId)}${suffix}`, {
         method: 'DELETE',
       })
       if (res.ok) {
@@ -266,7 +270,8 @@ function FunctionForm({ handle, instanceId }: { handle: string; instanceId?: str
 
   if (!fnDef) {
     return (
-      <s-page heading="Loading..." backAction={{ url: `/functions/${handle}` }}>
+      <s-page heading="Loading...">
+        <s-link slot="breadcrumb-actions" href={`/functions/${handle}`}>Function</s-link>
         <s-box padding="large-500"><s-text color="subdued">Loading...</s-text></s-box>
       </s-page>
     )
@@ -275,7 +280,22 @@ function FunctionForm({ handle, instanceId }: { handle: string; instanceId?: str
   const typeLabel = TYPE_LABELS[fnDef.type] ?? fnDef.type
 
   return (
-    <s-page heading={isEdit ? 'Edit instance' : `New ${typeLabel}`} backAction={{ url: `/functions/${handle}` }}>
+    <>
+    {isEdit && (
+      <s-modal id="delete-function-instance-modal" heading="Delete instance" accessibility-label="Confirm function instance deletion">
+        <s-text>This will permanently remove this function instance from Shopify.</s-text>
+        <s-button slot="primary-action" variant="primary" tone="critical" onClick={remove} disabled={deleting}>
+          {deleting ? 'Deleting...' : 'Delete'}
+        </s-button>
+        <s-button slot="secondary-actions" variant="secondary" commandFor="delete-function-instance-modal" command="--hide">
+          Cancel
+        </s-button>
+      </s-modal>
+    )}
+    <s-page heading={isEdit ? 'Edit instance' : `New ${typeLabel}`}>
+      <s-link slot="breadcrumb-actions" href={`/functions/${handle}`} onClick={(event: Event) => { event.preventDefault(); route(`/functions/${handle}`) }}>
+        {fnDef.key}
+      </s-link>
       <s-button
         slot="primary-action"
         variant="primary"
@@ -296,7 +316,7 @@ function FunctionForm({ handle, instanceId }: { handle: string; instanceId?: str
 
         {fnDef.modes && fnDef.modes.length > 1 && (
           <s-box padding="large-100" background="base" border="base" borderRadius="large">
-            <s-select label="Discount mode" value={mode} onChange={(e: InputEvent) => setMode(e.target.value)}>
+            <s-select label="Discount mode" value={mode} onChange={(event) => setMode(eventValue(event))}>
               {fnDef.modes.map((m) => (
                 <s-option key={m} value={m}>{m === 'automatic' ? 'Automatic discount' : 'Discount code'}</s-option>
               ))}
@@ -308,29 +328,13 @@ function FunctionForm({ handle, instanceId }: { handle: string; instanceId?: str
           <s-stack gap="base">
             <s-heading>Configuration</s-heading>
             {Object.entries(fnDef.fields).map(([key, field]) => {
-              if (field.type === 'number') {
-                return (
-                  <s-number-field
-                    key={key} label={field.label} placeholder={field.placeholder}
-                    value={form[key] ?? ''}
-                    onInput={(e: InputEvent) => setForm({ ...form, [key]: e.target.value })}
-                  />
-                )
-              }
-              if (field.type === 'checkbox') {
-                return (
-                  <s-checkbox
-                    key={key} label={field.label}
-                    checked={form[key] === 'true'}
-                    onChange={(e: InputEvent) => setForm({ ...form, [key]: String(e.target.checked) })}
-                  />
-                )
-              }
               return (
-                <s-text-field
-                  key={key} label={field.label} placeholder={field.placeholder}
+                <ConfigFieldRenderer
+                  key={key}
+                  fieldKey={key}
+                  field={field}
                   value={form[key] ?? ''}
-                  onInput={(e: InputEvent) => setForm({ ...form, [key]: e.target.value })}
+                  onChange={updateField}
                 />
               )
             })}
@@ -342,7 +346,7 @@ function FunctionForm({ handle, instanceId }: { handle: string; instanceId?: str
             <s-stack gap="base">
               <s-heading>Danger zone</s-heading>
               <s-paragraph>This will permanently remove this function instance from Shopify.</s-paragraph>
-              <s-button variant="destructive" onClick={remove} disabled={deleting}>
+              <s-button variant="secondary" tone="critical" commandFor="delete-function-instance-modal" command="--show" disabled={deleting}>
                 {deleting ? 'Deleting...' : 'Delete instance'}
               </s-button>
             </s-stack>
@@ -350,5 +354,6 @@ function FunctionForm({ handle, instanceId }: { handle: string; instanceId?: str
         )}
       </s-stack>
     </s-page>
+    </>
   )
 }

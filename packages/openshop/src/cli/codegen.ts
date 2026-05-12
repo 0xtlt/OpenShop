@@ -27,7 +27,7 @@ export async function runCodegen(watch = false) {
 
   if (!existsSync(binPath)) {
     console.error('[openshop] @graphql-codegen/cli not found. Add it to your dependencies:')
-    console.error('  npm install -D @graphql-codegen/cli @shopify/api-codegen-preset')
+    console.error('  pnpm add -D @graphql-codegen/cli @shopify/api-codegen-preset')
     process.exit(1)
   }
 

@@ -25,6 +25,16 @@ switch (command) {
     await startWorker({ concurrency })
     break
   }
+  case 'migrate': {
+    const { migrateSchema } = await import('../src/cli/schema.js')
+    const { closeDb } = await import('../src/db/client.js')
+    try {
+      await migrateSchema(process.cwd())
+    } finally {
+      await closeDb()
+    }
+    break
+  }
   case 'codegen': {
     const { runCodegen } = await import('../src/cli/codegen.js')
     await runCodegen(false)
@@ -58,6 +68,7 @@ switch (command) {
     init <dir>                  Scaffold a new OpenShop project
     dev                         Start dev server (API + UI + worker + hot-reload)
     worker [--concurrency=N]    Start worker only (production, scalable)
+    migrate                     Apply OpenShop framework migrations
     build                       Build for production
     start                       Start production server (API + UI, no worker)
     codegen                     Generate TypeScript types from GraphQL queries
@@ -67,6 +78,7 @@ switch (command) {
     openshop init my-app
     openshop dev
     openshop worker --concurrency=10
+    openshop migrate
     openshop test [suite]          Run tests (suites: unit, flows, api, proxy)
     openshop build && openshop start
 `)

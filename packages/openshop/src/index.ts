@@ -5,17 +5,21 @@ import type { StandardCRON } from 'ts-cron-validator'
 /**
  * Define a OpenShop config. Flow names autocomplete in crons, input is type-checked.
  */
-export function defineConfig<const TFlows extends Record<string, FlowDefinition<any>>>(config: {
-  providers: Record<string, ProviderDefinition<any, any>>
+export function defineConfig<
+  const TProviders extends Record<string, ProviderDefinition<any, any>>,
+  const TFlows extends Record<string, FlowDefinition<any>>,
+  const TFunctions extends Record<string, FunctionDefinition<any>> = Record<string, FunctionDefinition<any>>,
+>(config: {
+  providers: TProviders
   flows: TFlows
-  functions?: Record<string, FunctionDefinition<any>>
+  functions?: TFunctions
   webhooks?: Record<string, WebhookDefinition>
   crons?: CronEntryFor<TFlows>[]
   worker?: Partial<WorkerConfig>
   retryPolicy?: Partial<RetryPolicy>
   onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void
-}): OpenShopConfig {
-  return config as unknown as OpenShopConfig
+}): OpenShopConfig<TProviders, TFlows, TFunctions> {
+  return config as OpenShopConfig<TProviders, TFlows, TFunctions>
 }
 
 /** Standard cron nicknames supported by croner */
@@ -59,7 +63,7 @@ export function defineProvider<
 >(provider: {
   name: string
   ui: { fields: TFields }
-  transformer?: (data: { data: ConfigFromFields<TFields> }) => ConfigFromFields<TFields>
+  transformer?: (data: { data: Record<string, unknown> }) => Record<string, unknown>
   checker?: (ctx: { config: ConfigFromFields<TFields> }) => Promise<boolean>
   methods: TMethods
 }): ProviderDefinition<TFields, TMethods> {

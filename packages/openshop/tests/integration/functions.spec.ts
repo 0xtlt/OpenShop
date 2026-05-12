@@ -424,12 +424,23 @@ test.group('API Shopify functions', (group) => {
     assert.include(lastCall().query, 'discountCodeDelete')
   })
 
+  test('requires mode when deleting multi-mode discounts', async ({ assert }) => {
+    const res = await req('/api/functions/volume-discount/instances/discount-2', {
+      method: 'DELETE',
+    })
+    const body = await res.json()
+
+    assert.equal(res.status, 400)
+    assert.include(body.error, 'mode')
+    assert.lengthOf(graphqlCalls, 0)
+  })
+
   test('returns errors for unknown functions and invalid config', async ({ assert }) => {
     const missing = await req('/api/functions/missing/instances')
     assert.equal(missing.status, 404)
 
     const invalid = await jsonReq('POST', '/api/functions/volume-discount/instances', {
-      config: { percent: '10' },
+      config: { percent: -1 },
     })
     const body = await invalid.json()
     assert.equal(invalid.status, 400)

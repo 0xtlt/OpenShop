@@ -1,6 +1,6 @@
 import { getDb } from '../db/client.js'
 import { flowRuns } from '../db/schema.js'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { resolveRetryPolicy } from './backoff.js'
 import { FlowConcurrencyError } from './errors.js'
 import type { OpenShopConfig, DispatchOptions } from '../types.js'
@@ -23,37 +23,40 @@ export async function dispatchFlow(params: DispatchFlowParams) {
     throw new Error(`Flow "${flowName}" not found. Available: ${Object.keys(config.flows).join(', ')}`)
   }
 
-  // Concurrency check
-  const concurrency = flow.concurrency ?? 'reject'
-  if (concurrency === 'reject') {
-    const existing = await db.select({ id: flowRuns.id })
-      .from(flowRuns)
-      .where(and(
-        eq(flowRuns.shop, shop),
-        eq(flowRuns.flowName, flowName),
-        inArray(flowRuns.status, ['pending', 'running', 'sleeping']),
-      ))
-      .limit(1)
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${shop}:${flowName}`}))`)
 
-    if (existing.length > 0) {
-      throw new FlowConcurrencyError(flowName, shop, existing[0].id)
+    const concurrency = flow.concurrency ?? 'reject'
+    if (concurrency === 'reject') {
+      const existing = await tx.select({ id: flowRuns.id })
+        .from(flowRuns)
+        .where(and(
+          eq(flowRuns.shop, shop),
+          eq(flowRuns.flowName, flowName),
+          inArray(flowRuns.status, ['pending', 'running', 'sleeping']),
+        ))
+        .limit(1)
+
+      if (existing.length > 0) {
+        throw new FlowConcurrencyError(flowName, shop, existing[0].id)
+      }
     }
-  }
 
-  const deadlineAt = flow.timeout ? new Date(Date.now() + flow.timeout) : null
-  const retryPolicy = resolveRetryPolicy(config.retryPolicy, flow.retryPolicy, options?.retryPolicy)
-  const availableAt = new Date(Date.now() + (options?.delayMs ?? 0))
+    const deadlineAt = flow.timeout ? new Date(Date.now() + flow.timeout) : null
+    const retryPolicy = resolveRetryPolicy(config.retryPolicy, flow.retryPolicy, options?.retryPolicy)
+    const availableAt = new Date(Date.now() + (options?.delayMs ?? 0))
 
-  const [run] = await db.insert(flowRuns).values({
-    shop,
-    flowName,
-    status: 'pending',
-    input,
-    deadlineAt,
-    parentRunId,
-    retryPolicy,
-    availableAt,
-  }).returning({ id: flowRuns.id })
+    const [run] = await tx.insert(flowRuns).values({
+      shop,
+      flowName,
+      status: 'pending',
+      input,
+      deadlineAt,
+      parentRunId,
+      retryPolicy,
+      availableAt,
+    }).returning({ id: flowRuns.id })
 
-  return { runId: run.id, status: 'pending' as const }
+    return { runId: run.id, status: 'pending' as const }
+  })
 }

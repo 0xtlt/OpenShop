@@ -16,6 +16,8 @@ export interface RunFlowOptions {
   input?: Record<string, unknown>
   config: OpenShopConfig
   shop: string
+  workerId?: string
+  attempt?: number
   onHeartbeat?: () => Promise<void>
   connectors?: OpenShopConnectors
 }
@@ -25,9 +27,10 @@ export type RunFlowResult =
   | { status: 'sleeping'; resumeAt: Date }
   | { status: 'failed'; error: string; willRetry: boolean }
   | { status: 'canceled' }
+  | { status: 'lease_lost' }
 
 export async function runFlow(opts: RunFlowOptions): Promise<RunFlowResult> {
-  const { runId, flowName, input = {}, config, shop, onHeartbeat } = opts
+  const { runId, flowName, input = {}, config, shop, onHeartbeat, workerId } = opts
   const db = getDb()
   const flow = config.flows[flowName]
 
@@ -44,7 +47,11 @@ export async function runFlow(opts: RunFlowOptions): Promise<RunFlowResult> {
 
   const signal = registerAbort(runId)
   const logger = createLogger(db, runId)
-  const step = createStepExecutor(db, runId, logger, signal, flow.stepTimeout)
+  const attempt = opts.attempt ?? await resolveRunAttempt(runId)
+  const ownedRun = workerId
+    ? and(eq(flowRuns.id, runId), eq(flowRuns.workerId, workerId), eq(flowRuns.status, 'running'))
+    : eq(flowRuns.id, runId)
+  const step = createStepExecutor(db, runId, logger, signal, flow.stepTimeout, attempt)
   const connectors = opts.connectors ?? await buildConnectors(config, shop)
   const shopify = await createShopifyClient(shop)
 
@@ -71,27 +78,33 @@ export async function runFlow(opts: RunFlowOptions): Promise<RunFlowResult> {
       await flow.run({ input: validatedInput, connectors, shopify, shop, step, logger, db })
     }
 
-    await db.update(flowRuns)
+    const completed = await db.update(flowRuns)
       .set({ status: 'completed', completedAt: new Date(), workerId: null })
-      .where(eq(flowRuns.id, runId))
+      .where(ownedRun)
+      .returning({ id: flowRuns.id })
+    if (completed.length === 0) return { status: 'lease_lost' }
 
     logger.info({ flowName }, `Flow "${flowName}" completed`)
     return { status: 'completed' }
 
   } catch (error: unknown) {
     if (error instanceof SleepSignal) {
-      await db.update(flowRuns)
+      const sleeping = await db.update(flowRuns)
         .set({ status: 'sleeping', availableAt: error.resumeAt, workerId: null })
-        .where(eq(flowRuns.id, runId))
+        .where(ownedRun)
+        .returning({ id: flowRuns.id })
+      if (sleeping.length === 0) return { status: 'lease_lost' }
       logger.info({ flowName, resumeAt: error.resumeAt.toISOString() }, `Flow "${flowName}" sleeping`)
       return { status: 'sleeping', resumeAt: error.resumeAt }
     }
 
     const isCanceled = error instanceof FlowCanceledError || signal.aborted
     if (isCanceled) {
-      await db.update(flowRuns)
+      const canceled = await db.update(flowRuns)
         .set({ status: 'canceled', completedAt: new Date(), workerId: null })
-        .where(eq(flowRuns.id, runId))
+        .where(ownedRun)
+        .returning({ id: flowRuns.id })
+      if (canceled.length === 0) return { status: 'lease_lost' }
       logger.info({ flowName }, `Flow "${flowName}" was canceled`)
       return { status: 'canceled' }
     }
@@ -110,16 +123,20 @@ export async function runFlow(opts: RunFlowOptions): Promise<RunFlowResult> {
       const nextAt = computeNextRetryAt(run.attempts, retryPolicy, run.deadlineAt)
       if (nextAt) {
         willRetry = true
-        await db.update(flowRuns)
+        const retrying = await db.update(flowRuns)
           .set({ status: 'pending', error: errorMessage, availableAt: nextAt, workerId: null })
-          .where(eq(flowRuns.id, runId))
+          .where(ownedRun)
+          .returning({ id: flowRuns.id })
+        if (retrying.length === 0) return { status: 'lease_lost' }
       }
     }
 
     if (!willRetry) {
-      await db.update(flowRuns)
+      const failed = await db.update(flowRuns)
         .set({ status: 'failed', error: errorMessage, completedAt: new Date(), workerId: null })
-        .where(eq(flowRuns.id, runId))
+        .where(ownedRun)
+        .returning({ id: flowRuns.id })
+      if (failed.length === 0) return { status: 'lease_lost' }
     }
 
     logger.error({ flowName, error: errorMessage, willRetry }, `Flow "${flowName}" failed: ${errorMessage}`)
@@ -136,6 +153,15 @@ export async function runFlow(opts: RunFlowOptions): Promise<RunFlowResult> {
     if (heartbeatTimer) clearInterval(heartbeatTimer)
     cleanupAbort(runId)
   }
+}
+
+async function resolveRunAttempt(runId: string): Promise<number> {
+  const db = getDb()
+  const [run] = await db.select({ attempts: flowRuns.attempts })
+    .from(flowRuns)
+    .where(eq(flowRuns.id, runId))
+    .limit(1)
+  return run?.attempts && run.attempts > 0 ? run.attempts : 1
 }
 
 function createLogger(db: ReturnType<typeof getDb>, flowRunId: string): Logger {
@@ -173,4 +199,3 @@ async function buildConnectors(config: OpenShopConfig, shop: string): Promise<Op
   }
   return connectors as unknown as OpenShopConnectors
 }
-

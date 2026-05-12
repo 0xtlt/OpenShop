@@ -147,7 +147,7 @@ test.group('step executor', (group) => {
     }
   })
 
-  test('step with failed status does not replay', async ({ assert }) => {
+  test('step with failed status is fenced within the same attempt', async ({ assert }) => {
     const db = getDb()
     const runId = await createRun()
     const step = createStepExecutor(db, runId, noopLogger)
@@ -157,8 +157,25 @@ test.group('step executor', (group) => {
       await step('flaky', async () => { throw new Error('fail-1') })
     } catch { /* expected */ }
 
-    // Second call should re-execute (failed steps are not cached)
-    const result = await step('flaky', async () => 'ok')
+    // Second call in the same attempt should not double-execute the step.
+    await assert.rejects(
+      () => step('flaky', async () => 'ok'),
+      /fail-1/,
+    )
+  })
+
+  test('step with failed status can run again in a new attempt', async ({ assert }) => {
+    const db = getDb()
+    const runId = await createRun()
+    const attemptOne = createStepExecutor(db, runId, noopLogger, undefined, undefined, 1)
+
+    try {
+      await attemptOne('flaky', async () => { throw new Error('fail-1') })
+    } catch { /* expected */ }
+
+    const attemptTwo = createStepExecutor(db, runId, noopLogger, undefined, undefined, 2)
+    const result = await attemptTwo('flaky', async () => 'ok')
+
     assert.equal(result, 'ok')
   })
 })

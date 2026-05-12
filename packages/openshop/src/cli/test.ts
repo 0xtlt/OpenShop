@@ -27,7 +27,6 @@ export async function runTests(args: string[]) {
     process.exit(1)
   }
 
-  // Prisma setup — merges framework + dev schemas
   process.env.DATABASE_URL ??= 'postgresql://openshop:openshop@localhost:5432/openshop'
 
   try {
@@ -37,7 +36,7 @@ export async function runTests(args: string[]) {
   const tsx = resolveTsx(cwd)
   if (!tsx) {
     console.error('[openshop] tsx not found. Add it to your dev dependencies:')
-    console.error('  npm install -D tsx')
+    console.error('  pnpm add -D tsx')
     process.exit(1)
   }
 

@@ -2,6 +2,9 @@
   "name": "openshop-demo",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=26 <27"
+  },
   "scripts": {
     "dev": "openshop dev",
     "build": "openshop build",

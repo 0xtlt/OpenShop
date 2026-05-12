@@ -1,4 +1,4 @@
 roles = ["frontend", "backend"]
 webhooks_path = "/webhooks"
 port = 3000
-dev = "npm run dev"
+dev = "pnpm run dev"

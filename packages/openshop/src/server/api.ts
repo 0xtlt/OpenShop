@@ -1,5 +1,4 @@
 import { Hono } from 'hono'
-import { type } from 'arktype'
 import { eq, and, or, not, desc, asc, ilike, gte, lte, sql, inArray } from 'drizzle-orm'
 import { getDb } from '#db/client'
 import { flowRuns, stepResults, logs, providerConfigs, cronOverrides } from '#db/schema'
@@ -8,13 +7,16 @@ import { cancelRun } from '#engine/abort'
 import { FlowConcurrencyError } from '#engine/errors'
 import { getShop } from '#server/shop'
 import { encryptConfig, decryptConfig } from '#server/crypto'
-import type { OpenShopConfig } from '#types'
+import type { FlowRunStatus, OpenShopConfig } from '#types'
 import { parseLogQuery, matchesLogFilters, applyContextExpansion } from '#server/log-query'
+import { parseProviderConfig, providerFieldsForResponse, publicProviderConfig } from '#server/provider-config'
 
 // ─── Routes ──────────────────────────────────────────────────────────
 
 export function createApiRoutes(getConfig: () => OpenShopConfig) {
   const api = new Hono()
+  const activeRunStatuses = ['running', 'pending', 'sleeping'] as const satisfies readonly FlowRunStatus[]
+  const allRunStatuses = ['pending', 'running', 'sleeping', 'completed', 'failed', 'canceled'] as const satisfies readonly FlowRunStatus[]
 
   // ─── Flows
 
@@ -59,22 +61,16 @@ export function createApiRoutes(getConfig: () => OpenShopConfig) {
     const shop = getShop(c)
     const body = await c.req.json<{ key: string; enabled: boolean }>()
 
-    const [existing] = await db.select()
-      .from(cronOverrides)
-      .where(and(eq(cronOverrides.shop, shop), eq(cronOverrides.cronKey, body.key)))
-      .limit(1)
-
-    if (existing) {
-      await db.update(cronOverrides)
-        .set({ enabled: body.enabled, updatedAt: new Date() })
-        .where(eq(cronOverrides.id, existing.id))
-    } else {
-      await db.insert(cronOverrides).values({
+    await db.insert(cronOverrides)
+      .values({
         shop,
         cronKey: body.key,
         enabled: body.enabled,
       })
-    }
+      .onConflictDoUpdate({
+        target: [cronOverrides.shop, cronOverrides.cronKey],
+        set: { enabled: body.enabled, updatedAt: new Date() },
+      })
 
     return c.json({ ok: true, key: body.key, enabled: body.enabled })
   })
@@ -92,7 +88,9 @@ export function createApiRoutes(getConfig: () => OpenShopConfig) {
         sql`${flowRuns.id}::text ILIKE ${'%' + s + '%'}`,
       )!)
     }
-    if (queries.status) conditions.push(eq(flowRuns.status, queries.status))
+    if (queries.status && allRunStatuses.includes(queries.status as FlowRunStatus)) {
+      conditions.push(eq(flowRuns.status, queries.status as FlowRunStatus))
+    }
     if (queries.from) {
       const d = new Date(queries.from)
       if (!isNaN(d.getTime())) conditions.push(gte(flowRuns.createdAt, d))
@@ -282,25 +280,27 @@ export function createApiRoutes(getConfig: () => OpenShopConfig) {
       return c.json({ error: `Cannot retry a run with status "${run.status}"` }, 409)
     }
 
-    if (mode === 'reset') {
-      await db.delete(stepResults).where(eq(stepResults.flowRunId, id))
-    } else {
-      await db.delete(stepResults).where(and(eq(stepResults.flowRunId, id), sql`${stepResults.status} != 'completed'`))
-    }
-
     // Recompute deadline from flow timeout
     const config = getConfig()
     const flow = config.flows?.[run.flowName]
     const deadlineAt = flow?.timeout ? new Date(Date.now() + flow.timeout) : null
 
-    await db.update(flowRuns)
-      .set({ status: 'pending', error: null, availableAt: new Date(), completedAt: null, workerId: null, attempts: 0, deadlineAt, startedAt: null, retryPolicy: null })
-      .where(eq(flowRuns.id, id))
+    await db.transaction(async (tx) => {
+      if (mode === 'reset') {
+        await tx.delete(stepResults).where(eq(stepResults.flowRunId, id))
+      } else {
+        await tx.delete(stepResults).where(and(eq(stepResults.flowRunId, id), sql`${stepResults.status} != 'completed'`))
+      }
 
-    await db.insert(logs).values({
-      flowRunId: id, level: 'info',
-      message: `Run retried (${mode === 'reset' ? 'restart — all steps discarded' : 'resume — completed steps kept'})`,
-      payload: { mode, flowName: run.flowName },
+      await tx.update(flowRuns)
+        .set({ status: 'pending', error: null, availableAt: new Date(), completedAt: null, workerId: null, attempts: 0, deadlineAt, startedAt: null, retryPolicy: null })
+        .where(eq(flowRuns.id, id))
+
+      await tx.insert(logs).values({
+        flowRunId: id, level: 'info',
+        message: `Run retried (${mode === 'reset' ? 'restart — all steps discarded' : 'resume — completed steps kept'})`,
+        payload: { mode, flowName: run.flowName },
+      })
     })
 
     return c.json({ ok: true, runId: id, mode })
@@ -339,9 +339,11 @@ export function createApiRoutes(getConfig: () => OpenShopConfig) {
       return c.json({ error: 'Cannot delete an active run — cancel it first' }, 409)
     }
 
-    await db.delete(logs).where(eq(logs.flowRunId, id))
-    await db.delete(stepResults).where(eq(stepResults.flowRunId, id))
-    await db.delete(flowRuns).where(eq(flowRuns.id, id))
+    await db.transaction(async (tx) => {
+      await tx.delete(logs).where(eq(logs.flowRunId, id))
+      await tx.delete(stepResults).where(eq(stepResults.flowRunId, id))
+      await tx.delete(flowRuns).where(eq(flowRuns.id, id))
+    })
 
     return c.json({ ok: true })
   })
@@ -355,17 +357,18 @@ export function createApiRoutes(getConfig: () => OpenShopConfig) {
     if (ids.length > 100) return c.json({ error: 'Max 100 runs per batch' }, 400)
 
     // Only delete non-active runs belonging to this shop
-    const activeStatuses = ['running', 'pending', 'sleeping']
     const toDelete = await db.select({ id: flowRuns.id })
       .from(flowRuns)
-      .where(and(eq(flowRuns.shop, shop), inArray(flowRuns.id, ids), not(inArray(flowRuns.status, activeStatuses))))
+      .where(and(eq(flowRuns.shop, shop), inArray(flowRuns.id, ids), not(inArray(flowRuns.status, activeRunStatuses))))
 
     const deleteIds = toDelete.map((r) => r.id)
     if (deleteIds.length === 0) return c.json({ deleted: 0, skipped: ids.length })
 
-    await db.delete(logs).where(inArray(logs.flowRunId, deleteIds))
-    await db.delete(stepResults).where(inArray(stepResults.flowRunId, deleteIds))
-    await db.delete(flowRuns).where(inArray(flowRuns.id, deleteIds))
+    await db.transaction(async (tx) => {
+      await tx.delete(logs).where(inArray(logs.flowRunId, deleteIds))
+      await tx.delete(stepResults).where(inArray(stepResults.flowRunId, deleteIds))
+      await tx.delete(flowRuns).where(inArray(flowRuns.id, deleteIds))
+    })
 
     return c.json({ deleted: deleteIds.length, skipped: ids.length - deleteIds.length })
   })
@@ -384,18 +387,14 @@ export function createApiRoutes(getConfig: () => OpenShopConfig) {
           .where(and(eq(providerConfigs.shop, shop), eq(providerConfigs.providerName, name)))
           .limit(1)
 
-        const fields: Record<string, Record<string, unknown>> = {}
-        for (const fieldName of Object.keys(provider.ui.fields)) {
-          const { validate: _validate, ...rest } = provider.ui.fields[fieldName]
-          fields[fieldName] = rest
-        }
+        const storedConfig = decryptConfig(stored?.config)
 
         return {
           name,
-          fields,
-          config: decryptConfig(stored?.config),
-          lastCheckedAt: stored?.lastCheckedAt,
-          lastCheckOk: stored?.lastCheckOk,
+          fields: providerFieldsForResponse(provider, storedConfig),
+          config: publicProviderConfig(provider, storedConfig),
+          lastCheckedAt: stored?.lastCheckedAt ?? null,
+          lastCheckOk: stored?.lastCheckOk ?? null,
         }
       }),
     )
@@ -413,31 +412,22 @@ export function createApiRoutes(getConfig: () => OpenShopConfig) {
 
     if (!provider) return c.json({ error: 'Provider not found' }, 404)
 
-    let data = body.config ?? {}
-    if (provider.transformer) data = provider.transformer({ data })
-
-    for (const fieldName of Object.keys(provider.ui.fields)) {
-      const fieldDef = provider.ui.fields[fieldName]
-      if (fieldDef.validate && data[fieldName] !== undefined) {
-        const result = fieldDef.validate(data[fieldName])
-        if (result instanceof type.errors) {
-          return c.json({ error: `Field "${fieldName}": ${result.summary}` }, 400)
-        }
-      }
-    }
-
-    const [existing] = await db.select({ id: providerConfigs.id })
+    const [existing] = await db.select({ id: providerConfigs.id, config: providerConfigs.config })
       .from(providerConfigs)
       .where(and(eq(providerConfigs.shop, shop), eq(providerConfigs.providerName, name)))
       .limit(1)
 
-    const encrypted = encryptConfig(data)
+    const parsed = parseProviderConfig(provider, body.config, decryptConfig(existing?.config))
+    if (!parsed.ok) return c.json({ error: parsed.error }, 400)
 
-    if (existing) {
-      await db.update(providerConfigs).set({ config: encrypted }).where(eq(providerConfigs.id, existing.id))
-    } else {
-      await db.insert(providerConfigs).values({ shop, providerName: name, config: encrypted })
-    }
+    const encrypted = encryptConfig(parsed.config)
+
+    await db.insert(providerConfigs)
+      .values({ shop, providerName: name, config: encrypted })
+      .onConflictDoUpdate({
+        target: [providerConfigs.shop, providerConfigs.providerName],
+        set: { config: encrypted, updatedAt: new Date() },
+      })
 
     return c.json({ ok: true })
   })

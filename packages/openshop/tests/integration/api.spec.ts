@@ -1,9 +1,10 @@
 import { test } from '@japa/runner'
 import { createHmac } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { getDb } from '#db/client'
-import { flowRuns } from '#db/schema'
+import { flowRuns, providerConfigs } from '#db/schema'
 import { createServer } from '#server/index'
+import { decryptConfig } from '#server/crypto'
 import { dispatchFlow } from '#engine/dispatch'
 import { runFlow } from '#engine/runner'
 import { truncateAll, createConfig, TEST_SHOP } from './helpers.js'
@@ -38,6 +39,22 @@ let app: Awaited<ReturnType<typeof createServer>>
 test.group('API routes', (group) => {
   group.setup(async () => {
     const config = createConfig({ 'test-flow': simpleFlow })
+    config.providers = {
+      warehouse: {
+        name: 'warehouse',
+        ui: {
+          fields: {
+            endpoint: { type: 'text', label: 'Endpoint' },
+            apiKey: { type: 'password', label: 'API key' },
+            optionalNote: { type: 'text', label: 'Optional note', required: false },
+          },
+        },
+        async checker({ config }) {
+          return config.endpoint === 'https://warehouse.test' && config.apiKey === 'secret-1'
+        },
+        methods: {},
+      },
+    }
     config.crons = [{ name: 'Test cron', schedule: '*/5 * * * *', flow: 'test-flow' }]
     app = await createServer(() => config)
   })
@@ -282,6 +299,67 @@ test.group('API routes', (group) => {
     assert.equal(res.status, 200)
     const data = await res.json()
     assert.isArray(data)
+    assert.deepInclude(data[0], {
+      name: 'warehouse',
+      config: {},
+      lastCheckedAt: null,
+      lastCheckOk: null,
+    })
+    assert.isFalse(data[0].fields.apiKey.hasValue)
+    assert.notProperty(data[0].fields.apiKey, 'validate')
+  })
+
+  test('PUT /api/providers masks and preserves password fields', async ({ assert }) => {
+    const createRes = await req('/api/providers/warehouse', {
+      method: 'PUT',
+      body: JSON.stringify({
+        config: {
+          endpoint: 'https://warehouse.test',
+          apiKey: 'secret-1',
+        },
+      }),
+    })
+    assert.equal(createRes.status, 200)
+
+    const listRes = await req('/api/providers')
+    const [provider] = await listRes.json()
+    assert.equal(provider.config.endpoint, 'https://warehouse.test')
+    assert.notProperty(provider.config, 'apiKey')
+    assert.isTrue(provider.fields.apiKey.hasValue)
+
+    const updateRes = await req('/api/providers/warehouse', {
+      method: 'PUT',
+      body: JSON.stringify({
+        config: {
+          endpoint: 'https://warehouse.test',
+          apiKey: '',
+        },
+      }),
+    })
+    assert.equal(updateRes.status, 200)
+
+    const [stored] = await getDb().select({ config: providerConfigs.config })
+      .from(providerConfigs)
+      .where(and(
+        eq(providerConfigs.shop, TEST_SHOP),
+        eq(providerConfigs.providerName, 'warehouse'),
+      ))
+      .limit(1)
+    assert.deepEqual(decryptConfig(stored.config), {
+      endpoint: 'https://warehouse.test',
+      apiKey: 'secret-1',
+    })
+  })
+
+  test('PUT /api/providers rejects missing required fields', async ({ assert }) => {
+    const res = await req('/api/providers/warehouse', {
+      method: 'PUT',
+      body: JSON.stringify({ config: { endpoint: 'https://warehouse.test' } }),
+    })
+    const body = await res.json()
+
+    assert.equal(res.status, 400)
+    assert.include(body.error, 'Field "apiKey" is required')
   })
 
   // ─── Health

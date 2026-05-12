@@ -18,15 +18,30 @@ export interface ProviderFieldDef<T = unknown> {
   label: string
   placeholder?: string
   options?: { label: string; value: string }[] // for select
+  required?: boolean
   validate?: Type<T>
 }
 
 /** Extracts the inferred type from ProviderFieldDef<T> */
 type InferField<F> = F extends ProviderFieldDef<infer T> ? T : unknown
+type OptionalFieldKeys<F extends Record<string, ProviderFieldDef<any>>> = {
+  [K in keyof F]: F[K] extends { required: false } ? K : never
+}[keyof F]
+type RequiredFieldKeys<F extends Record<string, ProviderFieldDef<any>>> = Exclude<keyof F, OptionalFieldKeys<F>>
 
 /** Derives a typed config object from the fields' `validate` schemas */
 export type ConfigFromFields<F extends Record<string, ProviderFieldDef<any>>> = {
-  [K in keyof F]: InferField<F[K]>
+  [K in RequiredFieldKeys<F>]: InferField<F[K]>
+} & {
+  [K in OptionalFieldKeys<F>]?: InferField<F[K]>
+}
+
+export type AnyProviderDefinition = ProviderDefinition<Record<string, ProviderFieldDef<any>>, Record<string, (config: any, ...args: any[]) => any>>
+export type AnyFlowDefinition = FlowDefinition<any>
+export type AnyFunctionDefinition = FunctionDefinition<Record<string, ProviderFieldDef<any>>>
+
+export type ConnectorsFromProviders<TProviders extends Record<string, ProviderDefinition<any, any>>> = {
+  [K in keyof TProviders]: ConnectorOf<TProviders[K]>
 }
 
 export interface ProviderDefinition<
@@ -35,7 +50,7 @@ export interface ProviderDefinition<
 > {
   name: string
   ui: { fields: TFields }
-  transformer?: (data: { data: ConfigFromFields<TFields> }) => ConfigFromFields<TFields>
+  transformer?: (data: { data: Record<string, unknown> }) => Record<string, unknown>
   checker?: (ctx: { config: ConfigFromFields<TFields> }) => Promise<boolean>
   methods: TMethods
 }
@@ -132,10 +147,14 @@ export type CronEntryFor<TFlows extends Record<string, FlowDefinition<any>>> = {
 }[keyof TFlows & string]
 
 
-export interface OpenShopConfig {
-  providers: Record<string, ProviderDefinition<any, any>>
-  flows: Record<string, FlowDefinition<any>>
-  functions?: Record<string, FunctionDefinition<any>>
+export interface OpenShopConfig<
+  TProviders extends Record<string, ProviderDefinition<any, any>> = Record<string, ProviderDefinition<any, any>>,
+  TFlows extends Record<string, FlowDefinition<any>> = Record<string, FlowDefinition<any>>,
+  TFunctions extends Record<string, FunctionDefinition<any>> = Record<string, FunctionDefinition<any>>,
+> {
+  providers: TProviders
+  flows: TFlows
+  functions?: TFunctions
   webhooks?: Record<string, WebhookDefinition>
   crons?: CronEntry[]
   worker?: Partial<WorkerConfig>
@@ -238,6 +257,7 @@ export interface DispatchOptions {
 
 export type FlowRunStatus = 'pending' | 'running' | 'sleeping' | 'completed' | 'failed' | 'canceled'
 export type StepStatus = 'pending' | 'running' | 'sleeping' | 'completed' | 'failed' | 'canceled'
+export type LogLevel = 'info' | 'warn' | 'error'
 
 // ─── JWT ─────────────────────────────────────────────────────────────
 

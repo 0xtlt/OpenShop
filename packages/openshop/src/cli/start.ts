@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { existsSync } from 'node:fs'
-import { pushSchema } from './schema.js'
+import { migrateSchema } from './schema.js'
 import { closeHttpServer } from '#server/http'
 
 export async function startProd() {
@@ -12,12 +12,12 @@ export async function startProd() {
   process.env.DATABASE_URL ??= 'postgresql://openshop:openshop@localhost:5432/openshop'
 
   try {
-    pushSchema(cwd, { silent: true })
+    await migrateSchema(cwd, { silent: true })
   } catch {
-    console.error('[openshop] Schema push failed')
+    console.error('[openshop] Database migration failed')
     process.exit(1)
   }
-  console.log('[openshop] Database initialized')
+  console.log('[openshop] Database migrations applied')
 
   const { startApiServer } = await import('#server/index')
   const { startScheduler, stopScheduler } = await import('#engine/scheduler')

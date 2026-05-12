@@ -44,13 +44,9 @@ export function createAuthRoutes() {
     const db = getDb()
     const nonce = randomBytes(16).toString('hex')
 
-    const [existing] = await db.select().from(installations).where(eq(installations.shop, shop)).limit(1)
-
-    if (existing) {
-      await db.update(installations).set({ nonce }).where(eq(installations.id, existing.id))
-    } else {
-      await db.insert(installations).values({ shop, nonce })
-    }
+    await db.insert(installations)
+      .values({ shop, nonce })
+      .onConflictDoUpdate({ target: installations.shop, set: { nonce } })
 
     const redirectUri = `${host}/auth/callback`
     const authUrl = `https://${shop}/admin/oauth/authorize?client_id=${apiKey}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${nonce}`

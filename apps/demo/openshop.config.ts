@@ -1,10 +1,10 @@
 import { defineConfig } from 'openshop'
-import { syncOrders } from './flows/syncOrders'
-import { countVariants } from './flows/countVariants'
-import { warehouse } from './providers/warehouse'
-import { volumeDiscount } from './functions/volumeDiscount'
-import { ordersCreate } from './webhooks/ordersCreate'
-import { appUninstalled } from './webhooks/appUninstalled'
+import { syncOrders } from './flows/syncOrders.ts'
+import { countVariants } from './flows/countVariants.ts'
+import { warehouse } from './providers/warehouse.ts'
+import { volumeDiscount } from './functions/volumeDiscount.ts'
+import { ordersCreate } from './webhooks/ordersCreate.ts'
+import { appUninstalled } from './webhooks/appUninstalled.ts'
 
 export default defineConfig({
   providers: { warehouse },

@@ -3,8 +3,8 @@
  * Each spawn gets a fresh module cache, solving ESM hot-reload.
  */
 import { resolve } from 'node:path'
-import { createApiShutdownHandler } from './api-lifecycle.js'
-import { loadEnvFile } from './env.js'
+import { createApiShutdownHandler } from './api-lifecycle.ts'
+import { loadEnvFile } from './env.ts'
 
 const cwd = process.cwd()
 loadEnvFile(cwd)

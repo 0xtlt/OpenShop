@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm'
 import { getDb } from '#db/client'
 import { installations } from '#db/schema'
 import { createServer } from '#server/index'
-import { truncateAll, createConfig } from './helpers.js'
+import { truncateAll, createConfig } from './helpers.ts'
 
 const SECRET = process.env.SHOPIFY_API_SECRET!
 

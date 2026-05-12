@@ -5,7 +5,7 @@ const command = process.argv[2]
 
 switch (command) {
   case 'init': {
-    const { runInit } = await import('../src/cli/init.js')
+    const { runInit } = await import('../src/cli/init.ts')
     try {
       await runInit(process.argv[3])
     } catch (error) {
@@ -15,19 +15,19 @@ switch (command) {
     break
   }
   case 'dev': {
-    const { startDev } = await import('../src/cli/dev.js')
+    const { startDev } = await import('../src/cli/dev.ts')
     await startDev()
     break
   }
   case 'worker': {
-    const { startWorker } = await import('../src/cli/worker.js')
+    const { startWorker } = await import('../src/cli/worker.ts')
     const concurrency = Number(process.argv.find((a) => a.startsWith('--concurrency='))?.split('=')[1] ?? 5)
     await startWorker({ concurrency })
     break
   }
   case 'migrate': {
-    const { migrateSchema } = await import('../src/cli/schema.js')
-    const { closeDb } = await import('../src/db/client.js')
+    const { migrateSchema } = await import('../src/cli/schema.ts')
+    const { closeDb } = await import('../src/db/client.ts')
     try {
       await migrateSchema(process.cwd())
     } finally {
@@ -36,27 +36,27 @@ switch (command) {
     break
   }
   case 'codegen': {
-    const { runCodegen } = await import('../src/cli/codegen.js')
+    const { runCodegen } = await import('../src/cli/codegen.ts')
     await runCodegen(false)
     break
   }
   case 'codegen:watch': {
-    const { runCodegen } = await import('../src/cli/codegen.js')
+    const { runCodegen } = await import('../src/cli/codegen.ts')
     await runCodegen(true)
     break
   }
   case 'build': {
-    const { runBuild } = await import('../src/cli/build.js')
+    const { runBuild } = await import('../src/cli/build.ts')
     await runBuild()
     break
   }
   case 'start': {
-    const { startProd } = await import('../src/cli/start.js')
+    const { startProd } = await import('../src/cli/start.ts')
     await startProd()
     break
   }
   case 'test': {
-    const { runTests } = await import('../src/cli/test.js')
+    const { runTests } = await import('../src/cli/test.ts')
     await runTests(process.argv.slice(3))
     break
   }

@@ -88,7 +88,7 @@ export interface Logger {
 export interface FlowRunContext<TInput = Record<string, unknown>> {
   input: TInput
   connectors: OpenShopConnectors
-  shopify: import('./shopify/client.js').ShopifyClient
+  shopify: import('./shopify/client.ts').ShopifyClient
   shop: string
   step: StepFn
   logger: Logger

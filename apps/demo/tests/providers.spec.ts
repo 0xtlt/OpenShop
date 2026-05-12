@@ -1,5 +1,5 @@
 import { test } from '@japa/runner'
-import { ctx } from './bootstrap.js'
+import { ctx } from './bootstrap.ts'
 
 test.group('Providers API', () => {
   test('list providers', async ({ client, assert }) => {

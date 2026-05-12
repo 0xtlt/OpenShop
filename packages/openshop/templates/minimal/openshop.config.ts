@@ -1,6 +1,6 @@
 import { defineConfig } from 'openshop'
-import { syncOrders } from './flows/syncOrders'
-import { warehouse } from './providers/warehouse'
+import { syncOrders } from './flows/syncOrders.ts'
+import { warehouse } from './providers/warehouse.ts'
 
 export default defineConfig({
   providers: { warehouse },

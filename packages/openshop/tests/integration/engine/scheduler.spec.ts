@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import { getDb } from '#db/client'
 import { flowRuns, installations, cronOverrides } from '#db/schema'
 import { startScheduler, stopScheduler } from '#engine/scheduler'
-import { truncateAll, createConfig } from '../helpers.js'
+import { truncateAll, createConfig } from '../helpers.ts'
 
 const quickFlow = {
   name: 'quick-flow',

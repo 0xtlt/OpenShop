@@ -4,7 +4,7 @@ import { getDb } from '#db/client'
 import { flowRuns, stepResults } from '#db/schema'
 import { createStepExecutor } from '#engine/step'
 // Error names checked via string comparison
-import { truncateAll, TEST_SHOP } from '../helpers.js'
+import { truncateAll, TEST_SHOP } from '../helpers.ts'
 
 const noopLogger = {
   info(_payload: Record<string, unknown>, _message?: string) {},

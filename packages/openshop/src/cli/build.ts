@@ -1,6 +1,7 @@
 import { resolve, dirname } from 'node:path'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { buildServerApp } from './app-build.ts'
 
 function resolvePackagePath(...parts: string[]) {
   const here = dirname(fileURLToPath(import.meta.url))
@@ -19,6 +20,13 @@ export async function runBuild() {
 
   console.log('[openshop] Building for production...')
 
+  try {
+    await buildServerApp(cwd)
+  } catch (error) {
+    console.error('[openshop] Server build failed:', error)
+    process.exit(1)
+  }
+
   // 2. Vite build
   const uiRoot = resolvePackagePath('ui')
   const outDir = resolve(cwd, 'dist', 'ui')
@@ -26,7 +34,7 @@ export async function runBuild() {
   try {
     const { build } = await import('vite')
     const preact = (await import('@preact/preset-vite')).default
-    const { openshopCodegen } = await import('../vite/codegen-plugin.js')
+    const { openshopCodegen } = await import('../vite/codegen-plugin.ts')
 
     await build({
       root: uiRoot,

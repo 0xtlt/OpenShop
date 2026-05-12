@@ -1,7 +1,7 @@
 import { test } from '@japa/runner'
 import { startApiServer } from '#server/index'
 import { closeHttpServer } from '#server/http'
-import { createConfig, truncateAll } from './helpers.js'
+import { createConfig, truncateAll } from './helpers.ts'
 
 const simpleFlow = {
   name: 'test-flow',

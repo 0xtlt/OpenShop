@@ -9,9 +9,9 @@ import { runFlow, type RunFlowResult } from '#engine/runner'
 import { dispatchFlow } from '#engine/dispatch'
 import { getDb } from '#db/client'
 import { flowRuns, installations } from '#db/schema'
-import { createFakeProviders, resetFakeProviders, type TypedFakeProviders } from './fake.js'
-import { FactoryScope, type Factory } from './factory.js'
-import { createShopifyClient } from '../shopify/client.js'
+import { createFakeProviders, resetFakeProviders, type TypedFakeProviders } from './fake.ts'
+import { FactoryScope, type Factory } from './factory.ts'
+import { createShopifyClient } from '../shopify/client.ts'
 
 // ─── Proxy test client ──────────────────────────────────────────────
 

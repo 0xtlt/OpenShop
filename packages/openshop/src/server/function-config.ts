@@ -1,5 +1,5 @@
 import { type } from 'arktype'
-import type { FunctionDefinition, ProviderFieldDef } from '../types.js'
+import type { FunctionDefinition, ProviderFieldDef } from '../types.ts'
 
 export type FunctionConfigResult =
   | { ok: true; config: Record<string, unknown> }

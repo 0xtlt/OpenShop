@@ -7,7 +7,7 @@ import { createServer } from '#server/index'
 import { decryptConfig } from '#server/crypto'
 import { dispatchFlow } from '#engine/dispatch'
 import { runFlow } from '#engine/runner'
-import { truncateAll, createConfig, TEST_SHOP } from './helpers.js'
+import { truncateAll, createConfig, TEST_SHOP } from './helpers.ts'
 
 const SECRET = process.env.SHOPIFY_API_SECRET!
 

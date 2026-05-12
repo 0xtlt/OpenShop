@@ -7,7 +7,7 @@ import { registerAbort, cleanupAbort } from '#engine/abort'
 import { computeNextRetryAt } from '#engine/backoff'
 import { FlowCanceledError, FlowTimeoutError, SleepSignal } from '#engine/errors'
 import { decryptConfig } from '#server/crypto'
-import { createShopifyClient } from '../shopify/client.js'
+import { createShopifyClient } from '../shopify/client.ts'
 import type { OpenShopConfig, Logger, RetryPolicy } from '#types'
 
 export interface RunFlowOptions {

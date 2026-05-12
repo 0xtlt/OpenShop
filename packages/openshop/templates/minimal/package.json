@@ -31,7 +31,6 @@
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "0.45.2",
     "eslint": "10.3.0",
-    "tsx": "^4.21.0",
     "typescript": "^6.0.2"
   }
 }

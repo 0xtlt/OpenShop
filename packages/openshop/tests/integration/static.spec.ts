@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createServer } from '#server/index'
-import { createConfig, truncateAll } from './helpers.js'
+import { createConfig, truncateAll } from './helpers.ts'
 
 const simpleFlow = { name: 'static-flow', async run() {} }
 

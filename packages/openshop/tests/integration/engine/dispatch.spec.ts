@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import { getDb } from '#db/client'
 import { flowRuns } from '#db/schema'
 import { dispatchFlow } from '#engine/dispatch'
-import { truncateAll, createConfig, TEST_SHOP } from '../helpers.js'
+import { truncateAll, createConfig, TEST_SHOP } from '../helpers.ts'
 
 const simpleFlow = {
   name: 'test-flow',

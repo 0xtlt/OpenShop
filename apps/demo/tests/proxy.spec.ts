@@ -1,6 +1,6 @@
 import { test } from '@japa/runner'
 import { type } from 'arktype'
-import { ctx } from './bootstrap.js'
+import { ctx } from './bootstrap.ts'
 
 test.group('Proxy routes', () => {
   test('GET /reviews returns liquid', async ({ assert }) => {

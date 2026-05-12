@@ -1,4 +1,4 @@
-import type { ShopifyClient } from '../shopify/client.js'
+import type { ShopifyClient } from '../shopify/client.ts'
 
 // ─── Factory definition ─────────────────────────────────────────────
 

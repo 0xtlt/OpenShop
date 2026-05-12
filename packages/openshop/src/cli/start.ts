@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import { existsSync } from 'node:fs'
-import { migrateSchema } from './schema.js'
+import { migrateSchema } from './schema.ts'
+import { loadBuiltConfig, resolveBuiltConfig, resolveBuiltProxyDir } from './app-build.ts'
 import { closeHttpServer } from '#server/http'
 
 export async function startProd() {
@@ -22,14 +23,12 @@ export async function startProd() {
   const { startApiServer } = await import('#server/index')
   const { startScheduler, stopScheduler } = await import('#engine/scheduler')
 
-  const configPath = resolve(cwd, 'openshop.config.ts')
   let config: import('#types').OpenShopConfig
 
   try {
-    const mod = await import(configPath)
-    config = mod.default ?? mod
+    config = await loadBuiltConfig(cwd)
   } catch (error) {
-    console.error(`[openshop] Failed to load ${configPath}`)
+    console.error(`[openshop] Failed to load ${resolveBuiltConfig(cwd)}`)
     console.error(error)
     process.exit(1)
   }
@@ -42,7 +41,7 @@ export async function startProd() {
     process.exit(1)
   }
 
-  const server = await startApiServer(config, port, staticDir)
+  const server = await startApiServer(config, port, { staticDir, proxyDir: resolveBuiltProxyDir(cwd) })
   startScheduler(config)
 
   const shutdown = async () => {

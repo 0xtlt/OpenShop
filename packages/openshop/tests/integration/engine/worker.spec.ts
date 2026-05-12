@@ -4,7 +4,7 @@ import { getDb } from '#db/client'
 import { flowRuns } from '#db/schema'
 import { Worker } from '#engine/worker'
 import { dispatchFlow } from '#engine/dispatch'
-import { truncateAll, createConfig, TEST_SHOP } from '../helpers.js'
+import { truncateAll, createConfig, TEST_SHOP } from '../helpers.ts'
 
 const quickFlow = {
   name: 'quick-flow',

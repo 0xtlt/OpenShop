@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
-import { getDb } from '../db/client.js'
-import { installations } from '../db/schema.js'
+import { getDb } from '../db/client.ts'
+import { installations } from '../db/schema.ts'
 
 const SHOPIFY_API_VERSION = '2026-04'
 

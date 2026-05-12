@@ -12,9 +12,9 @@
     "check:core": "tsc --noEmit -p packages/openshop/tsconfig.json",
     "check:ui": "tsc --noEmit -p packages/openshop/tsconfig.ui.json",
     "dev": "pnpm --filter openshop-demo dev",
-    "coverage:unit": "node scripts/run-c8.mjs --cwd packages/openshop --clean --temp-directory coverage/tmp --reporter=none -- pnpm exec tsx tests/bootstrap.ts",
-    "coverage:integration": "node scripts/run-c8.mjs --cwd packages/openshop --clean=false --temp-directory coverage/tmp --reporter=none -- pnpm exec tsx tests/bootstrap-integration.ts",
-    "coverage:demo": "DATABASE_URL=${DATABASE_URL:-postgresql://openshop:openshop@localhost:5432/openshop} pnpm --dir apps/demo exec drizzle-kit push --config=drizzle.config.ts --force && DATABASE_URL=${DATABASE_URL:-postgresql://openshop:openshop@localhost:5432/openshop} node scripts/run-c8.mjs --cwd apps/demo --clean=false --temp-directory coverage/tmp --reporter=none -- pnpm exec tsx tests/bootstrap.ts",
+    "coverage:unit": "node scripts/run-c8.mjs --cwd packages/openshop --clean --temp-directory coverage/tmp --reporter=none -- node tests/bootstrap.ts",
+    "coverage:integration": "node scripts/run-c8.mjs --cwd packages/openshop --clean=false --temp-directory coverage/tmp --reporter=none -- node tests/bootstrap-integration.ts",
+    "coverage:demo": "DATABASE_URL=${DATABASE_URL:-postgresql://openshop:openshop@localhost:5432/openshop} pnpm --dir apps/demo exec drizzle-kit push --config=drizzle.config.ts --force && DATABASE_URL=${DATABASE_URL:-postgresql://openshop:openshop@localhost:5432/openshop} node scripts/run-c8.mjs --cwd apps/demo --clean=false --temp-directory coverage/tmp --reporter=none -- node tests/bootstrap.ts",
     "coverage:report": "node scripts/run-c8.mjs report",
     "coverage": "rm -rf coverage && pnpm run coverage:unit && pnpm run coverage:integration && pnpm run coverage:demo && pnpm run coverage:report"
   },
@@ -62,7 +62,6 @@
     "@shopify/polaris-types": "^1.0.1",
     "c8": "11.0.0",
     "openshop": "workspace:*",
-    "tsx": "4.21.0",
     "typescript": "^5.9.0"
   }
 }

@@ -20,7 +20,7 @@ try {
   process.exit(1)
 }
 
-import { shutdownDb } from './integration/helpers.js'
+import { shutdownDb } from './integration/helpers.ts'
 
 processCLIArgs(process.argv.splice(2))
 

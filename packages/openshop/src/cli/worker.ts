@@ -1,5 +1,5 @@
-import { resolve } from 'node:path'
-import { migrateSchema } from './schema.js'
+import { migrateSchema } from './schema.ts'
+import { loadBuiltConfig, resolveBuiltConfig } from './app-build.ts'
 
 export async function startWorker(opts: { concurrency?: number } = {}) {
   const cwd = process.cwd()
@@ -15,13 +15,11 @@ export async function startWorker(opts: { concurrency?: number } = {}) {
     process.exit(1)
   }
 
-  const configPath = resolve(cwd, 'openshop.config.ts')
   let config: import('#types').OpenShopConfig
   try {
-    const mod = await import(configPath)
-    config = mod.default ?? mod
+    config = await loadBuiltConfig(cwd)
   } catch (error) {
-    console.error(`[openshop] Failed to load ${configPath}`)
+    console.error(`[openshop] Failed to load ${resolveBuiltConfig(cwd)}`)
     console.error(error)
     process.exit(1)
   }

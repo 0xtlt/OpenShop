@@ -13,6 +13,10 @@ import { shopMiddleware } from '#server/shop'
 import type { OpenShopConfig } from '#types'
 
 export type ConfigGetter = () => OpenShopConfig
+export interface ServerOptions {
+  staticDir?: string
+  proxyDir?: string
+}
 
 const localOrigin = /^https?:\/\/(?:(?:[^:]+\.)?localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/
 
@@ -35,7 +39,7 @@ function resolveCorsOrigin(origin: string): string | undefined {
 
 const restrictedCors = cors({ origin: resolveCorsOrigin })
 
-export async function createServer(getConfig: ConfigGetter, options?: { staticDir?: string }) {
+export async function createServer(getConfig: ConfigGetter, options?: ServerOptions) {
   const app = new Hono()
 
   // Auth routes (no shop middleware — these are public)
@@ -45,7 +49,7 @@ export async function createServer(getConfig: ConfigGetter, options?: { staticDi
   app.route('/webhooks', createWebhookRoutes(getConfig))
 
   // Proxy routes (auto-discovered from proxy/ directory, HMAC-verified by Shopify)
-  const proxyDir = resolve(process.cwd(), 'proxy')
+  const proxyDir = options?.proxyDir ?? resolve(process.cwd(), 'proxy')
   if (existsSync(proxyDir)) {
     app.use('/proxy/*', restrictedCors)
     const proxyRoutes = await createProxyRoutes(proxyDir, { authModes: ['appProxyHmac', 'customerAccountJwt'] })
@@ -84,9 +88,10 @@ export async function createServer(getConfig: ConfigGetter, options?: { staticDi
   return app
 }
 
-export async function startApiServer(config: OpenShopConfig | ConfigGetter, port = 3001, staticDir?: string): Promise<ServerType> {
+export async function startApiServer(config: OpenShopConfig | ConfigGetter, port = 3001, options?: string | ServerOptions): Promise<ServerType> {
   const getConfig = typeof config === 'function' ? config : () => config
-  const app = await createServer(getConfig, staticDir ? { staticDir } : undefined)
+  const serverOptions = typeof options === 'string' ? { staticDir: options } : options
+  const app = await createServer(getConfig, serverOptions)
 
   const server = serve({ fetch: app.fetch, port })
 

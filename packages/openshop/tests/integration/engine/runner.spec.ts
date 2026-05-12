@@ -5,7 +5,7 @@ import { flowRuns, logs, stepResults } from '#db/schema'
 import { runFlow } from '#engine/runner'
 import { dispatchFlow } from '#engine/dispatch'
 import { cancelRun } from '#engine/abort'
-import { truncateAll, createConfig, TEST_SHOP } from '../helpers.js'
+import { truncateAll, createConfig, TEST_SHOP } from '../helpers.ts'
 import type { FlowRunContext } from '#types'
 
 function defineTestFlow(fn: (ctx: FlowRunContext) => Promise<void>, opts: Record<string, unknown> = {}) {

@@ -1,11 +1,12 @@
 import { test } from '@japa/runner'
 import { createHmac } from 'node:crypto'
+import { eq } from 'drizzle-orm'
 import { getDb } from '#db/client'
-import { flowRuns, installations } from '#db/schema'
+import { flowRuns, installations, providerConfigs } from '#db/schema'
 import { createServer } from '#server/index'
 import { dispatchFlow } from '#engine/dispatch'
 import { runFlow } from '#engine/runner'
-import { truncateAll, createConfig } from './helpers.js'
+import { truncateAll, createConfig } from './helpers.ts'
 
 const SECRET = process.env.SHOPIFY_API_SECRET!
 const SHOP_A = 'shop-a.myshopify.com'
@@ -43,6 +44,21 @@ const reqAs = (shop: string, path: string, opts: RequestInit = {}) => {
 test.group('Security: cross-shop isolation', (group) => {
   group.setup(async () => {
     const config = createConfig({ 'test-flow': simpleFlow })
+    config.providers = {
+      warehouse: {
+        name: 'warehouse',
+        ui: {
+          fields: {
+            endpoint: { type: 'text', label: 'Endpoint' },
+            apiKey: { type: 'password', label: 'API key' },
+          },
+        },
+        async checker({ config }) {
+          return config.endpoint === 'https://shop-a.test' && config.apiKey === 'secret-a'
+        },
+        methods: {},
+      },
+    }
     app = await createServer(() => config)
   })
   group.each.setup(() => truncateAll())
@@ -114,6 +130,40 @@ test.group('Security: cross-shop isolation', (group) => {
     assert.equal(res.status, 404)
   })
 
+  test('shop A cannot delete shop B run (IDOR)', async ({ assert }) => {
+    const config = createConfig({ 'test-flow': simpleFlow })
+    const { runId: runB } = await dispatchFlow({ flowName: 'test-flow', config, shop: SHOP_B })
+    await runFlow({ runId: runB, flowName: 'test-flow', config, shop: SHOP_B })
+
+    const res = await reqAs(SHOP_A, `/api/runs/${runB}`, { method: 'DELETE' })
+    assert.equal(res.status, 404)
+
+    const [run] = await getDb().select().from(flowRuns).where(eq(flowRuns.id, runB)).limit(1)
+    assert.equal(run.id, runB)
+    assert.equal(run.shop, SHOP_B)
+  })
+
+  test('shop A bulk delete skips shop B run IDs (IDOR)', async ({ assert }) => {
+    const config = createConfig({ 'test-flow': simpleFlow })
+    const { runId: runA } = await dispatchFlow({ flowName: 'test-flow', config, shop: SHOP_A })
+    const { runId: runB } = await dispatchFlow({ flowName: 'test-flow', config, shop: SHOP_B })
+    await runFlow({ runId: runA, flowName: 'test-flow', config, shop: SHOP_A })
+    await runFlow({ runId: runB, flowName: 'test-flow', config, shop: SHOP_B })
+
+    const res = await reqAs(SHOP_A, '/api/runs/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids: [runA, runB] }),
+    })
+    const body = await res.json()
+
+    assert.equal(res.status, 200)
+    assert.deepEqual(body, { deleted: 1, skipped: 1 })
+
+    const remaining = await getDb().select().from(flowRuns).where(eq(flowRuns.id, runB)).limit(1)
+    assert.lengthOf(remaining, 1)
+    assert.equal(remaining[0].shop, SHOP_B)
+  })
+
   test('shop A cron overrides do not affect shop B', async ({ assert }) => {
     // Shop A disables a cron
     await reqAs(SHOP_A, '/api/crons/toggle', {
@@ -137,6 +187,55 @@ test.group('Security: cross-shop isolation', (group) => {
 
     const res = await reqAs(SHOP_A, '/api/installations/active')
     assert.equal(res.status, 404)
+  })
+
+  test('provider configs are isolated by shop and do not leak secrets', async ({ assert }) => {
+    const createA = await reqAs(SHOP_A, '/api/providers/warehouse', {
+      method: 'PUT',
+      body: JSON.stringify({ config: { endpoint: 'https://shop-a.test', apiKey: 'secret-a' } }),
+    })
+    const createB = await reqAs(SHOP_B, '/api/providers/warehouse', {
+      method: 'PUT',
+      body: JSON.stringify({ config: { endpoint: 'https://shop-b.test', apiKey: 'secret-b' } }),
+    })
+    assert.equal(createA.status, 200)
+    assert.equal(createB.status, 200)
+
+    const listA = await reqAs(SHOP_A, '/api/providers')
+    const [providerA] = await listA.json()
+    assert.equal(providerA.config.endpoint, 'https://shop-a.test')
+    assert.notProperty(providerA.config, 'apiKey')
+    assert.isTrue(providerA.fields.apiKey.hasValue)
+
+    const listB = await reqAs(SHOP_B, '/api/providers')
+    const [providerB] = await listB.json()
+    assert.equal(providerB.config.endpoint, 'https://shop-b.test')
+    assert.notProperty(providerB.config, 'apiKey')
+    assert.isTrue(providerB.fields.apiKey.hasValue)
+  })
+
+  test('provider check uses only the current shop config', async ({ assert }) => {
+    await reqAs(SHOP_A, '/api/providers/warehouse', {
+      method: 'PUT',
+      body: JSON.stringify({ config: { endpoint: 'https://shop-a.test', apiKey: 'secret-a' } }),
+    })
+    await reqAs(SHOP_B, '/api/providers/warehouse', {
+      method: 'PUT',
+      body: JSON.stringify({ config: { endpoint: 'https://shop-b.test', apiKey: 'secret-b' } }),
+    })
+
+    const checkA = await reqAs(SHOP_A, '/api/providers/warehouse/check', { method: 'POST' })
+    const checkB = await reqAs(SHOP_B, '/api/providers/warehouse/check', { method: 'POST' })
+    const bodyA = await checkA.json()
+    const bodyB = await checkB.json()
+
+    assert.equal(checkA.status, 200)
+    assert.equal(checkB.status, 200)
+    assert.isTrue(bodyA.ok)
+    assert.isFalse(bodyB.ok)
+
+    const rows = await getDb().select().from(providerConfigs)
+    assert.sameMembers(rows.map((row) => row.shop), [SHOP_A, SHOP_B])
   })
 })
 

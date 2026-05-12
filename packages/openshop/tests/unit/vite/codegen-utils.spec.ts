@@ -10,7 +10,7 @@ import {
   findTypesFile,
   generateBridge,
   patchScalars,
-} from '../../../src/vite/codegen-utils.js'
+} from '../../../src/vite/codegen-utils.ts'
 
 function write(path: string, content = '') {
   mkdirSync(dirname(path), { recursive: true })

@@ -46,7 +46,7 @@ test.group('init cli', () => {
       assert.equal(packageJson.scripts.dev, 'openshop dev')
       assert.equal(packageJson.scripts.shopify, 'shopify app dev --skip-dependencies-installation')
       assert.equal(packageJson.dependencies.openshop, '^0.1.0')
-      assert.exists(packageJson.devDependencies.tsx)
+      assert.notProperty(packageJson.devDependencies, 'tsx')
       assert.notInclude(JSON.stringify(packageJson), 'workspace:*')
       assert.notInclude(JSON.stringify(packageJson), 'bun')
       assert.include(shopifyWeb, 'dev = "pnpm run dev"')

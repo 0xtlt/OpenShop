@@ -171,6 +171,10 @@ cd apps/demo && pnpm run dev
 
 # Dev (with Shopify)
 cd apps/demo && pnpm run shopify
+
+# Production build
+cd apps/demo && pnpm run build
+# Generates dist/ui and dist/openshop/server
 ```
 
 Production requires `ENCRYPTION_KEY` to be set. Generate one with:
@@ -181,6 +185,7 @@ openssl rand -hex 32
 
 Use versioned Drizzle migrations for production schema changes. `openshop dev` still uses `drizzle-kit push --force` for local development only.
 Run `openshop migrate` before production deploys, or let `openshop start` / `openshop worker` apply OpenShop framework migrations on boot.
+`openshop start` and `openshop worker` load the compiled server app from `dist/openshop/server`; run `openshop build` before starting production.
 
 ## License
 

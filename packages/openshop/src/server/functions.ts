@@ -154,7 +154,7 @@ export function createFunctionRoutes(getConfig: () => OpenShopConfig) {
     const mutations = getMutations(def)
     if (!mutations) return c.json({ error: `Function type "${def.type}" has no GraphQL API` }, 400)
 
-    const { createShopifyClient } = await import('../shopify/client.js')
+    const { createShopifyClient } = await import('../shopify/client.ts')
     const shopify = await createShopifyClient(shop)
 
     if (def.type === 'discount') {
@@ -230,7 +230,7 @@ export function createFunctionRoutes(getConfig: () => OpenShopConfig) {
     const fnConfig = parsedConfig.config
     const mode: DiscountMode = body.mode ?? def.modes?.[0] ?? 'automatic'
 
-    const { createShopifyClient } = await import('../shopify/client.js')
+    const { createShopifyClient } = await import('../shopify/client.ts')
     const shopify = await createShopifyClient(shop)
 
     const title = resolveTitle(def.owner, fnConfig)
@@ -375,7 +375,7 @@ export function createFunctionRoutes(getConfig: () => OpenShopConfig) {
     if (!parsedConfig.ok) return c.json({ error: parsedConfig.error }, 400)
     const fnConfig = parsedConfig.config
 
-    const { createShopifyClient } = await import('../shopify/client.js')
+    const { createShopifyClient } = await import('../shopify/client.ts')
     const shopify = await createShopifyClient(shop)
 
     const title = resolveTitle(def.owner, fnConfig)
@@ -474,7 +474,7 @@ export function createFunctionRoutes(getConfig: () => OpenShopConfig) {
     const mutations = getMutations(def, mode)
     if (!mutations) return c.json({ error: `Function type "${def.type}" has no GraphQL API` }, 400)
 
-    const { createShopifyClient } = await import('../shopify/client.js')
+    const { createShopifyClient } = await import('../shopify/client.ts')
     const shopify = await createShopifyClient(shop)
 
     const mutation = `#graphql

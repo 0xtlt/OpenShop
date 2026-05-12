@@ -1,4 +1,4 @@
-import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, CronEntry, FunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ProxyContext } from './types.js'
+import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, CronEntry, FunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ProxyContext } from './types.ts'
 import type { Type } from 'arktype'
 import type { StandardCRON } from 'ts-cron-validator'
 
@@ -116,10 +116,10 @@ export type {
   ConnectorOf,
   ProxyDefinition,
   ProxyContext,
-} from './types.js'
+} from './types.ts'
 
-export type { ShopifyClient } from './shopify/client.js'
-export type { RetryPolicy, WorkerConfig, DispatchOptions } from './types.js'
-export { dispatchFlow } from './engine/dispatch.js'
-export { defineModel } from './db/schema.js'
-export { getDb } from './db/client.js'
+export type { ShopifyClient } from './shopify/client.ts'
+export type { RetryPolicy, WorkerConfig, DispatchOptions } from './types.ts'
+export { dispatchFlow } from './engine/dispatch.ts'
+export { defineModel } from './db/schema.ts'
+export { getDb } from './db/client.ts'

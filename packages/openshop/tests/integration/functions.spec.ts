@@ -5,11 +5,13 @@ import { getDb } from '#db/client'
 import { installations } from '#db/schema'
 import { createServer } from '#server/index'
 import type { FunctionDefinition } from '#types'
-import { createConfig, TEST_SHOP, truncateAll } from './helpers.js'
+import { createConfig, TEST_SHOP, truncateAll } from './helpers.ts'
 
 const SECRET = process.env.SHOPIFY_API_SECRET!
 
 interface GraphqlCall {
+  url: string
+  accessToken: string | null
   query: string
   variables?: Record<string, unknown>
 }
@@ -133,8 +135,13 @@ test.group('API Shopify functions', (group) => {
     nextUserErrors = null
     originalFetch = globalThis.fetch
     globalThis.fetch = async (_input, init) => {
-      const body = JSON.parse(String(init?.body ?? '{}')) as GraphqlCall
-      graphqlCalls.push(body)
+      const body = JSON.parse(String(init?.body ?? '{}')) as Omit<GraphqlCall, 'url' | 'accessToken'>
+      const headers = new Headers(init?.headers)
+      graphqlCalls.push({
+        url: String(_input),
+        accessToken: headers.get('X-Shopify-Access-Token'),
+        ...body,
+      })
 
       if (body.query.includes('ListDiscountInstances')) {
         return Response.json({
@@ -202,6 +209,13 @@ test.group('API Shopify functions', (group) => {
     return app.request(path, { ...opts, headers })
   }
 
+  const reqAs = (shop: string, path: string, opts: RequestInit = {}) => {
+    const headers = new Headers(opts.headers)
+    headers.set('Authorization', `Bearer ${createJwt(shop)}`)
+    if (opts.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+    return app.request(path, { ...opts, headers })
+  }
+
   const jsonReq = (method: string, path: string, body: Record<string, unknown>) => {
     return req(path, { method, body: JSON.stringify(body) })
   }
@@ -250,6 +264,39 @@ test.group('API Shopify functions', (group) => {
       config: { message: 'ship it' },
     })
     assert.include(lastCall().query, 'deliveryCustomizations')
+  })
+
+  test('uses the JWT shop installation for Shopify function reads and writes', async ({ assert }) => {
+    await getDb().insert(installations).values({
+      shop: 'functions-shop-b.myshopify.com',
+      accessToken: 'token-b',
+      scopes: 'write_discounts',
+    })
+
+    const list = await reqAs('functions-shop-b.myshopify.com', '/api/functions/volume-discount/instances')
+    assert.equal(list.status, 200)
+    assert.include(lastCall().url, 'https://functions-shop-b.myshopify.com/admin/api/')
+    assert.equal(lastCall().accessToken, 'token-b')
+
+    const foreignId = encodeURIComponent('gid://shopify/DiscountNode/other-shop')
+    const update = await reqAs('functions-shop-b.myshopify.com', `/api/functions/volume-discount/instances/${foreignId}?mode=code`, {
+      method: 'PUT',
+      body: JSON.stringify({ mode: 'code', config: { percent: 20 } }),
+    })
+    assert.equal(update.status, 200)
+    assert.include(lastCall().query, 'discountCodeAppUpdate')
+    assert.include(lastCall().url, 'https://functions-shop-b.myshopify.com/admin/api/')
+    assert.equal(lastCall().accessToken, 'token-b')
+    assert.deepInclude(lastCall().variables ?? {}, { id: 'gid://shopify/DiscountNode/other-shop' })
+
+    const del = await reqAs('functions-shop-b.myshopify.com', `/api/functions/volume-discount/instances/${foreignId}?mode=code`, {
+      method: 'DELETE',
+    })
+    assert.equal(del.status, 200)
+    assert.include(lastCall().query, 'discountCodeDelete')
+    assert.include(lastCall().url, 'https://functions-shop-b.myshopify.com/admin/api/')
+    assert.equal(lastCall().accessToken, 'token-b')
+    assert.deepEqual(lastCall().variables, { id: 'gid://shopify/DiscountNode/other-shop' })
   })
 
   test('creates discount instances for automatic and code modes', async ({ assert }) => {

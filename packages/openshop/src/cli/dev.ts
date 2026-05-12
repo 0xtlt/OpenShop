@@ -2,9 +2,9 @@ import { resolve, dirname } from 'node:path'
 import { fork, type ChildProcess } from 'node:child_process'
 import { watch, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { pushSchema } from './schema.js'
-import { ApiProcessRestartCoordinator } from './dev-restart.js'
-import { loadEnvFile } from './env.js'
+import { pushSchema } from './schema.ts'
+import { ApiProcessRestartCoordinator } from './dev-restart.ts'
+import { loadEnvFile } from './env.ts'
 
 function currentDir() {
   return dirname(fileURLToPath(import.meta.url))
@@ -236,7 +236,7 @@ export async function startDev() {
             })
           },
         },
-        (await import('../vite/codegen-plugin.js')).openshopCodegen(),
+        (await import('../vite/codegen-plugin.ts')).openshopCodegen(),
         preact(),
       ],
     })

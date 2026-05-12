@@ -26,9 +26,6 @@ importers:
       openshop:
         specifier: workspace:*
         version: link:packages/openshop
-      tsx:
-        specifier: 4.21.0
-        version: 4.21.0
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
@@ -96,6 +93,9 @@ importers:
       '@preact/preset-vite':
         specifier: 2.10.5
         version: 2.10.5(@babel/core@7.29.0)(preact@10.29.1)(vite@8.0.12(@types/node@25.6.2)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
+      '@types/pg':
+        specifier: ^8.18.0
+        version: 8.20.0
       arktype:
         specifier: ^2.2.0
         version: 2.2.0
@@ -105,6 +105,9 @@ importers:
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@types/pg@8.20.0)(pg@8.20.0)
+      esbuild:
+        specifier: 0.28.0
+        version: 0.28.0
       hono:
         specifier: 4.12.18
         version: 4.12.18
@@ -117,6 +120,9 @@ importers:
       preact-iso:
         specifier: 2.12.0
         version: 2.12.0(preact-render-to-string@6.6.7(preact@10.29.1))(preact@10.29.1)
+      ts-cron-validator:
+        specifier: ^1.1.5
+        version: 1.1.5
       typescript-eslint:
         specifier: '>=8'
         version: 8.59.2(eslint@10.3.0(jiti@2.7.0))(typescript@5.9.3)
@@ -136,21 +142,12 @@ importers:
       '@shopify/polaris-types':
         specifier: ^1.0.1
         version: 1.0.7
-      '@types/pg':
-        specifier: ^8.18.0
-        version: 8.20.0
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
-      esbuild:
-        specifier: 0.28.0
-        version: 0.28.0
       eslint:
         specifier: 10.3.0
         version: 10.3.0(jiti@2.7.0)
-      ts-cron-validator:
-        specifier: ^1.1.5
-        version: 1.1.5
       typescript:
         specifier: ^5.9.0
         version: 5.9.3

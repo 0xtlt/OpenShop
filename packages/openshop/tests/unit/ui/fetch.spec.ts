@@ -1,5 +1,5 @@
 import { test } from '@japa/runner'
-import { apiFetch } from '../../../src/ui/fetch.js'
+import { apiFetch } from '../../../src/ui/fetch.ts'
 
 type TestGlobal = typeof globalThis & { window?: { shopify?: { idToken?: () => Promise<string> } } }
 

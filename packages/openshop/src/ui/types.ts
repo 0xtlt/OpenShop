@@ -1,5 +1,5 @@
-import type { flowRuns, stepResults, logs, providerConfigs } from '../db/schema.js'
-import type { CronEntry, ProviderFieldDef } from '../types.js'
+import type { flowRuns, stepResults, logs, providerConfigs } from '../db/schema.ts'
+import type { CronEntry, ProviderFieldDef } from '../types.ts'
 
 // ─── Inferred from Drizzle schema ───────────────────────────────────
 

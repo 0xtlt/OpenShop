@@ -1,5 +1,5 @@
 import { pgTable, text, boolean, integer, timestamp, json, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core'
-import type { FlowRunStatus, LogLevel, StepStatus } from '../types.js'
+import type { FlowRunStatus, LogLevel, StepStatus } from '../types.ts'
 
 // ─── defineModel helper ─────────────────────────────────────────────
 

@@ -1,9 +1,9 @@
-import { getDb } from '../db/client.js'
-import { flowRuns } from '../db/schema.js'
+import { getDb } from '../db/client.ts'
+import { flowRuns } from '../db/schema.ts'
 import { and, eq, inArray, sql } from 'drizzle-orm'
-import { resolveRetryPolicy } from './backoff.js'
-import { FlowConcurrencyError } from './errors.js'
-import type { OpenShopConfig, DispatchOptions } from '../types.js'
+import { resolveRetryPolicy } from './backoff.ts'
+import { FlowConcurrencyError } from './errors.ts'
+import type { OpenShopConfig, DispatchOptions } from '../types.ts'
 
 export interface DispatchFlowParams {
   flowName: string

@@ -1,6 +1,6 @@
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import pg from 'pg'
-import * as frameworkSchema from './schema.js'
+import * as frameworkSchema from './schema.ts'
 
 export type DbSchema = typeof frameworkSchema & Record<string, unknown>
 export type Database = NodePgDatabase<DbSchema>

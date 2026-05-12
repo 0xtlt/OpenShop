@@ -1,7 +1,7 @@
 import { test } from '@japa/runner'
 import { createHmac } from 'node:crypto'
 import { createServer } from '#server/index'
-import { truncateAll, createConfig } from './helpers.js'
+import { truncateAll, createConfig } from './helpers.ts'
 
 const SECRET = process.env.SHOPIFY_API_SECRET!
 

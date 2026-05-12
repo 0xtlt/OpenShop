@@ -1,5 +1,5 @@
 import { type } from 'arktype'
-import type { ProviderDefinition, ProviderFieldDef } from '../types.js'
+import type { ProviderDefinition, ProviderFieldDef } from '../types.ts'
 
 export interface ProviderFieldMetadata {
   type: ProviderFieldDef['type']

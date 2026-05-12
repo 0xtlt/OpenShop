@@ -8,7 +8,7 @@ You write **flows** (jobs with checkpointed steps) and **providers** (external c
 
 ## Stack
 
-Bun, Hono, Drizzle + SQLite, Preact, Vite 8, ArkType, Polaris Web Components
+Bun, Hono, Drizzle + PostgreSQL, Preact, Vite 8, ArkType, Polaris Web Components
 
 ## Quick start
 

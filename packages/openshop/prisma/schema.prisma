@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Installation {
+  id            String    @id @default(uuid(7))
+  shop          String    @unique
+  accessToken   String?   @map("access_token")
+  scopes        String?
+  nonce         String?
+  installedAt   DateTime  @default(now()) @map("installed_at")
+  uninstalledAt DateTime? @map("uninstalled_at")
+
+  @@map("installations")
+}
+
+model FlowRun {
+  id          String       @id @default(uuid(7))
+  shop        String
+  flowName    String       @map("flow_name")
+  status      String       @default("pending")
+  input       Json?
+  error       String?
+  deadlineAt  DateTime?    @map("deadline_at")
+  parentRunId String?      @map("parent_run_id")
+  attempts    Int          @default(0)
+  availableAt DateTime?    @map("available_at")
+  workerId    String?      @map("worker_id")
+  retryPolicy Json?        @map("retry_policy")
+  startedAt   DateTime?    @map("started_at")
+  completedAt DateTime?    @map("completed_at")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  steps       StepResult[]
+  logs        Log[]
+
+  @@index([shop])
+  @@index([shop, flowName, status])
+  @@index([status, availableAt])
+  @@map("flow_runs")
+}
+
+model StepResult {
+  id         String   @id @default(uuid(7))
+  stepName   String   @map("step_name")
+  status     String   @default("pending")
+  output     Json?
+  error      String?
+  durationMs Int?     @map("duration_ms")
+  createdAt  DateTime @default(now()) @map("created_at")
+  flowRunId  String   @map("flow_run_id")
+  flowRun    FlowRun  @relation(fields: [flowRunId], references: [id])
+
+  @@index([flowRunId])
+  @@map("step_results")
+}
+
+model ProviderConfig {
+  id            String    @id @default(uuid(7))
+  shop          String
+  providerName  String    @map("provider_name")
+  config        Json      @default("{}")
+  lastCheckedAt DateTime? @map("last_checked_at")
+  lastCheckOk   Boolean?  @map("last_check_ok")
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([shop, providerName])
+  @@map("provider_configs")
+}
+
+model Log {
+  id        String   @id @default(uuid(7))
+  flowRunId String?  @map("flow_run_id")
+  level     String   @default("info")
+  message   String?
+  payload   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  flowRun   FlowRun? @relation(fields: [flowRunId], references: [id])
+
+  @@index([flowRunId])
+  @@map("logs")
+}

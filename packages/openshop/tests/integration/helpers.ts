@@ -1,0 +1,31 @@
+import { sql } from 'drizzle-orm'
+import { getDb, getPool } from '#db/client'
+import type { OpenShopConfig, FlowDefinition, WebhookDefinition, FunctionDefinition } from '#types'
+
+export const TEST_SHOP = 'test-integration.myshopify.com'
+
+export async function truncateAll() {
+  const db = getDb()
+  await db.execute(sql`TRUNCATE flow_runs, step_results, logs, provider_configs, cron_overrides, installations CASCADE`)
+}
+
+export async function shutdownDb() {
+  const pool = getPool()
+  await pool.end()
+}
+
+export function createConfig(
+  flows: Record<string, FlowDefinition<any>>,
+  options?: {
+    webhooks?: Record<string, WebhookDefinition>
+    functions?: Record<string, FunctionDefinition<any>>
+  },
+): OpenShopConfig {
+  return {
+    providers: {},
+    flows,
+    crons: [],
+    ...(options?.webhooks ? { webhooks: options.webhooks } : {}),
+    ...(options?.functions ? { functions: options.functions } : {}),
+  }
+}

@@ -1,0 +1,16 @@
+.DS_Store
+
+node_modules
+dist
+coverage/
+.env
+.env.*
+!.env.example
+bun.lock
+.vite
+.openshop
+
+# Shopify CLI (contient des infos de projet/store)
+.shopify/
+shopify.app.*.toml
+!shopify.app.toml

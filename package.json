@@ -1,0 +1,68 @@
+{
+  "name": "openshop-workspace",
+  "private": true,
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "check": "tsc --noEmit -p packages/openshop/tsconfig.json",
+    "dev": "bun run --filter openshop-demo dev",
+    "coverage:unit": "cd packages/openshop && ../../node_modules/.bin/c8 --clean --temp-directory ../../coverage/tmp --reporter=none ../../node_modules/.bin/tsx tests/bootstrap.ts",
+    "coverage:integration": "cd packages/openshop && ../../node_modules/.bin/c8 --clean=false --temp-directory ../../coverage/tmp --reporter=none ../../node_modules/.bin/tsx tests/bootstrap-integration.ts",
+    "coverage:demo": "cd apps/demo && DATABASE_URL=${DATABASE_URL:-postgresql://openshop:openshop@localhost:5432/openshop} node_modules/.bin/drizzle-kit push --config=drizzle.config.ts --force && DATABASE_URL=${DATABASE_URL:-postgresql://openshop:openshop@localhost:5432/openshop} ../../node_modules/.bin/c8 --clean=false --temp-directory ../../coverage/tmp --reporter=none ../../node_modules/.bin/tsx tests/bootstrap.ts",
+    "coverage:report": "c8 report",
+    "coverage": "rm -rf coverage && bun run coverage:unit && bun run coverage:integration && bun run coverage:demo && bun run coverage:report"
+  },
+  "c8": {
+    "all": true,
+    "src": [
+      "packages/openshop/src"
+    ],
+    "include": [
+      "packages/openshop/src/**/*.ts"
+    ],
+    "exclude": [
+      "**/tests/**",
+      "**/types/generated/**",
+      "apps/demo/**",
+      "**/src/types.ts",
+      "**/src/ui/types.ts",
+      "**/src/db/schema.ts",
+      "**/src/db/drizzle-config.ts",
+      "**/src/graphql/config.ts",
+      "**/src/eslint/config.ts",
+      "**/src/cli/api-process.ts",
+      "**/src/cli/build.ts",
+      "**/src/cli/codegen.ts",
+      "**/src/cli/dev.ts",
+      "**/src/cli/schema.ts",
+      "**/src/cli/start.ts",
+      "**/src/cli/test.ts",
+      "**/src/cli/worker.ts",
+      "**/src/vite/codegen-plugin.ts",
+      "node_modules/**",
+      "dist/**",
+      ".openshop/**",
+      "**/*.d.ts"
+    ],
+    "reporter": [
+      "text",
+      "lcov"
+    ],
+    "reports-dir": "coverage",
+    "temp-directory": "coverage/tmp",
+    "exclude-after-remap": true
+  },
+  "overrides": {
+    "brace-expansion": "5.0.5",
+    "esbuild": "0.28.0",
+    "lodash": "4.18.1",
+    "picomatch": "4.0.4",
+    "yaml": "2.8.4"
+  },
+  "devDependencies": {
+    "@shopify/polaris-types": "^1.0.1",
+    "c8": "11.0.0",
+    "openshop": "workspace:*",
+    "tsx": "4.21.0",
+    "typescript": "^5.9.0"
+  }
+}

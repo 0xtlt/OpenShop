@@ -1,0 +1,32 @@
+{
+  "name": "__PACKAGE_NAME__",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "openshop dev",
+    "build": "openshop build",
+    "codegen": "openshop codegen",
+    "codegen:watch": "openshop codegen:watch",
+    "shopify": "shopify app dev --skip-dependencies-installation",
+    "test": "openshop test",
+    "lint": "tsc --noEmit && eslint ."
+  },
+  "dependencies": {
+    "arktype": "^2.2.0",
+    "openshop": "^0.1.0",
+    "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "@graphql-codegen/cli": "7.0.0",
+    "@graphql-codegen/introspection": "6.0.0",
+    "@graphql-codegen/typescript": "6.0.0",
+    "@shopify/api-codegen-preset": "2.0.0",
+    "@shopify/graphql-codegen": "^0.1.0",
+    "@types/node": "^25.5.0",
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "0.45.2",
+    "eslint": "10.3.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}

@@ -4,12 +4,17 @@ import { serve, type ServerType } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { and, eq, isNull, isNotNull } from 'drizzle-orm'
 import { createApiRoutes } from '#server/api'
 import { createAuthRoutes } from '#server/auth'
 import { createFunctionRoutes } from '#server/functions'
 import { createProxyRoutes } from '#server/proxy'
 import { createWebhookRoutes } from '#server/webhooks'
 import { shopMiddleware } from '#server/shop'
+import { verifyQueryHmac } from '#server/hmac'
+import { normalizeShopDomain } from '#server/shop-domain'
+import { getDb } from '#db/client'
+import { installations } from '#db/schema'
 import type { OpenShopConfig } from '#types'
 
 export type ConfigGetter = () => OpenShopConfig
@@ -38,6 +43,36 @@ function resolveCorsOrigin(origin: string): string | undefined {
 }
 
 const restrictedCors = cors({ origin: resolveCorsOrigin })
+
+const reservedPrefixes = ['/api', '/auth', '/webhooks', '/proxy', '/ext', '/health']
+
+function isUiShellPath(pathname: string): boolean {
+  if (reservedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) return false
+  if (pathname === '/' || pathname.endsWith('/')) return true
+  if (pathname.endsWith('.html')) return true
+  return !pathname.split('/').pop()?.includes('.')
+}
+
+function unauthorizedUi() {
+  return new Response(
+    '<!doctype html><html><body><main><h1>Open this app from Shopify admin</h1></main></body></html>',
+    { status: 401, headers: { 'content-type': 'text/html; charset=utf-8' } },
+  )
+}
+
+async function isInstalledShop(shop: string): Promise<boolean> {
+  const [installation] = await getDb()
+    .select({ id: installations.id })
+    .from(installations)
+    .where(and(
+      eq(installations.shop, shop),
+      isNotNull(installations.accessToken),
+      isNull(installations.uninstalledAt),
+    ))
+    .limit(1)
+
+  return Boolean(installation)
+}
 
 export async function createServer(getConfig: ConfigGetter, options?: ServerOptions) {
   const app = new Hono()
@@ -79,6 +114,24 @@ export async function createServer(getConfig: ConfigGetter, options?: ServerOpti
 
   // Static file serving + SPA fallback (production)
   if (options?.staticDir) {
+    app.use('/*', async (c, next) => {
+      const pathname = new URL(c.req.url).pathname
+      if (!isUiShellPath(pathname)) return next()
+
+      const secret = process.env.SHOPIFY_API_SECRET ?? ''
+      if (!secret) return c.html('SHOPIFY_API_SECRET is not configured', 500)
+
+      const query = c.req.query() as Record<string, string>
+      const shop = normalizeShopDomain(query.shop)
+      if (!shop || !verifyQueryHmac(query, secret)) return unauthorizedUi()
+
+      if (!(await isInstalledShop(shop))) {
+        return c.redirect(`/auth?shop=${encodeURIComponent(shop)}`)
+      }
+
+      await next()
+    })
+
     app.use('/*', serveStatic({ root: options.staticDir }))
 
     // SPA fallback: serve index.html for non-API, non-static routes

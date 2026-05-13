@@ -1,4 +1,6 @@
 import { LocationProvider, Router, Route, useLocation } from 'preact-iso'
+import type { ComponentChildren } from 'preact'
+import { useEffect, useState } from 'preact/hooks'
 import Home from './pages/Home'
 import Flows from './pages/Flows'
 import FlowRun from './pages/FlowRun'
@@ -30,21 +32,63 @@ function NavMenu() {
   )
 }
 
+function AuthGate({ children }: { children: ComponentChildren }) {
+  const [status, setStatus] = useState<'checking' | 'ready' | 'blocked'>('checking')
+
+  useEffect(() => {
+    let active = true
+
+    const check = async (attempt = 0) => {
+      try {
+        if (!window.shopify?.idToken && attempt < 20) {
+          setTimeout(() => { void check(attempt + 1) }, 100)
+          return
+        }
+
+        const token = await window.shopify?.idToken?.()
+        if (active) setStatus(token ? 'ready' : 'blocked')
+      } catch {
+        if (active) setStatus('blocked')
+      }
+    }
+
+    void check()
+    return () => { active = false }
+  }, [])
+
+  if (status === 'ready') return <>{children}</>
+
+  return (
+    <main style={{ maxWidth: '560px', margin: '80px auto', padding: '0 24px', fontFamily: 'system-ui, sans-serif' }}>
+      {status === 'checking'
+        ? <p>Loading...</p>
+        : (
+          <>
+            <h1>Open this app from Shopify admin</h1>
+            <p>This interface is only available inside an authenticated Shopify admin session.</p>
+          </>
+        )}
+    </main>
+  )
+}
+
 export default function App() {
   return (
     <LocationProvider>
-      <NavMenu />
-      <Router>
-        <Route path="/" component={Home} />
-        <Route path="/flows" component={Flows} />
-        <Route path="/flows/:name" component={Flows} />
-        <Route path="/runs/:id" component={FlowRun} />
-        <Route path="/crons" component={Crons} />
-        <Route path="/providers" component={Providers} />
-        <Route path="/functions" component={Functions} />
-        <Route path="/functions/:handle" component={Functions} />
-        <Route path="/functions/:handle/:action" component={Functions} />
-      </Router>
+      <AuthGate>
+        <NavMenu />
+        <Router>
+          <Route path="/" component={Home} />
+          <Route path="/flows" component={Flows} />
+          <Route path="/flows/:name" component={Flows} />
+          <Route path="/runs/:id" component={FlowRun} />
+          <Route path="/crons" component={Crons} />
+          <Route path="/providers" component={Providers} />
+          <Route path="/functions" component={Functions} />
+          <Route path="/functions/:handle" component={Functions} />
+          <Route path="/functions/:handle/:action" component={Functions} />
+        </Router>
+      </AuthGate>
     </LocationProvider>
   )
 }

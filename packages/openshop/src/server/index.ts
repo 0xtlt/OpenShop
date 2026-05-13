@@ -43,6 +43,10 @@ function resolveCorsOrigin(origin: string): string | undefined {
 }
 
 const restrictedCors = cors({ origin: resolveCorsOrigin })
+const robotsHeader = 'noindex, nofollow, noarchive, nosnippet'
+const robotsTxt = `User-agent: *
+Disallow: /
+`
 
 const reservedPrefixes = ['/api', '/auth', '/webhooks', '/proxy', '/ext', '/health']
 
@@ -56,7 +60,7 @@ function isUiShellPath(pathname: string): boolean {
 function unauthorizedUi() {
   return new Response(
     '<!doctype html><html><body><main><h1>Open this app from Shopify admin</h1></main></body></html>',
-    { status: 401, headers: { 'content-type': 'text/html; charset=utf-8' } },
+    { status: 401, headers: { 'content-type': 'text/html; charset=utf-8', 'x-robots-tag': robotsHeader } },
   )
 }
 
@@ -76,6 +80,13 @@ async function isInstalledShop(shop: string): Promise<boolean> {
 
 export async function createServer(getConfig: ConfigGetter, options?: ServerOptions) {
   const app = new Hono()
+
+  app.use('*', async (c, next) => {
+    c.header('X-Robots-Tag', robotsHeader)
+    await next()
+  })
+
+  app.get('/robots.txt', (c) => c.text(robotsTxt))
 
   // Auth routes (no shop middleware — these are public)
   app.route('/auth', createAuthRoutes())

@@ -44,12 +44,21 @@ test.group('Static files and SPA fallback', (group) => {
   test('GET serves file from staticDir', async ({ assert }) => {
     const res = await app.request('http://localhost/asset.txt')
     assert.equal(res.status, 200)
+    assert.equal(res.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive, nosnippet')
     assert.include(await res.text(), 'plain asset')
+  })
+
+  test('GET robots.txt disallows all crawlers', async ({ assert }) => {
+    const res = await app.request('http://localhost/robots.txt')
+    assert.equal(res.status, 200)
+    assert.equal(res.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive, nosnippet')
+    assert.equal(await res.text(), 'User-agent: *\nDisallow: /\n')
   })
 
   test('GET root without a valid Shopify launch does not serve the app shell', async ({ assert }) => {
     const res = await app.request('http://localhost/')
     assert.equal(res.status, 401)
+    assert.equal(res.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive, nosnippet')
     const text = await res.text()
     assert.include(text, 'Open this app from Shopify admin')
     assert.notInclude(text, 'spa-shell')
@@ -72,6 +81,7 @@ test.group('Static files and SPA fallback', (group) => {
 
     const res = await app.request(signedLaunchUrl('/'))
     assert.equal(res.status, 200)
+    assert.equal(res.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive, nosnippet')
     const text = await res.text()
     assert.include(text, 'spa-shell')
   })

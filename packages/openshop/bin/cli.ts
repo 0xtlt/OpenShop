@@ -30,6 +30,7 @@ switch (command) {
       baselineProjectMigrations,
       migrateFrameworkSchema,
       migrateProjectSchema,
+      migrateSchema,
       printMigrationStatus,
     } = await import('../src/cli/schema.ts')
     const { closeDb } = await import('../src/db/client.ts')
@@ -49,8 +50,10 @@ switch (command) {
         }
       } else if (subcommand === 'status') {
         await printMigrationStatus(process.cwd())
-      } else if (!subcommand) {
+      } else if (subcommand === 'framework') {
         await migrateFrameworkSchema(process.cwd())
+      } else if (!subcommand) {
+        await migrateSchema(process.cwd())
       } else {
         console.error(`[openshop] Unknown migrate command: ${subcommand}`)
         process.exitCode = 1
@@ -93,11 +96,9 @@ switch (command) {
     init <dir>                  Scaffold a new OpenShop project
     dev                         Start dev server (API + UI + worker + hot-reload)
     worker [--concurrency=N]    Start worker only (production, scalable)
-    migrate                     Apply OpenShop framework migrations
+    migrate                     Apply OpenShop framework and project migrations
+    migrate framework           Apply OpenShop framework migrations only
     migrate project             Apply project migrations from ./drizzle
-    migrate project --baseline  Mark the first project migration as already applied
-    migrate project --baseline=<tag>
-                                Mark project migrations through <tag> as already applied
     migrate status              Show framework and project migration status
     build                       Build for production
     start                       Start production server (API + UI, no worker)
@@ -109,8 +110,8 @@ switch (command) {
     openshop dev
     openshop worker --concurrency=10
     openshop migrate
+    openshop migrate framework
     openshop migrate project
-    openshop migrate project --baseline
     openshop migrate status
     openshop test [suite]          Run tests (suites: unit, flows, api, proxy)
     openshop build && openshop start

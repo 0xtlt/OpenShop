@@ -27,6 +27,8 @@ export type MigrationStatus = {
   pending: string[]
 }
 
+type MigrationRunMode = 'strict' | 'adopt-existing-first'
+
 function hasDrizzleJournal(folder: string): boolean {
   return existsSync(resolve(folder, 'meta', '_journal.json'))
 }
@@ -181,17 +183,16 @@ export async function migrateFrameworkSchema(cwd: string, options?: { silent?: b
   }
 }
 
-export async function migrateProjectSchema(cwd: string, options?: { silent?: boolean }) {
+export async function migrateProjectSchema(cwd: string, options?: { silent?: boolean; adoptExistingFirst?: boolean }) {
   const projectMigrationsFolder = resolveProjectMigrationsFolder(cwd)
   if (!projectMigrationsFolder) {
     if (!options?.silent) console.log('[openshop] No project migrations found')
     return
   }
 
-  await migrate(getDb(), {
-    migrationsFolder: projectMigrationsFolder,
-    migrationsSchema: MIGRATIONS_SCHEMA,
-    migrationsTable: PROJECT_MIGRATIONS_TABLE,
+  await migrateProjectMigrations(projectMigrationsFolder, {
+    mode: options?.adoptExistingFirst ? 'adopt-existing-first' : 'strict',
+    silent: options?.silent,
   })
 
   if (!options?.silent) {
@@ -243,6 +244,63 @@ async function insertMigration(table: string, migration: MigrationMeta): Promise
   `)
 }
 
+async function migrateProjectMigrations(folder: string, options: { mode: MigrationRunMode; silent?: boolean }): Promise<void> {
+  await ensureMigrationsTable(PROJECT_MIGRATIONS_TABLE)
+  const lastApplied = await lastAppliedCreatedAt(PROJECT_MIGRATIONS_TABLE)
+  const migrations = readMigrationFiles({ migrationsFolder: folder })
+    .filter((migration) => lastApplied == null || migration.folderMillis > lastApplied)
+
+  for (const [index, migration] of migrations.entries()) {
+    try {
+      await runMigrationStatements(migration)
+      await insertMigration(PROJECT_MIGRATIONS_TABLE, migration)
+    } catch (error) {
+      if (options.mode === 'adopt-existing-first' && index === 0 && isAlreadyExistsError(error)) {
+        await insertMigration(PROJECT_MIGRATIONS_TABLE, migration)
+        if (!options.silent) {
+          const tag = migrationNameByCreatedAt(folder).get(migration.folderMillis) ?? String(migration.folderMillis)
+          console.warn(`[openshop] Project migration already reflected in database, marking as applied: ${tag}`)
+        }
+        continue
+      }
+      throw error
+    }
+  }
+}
+
+async function runMigrationStatements(migration: MigrationMeta): Promise<void> {
+  const db = getDb()
+  await db.transaction(async (tx) => {
+    for (const statement of migration.sql) {
+      if (!statement.trim()) continue
+      await tx.execute(sql.raw(statement))
+    }
+  })
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  const code = sqlErrorCode(error)
+  if (code && ['42P06', '42P07', '42701', '42710'].includes(code)) return true
+
+  const message = errorMessage(error).toLowerCase()
+  return /\balready exists\b/.test(message)
+}
+
+function sqlErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') return undefined
+  const code = (error as { code?: unknown }).code
+  if (typeof code === 'string') return code
+  const cause = (error as { cause?: unknown }).cause
+  if (!cause || typeof cause !== 'object') return undefined
+  const causeCode = (cause as { code?: unknown }).code
+  return typeof causeCode === 'string' ? causeCode : undefined
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return `${error.message}\n${error.cause instanceof Error ? error.cause.message : ''}`
+  return String(error)
+}
+
 export async function printMigrationStatus(cwd: string): Promise<void> {
   const [framework, project] = await Promise.all([
     getFrameworkMigrationStatus(cwd),
@@ -268,5 +326,18 @@ function printStatusGroup(label: string, status: MigrationStatus): void {
 }
 
 export async function migrateSchema(cwd: string, options?: { silent?: boolean }) {
+  const projectMigrationsFolder = resolveProjectMigrationsFolder(cwd)
+
+  if (projectMigrationsFolder) {
+    await migrateProjectMigrations(projectMigrationsFolder, {
+      mode: 'adopt-existing-first',
+      silent: options?.silent,
+    })
+  }
+
   await migrateFrameworkSchema(cwd, options)
+
+  if (!options?.silent && projectMigrationsFolder) {
+    console.log('[openshop] Framework and project migrations applied')
+  }
 }

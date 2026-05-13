@@ -5,13 +5,13 @@ import { sql } from 'drizzle-orm'
 import { test } from '@japa/runner'
 import { getDb } from '#db/client'
 import {
-  baselineProjectMigrations,
   getProjectMigrationStatus,
   migrateFrameworkSchema,
+  migrateSchema,
   migrateProjectSchema,
 } from '../../../src/cli/schema.ts'
 
-function createProjectWithMigrations(): string {
+function createProjectWithMigrations(options?: { invalidFirstMigration?: boolean }): string {
   const dir = mkdtempSync(resolve(tmpdir(), 'openshop-migrations-'))
   const drizzle = resolve(dir, 'drizzle')
   mkdirSync(resolve(drizzle, 'meta'), { recursive: true })
@@ -23,8 +23,10 @@ function createProjectWithMigrations(): string {
       { idx: 1, version: '7', when: 9_990_000_000_001, tag: '0001_project_next', breakpoints: true },
     ],
   }, null, 2))
-  writeFileSync(resolve(drizzle, '0000_project_init.sql'), `
-CREATE TABLE IF NOT EXISTS openshop_project_migration_test (
+  writeFileSync(resolve(drizzle, '0000_project_init.sql'), options?.invalidFirstMigration
+    ? 'SELECT * FROM table_that_does_not_exist;'
+    : `
+CREATE TABLE openshop_project_migration_test (
   id integer PRIMARY KEY
 );
 `)
@@ -56,22 +58,15 @@ test.group('schema migrations', (group) => {
     }
   })
 
-  test('baseline adopts initial project migration and leaves later migrations pending', async ({ assert }) => {
+  test('migrate applies framework and project migrations on a fresh database', async ({ assert }) => {
     const dir = createProjectWithMigrations()
 
     try {
-      await baselineProjectMigrations(dir, { silent: true })
+      await migrateSchema(dir, { silent: true })
 
-      const statusAfterBaseline = await getProjectMigrationStatus(dir)
-      assert.deepEqual(statusAfterBaseline.applied, ['0000_project_init'])
-      assert.deepEqual(statusAfterBaseline.pending, ['0001_project_next'])
-
-      await getDb().execute(sql`
-        CREATE TABLE openshop_project_migration_test (
-          id integer PRIMARY KEY
-        )
-      `)
-      await migrateProjectSchema(dir, { silent: true })
+      const status = await getProjectMigrationStatus(dir)
+      assert.deepEqual(status.applied, ['0000_project_init', '0001_project_next'])
+      assert.deepEqual(status.pending, [])
 
       const columns = await getDb().execute(sql<{ column_name: string }>`
         SELECT column_name
@@ -82,6 +77,46 @@ test.group('schema migrations', (group) => {
       `)
 
       assert.deepEqual(columns.rows.map((row) => row.column_name), ['id', 'name'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('migrate adopts an existing first project migration and continues', async ({ assert }) => {
+    const dir = createProjectWithMigrations()
+
+    try {
+      await getDb().execute(sql`
+        CREATE TABLE openshop_project_migration_test (
+          id integer PRIMARY KEY
+        )
+      `)
+
+      await migrateSchema(dir, { silent: true })
+
+      const status = await getProjectMigrationStatus(dir)
+      assert.deepEqual(status.applied, ['0000_project_init', '0001_project_next'])
+      assert.deepEqual(status.pending, [])
+
+      const columns = await getDb().execute(sql<{ column_name: string }>`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'openshop_project_migration_test'
+        ORDER BY column_name
+      `)
+
+      assert.deepEqual(columns.rows.map((row) => row.column_name), ['id', 'name'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('migrate fails on real project migration errors', async ({ assert }) => {
+    const dir = createProjectWithMigrations({ invalidFirstMigration: true })
+
+    try {
+      await assert.rejects(() => migrateSchema(dir, { silent: true }))
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

@@ -6,6 +6,10 @@ import { fileURLToPath } from 'node:url'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { getDb } from '#db/client'
 
+function hasDrizzleJournal(folder: string): boolean {
+  return existsSync(resolve(folder, 'meta', '_journal.json'))
+}
+
 function resolveFrameworkMigrationsFolder(cwd: string): string {
   const here = dirname(fileURLToPath(import.meta.url))
   const candidates = [
@@ -19,12 +23,17 @@ function resolveFrameworkMigrationsFolder(cwd: string): string {
     candidates.push(resolve(dirname(drizzleEntry), '..', '..', 'drizzle'))
   } catch { /* package may be running from source */ }
 
-  const folder = candidates.find((candidate) => existsSync(resolve(candidate, 'meta', '_journal.json')))
+  const folder = candidates.find(hasDrizzleJournal)
   if (!folder) {
     throw new Error('[openshop] Framework migrations not found. Reinstall openshop or run from the package root.')
   }
 
   return folder
+}
+
+function resolveProjectMigrationsFolder(cwd: string): string | null {
+  const folder = resolve(cwd, 'drizzle')
+  return hasDrizzleJournal(folder) ? folder : null
 }
 
 /**
@@ -71,14 +80,24 @@ export function pushSchema(cwd: string, options?: { silent?: boolean }) {
 }
 
 export async function migrateSchema(cwd: string, options?: { silent?: boolean }) {
-  const migrationsFolder = resolveFrameworkMigrationsFolder(cwd)
   await migrate(getDb(), {
-    migrationsFolder,
+    migrationsFolder: resolveFrameworkMigrationsFolder(cwd),
     migrationsSchema: 'drizzle',
     migrationsTable: '__openshop_migrations',
   })
 
+  const projectMigrationsFolder = resolveProjectMigrationsFolder(cwd)
+  if (projectMigrationsFolder) {
+    await migrate(getDb(), {
+      migrationsFolder: projectMigrationsFolder,
+      migrationsSchema: 'drizzle',
+      migrationsTable: '__openshop_project_migrations',
+    })
+  }
+
   if (!options?.silent) {
-    console.log('[openshop] Framework migrations applied')
+    console.log(projectMigrationsFolder
+      ? '[openshop] Framework and project migrations applied'
+      : '[openshop] Framework migrations applied')
   }
 }

@@ -1,4 +1,4 @@
-import { migrateSchema } from './schema.ts'
+import { migrateFrameworkSchema, warnAboutPendingProjectMigrations } from './schema.ts'
 import { loadBuiltConfig, resolveBuiltConfig } from './app-build.ts'
 
 export async function startWorker(opts: { concurrency?: number } = {}) {
@@ -9,9 +9,11 @@ export async function startWorker(opts: { concurrency?: number } = {}) {
   process.env.DATABASE_URL ??= 'postgresql://openshop:openshop@localhost:5432/openshop'
 
   try {
-    await migrateSchema(cwd, { silent: true })
-  } catch {
+    await migrateFrameworkSchema(cwd, { silent: true })
+    await warnAboutPendingProjectMigrations(cwd)
+  } catch (error) {
     console.error('[openshop] Database migration failed')
+    console.error(error)
     process.exit(1)
   }
 

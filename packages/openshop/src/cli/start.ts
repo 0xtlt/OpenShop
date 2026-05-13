@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { existsSync } from 'node:fs'
-import { migrateSchema } from './schema.ts'
+import { migrateFrameworkSchema, warnAboutPendingProjectMigrations } from './schema.ts'
 import { loadBuiltConfig, resolveBuiltConfig, resolveBuiltProxyDir } from './app-build.ts'
 import { closeHttpServer } from '#server/http'
 
@@ -13,12 +13,14 @@ export async function startProd() {
   process.env.DATABASE_URL ??= 'postgresql://openshop:openshop@localhost:5432/openshop'
 
   try {
-    await migrateSchema(cwd, { silent: true })
-  } catch {
+    await migrateFrameworkSchema(cwd, { silent: true })
+    await warnAboutPendingProjectMigrations(cwd)
+  } catch (error) {
     console.error('[openshop] Database migration failed')
+    console.error(error)
     process.exit(1)
   }
-  console.log('[openshop] Database migrations applied')
+  console.log('[openshop] Framework database migrations applied')
 
   const { startApiServer } = await import('#server/index')
   const { startScheduler, stopScheduler } = await import('#engine/scheduler')

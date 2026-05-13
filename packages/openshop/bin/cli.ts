@@ -26,10 +26,35 @@ switch (command) {
     break
   }
   case 'migrate': {
-    const { migrateSchema } = await import('../src/cli/schema.ts')
+    const {
+      baselineProjectMigrations,
+      migrateFrameworkSchema,
+      migrateProjectSchema,
+      printMigrationStatus,
+    } = await import('../src/cli/schema.ts')
     const { closeDb } = await import('../src/db/client.ts')
     try {
-      await migrateSchema(process.cwd())
+      const subcommand = process.argv[3]
+      const baselineArg = process.argv.find((arg) => arg === '--baseline' || arg.startsWith('--baseline='))
+      const toArg = process.argv.find((arg) => arg.startsWith('--to='))
+
+      if (subcommand === 'project') {
+        if (baselineArg || toArg) {
+          const baselineTo = baselineArg?.startsWith('--baseline=')
+            ? baselineArg.slice('--baseline='.length)
+            : toArg?.slice('--to='.length)
+          await baselineProjectMigrations(process.cwd(), { to: baselineTo })
+        } else {
+          await migrateProjectSchema(process.cwd())
+        }
+      } else if (subcommand === 'status') {
+        await printMigrationStatus(process.cwd())
+      } else if (!subcommand) {
+        await migrateFrameworkSchema(process.cwd())
+      } else {
+        console.error(`[openshop] Unknown migrate command: ${subcommand}`)
+        process.exitCode = 1
+      }
     } finally {
       await closeDb()
     }
@@ -69,6 +94,11 @@ switch (command) {
     dev                         Start dev server (API + UI + worker + hot-reload)
     worker [--concurrency=N]    Start worker only (production, scalable)
     migrate                     Apply OpenShop framework migrations
+    migrate project             Apply project migrations from ./drizzle
+    migrate project --baseline  Mark the first project migration as already applied
+    migrate project --baseline=<tag>
+                                Mark project migrations through <tag> as already applied
+    migrate status              Show framework and project migration status
     build                       Build for production
     start                       Start production server (API + UI, no worker)
     codegen                     Generate TypeScript types from GraphQL queries
@@ -79,6 +109,9 @@ switch (command) {
     openshop dev
     openshop worker --concurrency=10
     openshop migrate
+    openshop migrate project
+    openshop migrate project --baseline
+    openshop migrate status
     openshop test [suite]          Run tests (suites: unit, flows, api, proxy)
     openshop build && openshop start
 `)

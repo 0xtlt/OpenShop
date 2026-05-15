@@ -24,6 +24,7 @@ export interface ServerOptions {
 }
 
 const localOrigin = /^https?:\/\/(?:(?:[^:]+\.)?localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/
+const shopifyExtensionOrigin = 'https://extensions.shopifycdn.com'
 
 function configuredOrigins(): string[] {
   return [process.env.HOST, process.env.SHOPIFY_APP_URL]
@@ -37,6 +38,7 @@ function resolveCorsOrigin(origin: string): string | undefined {
   if (!origin) return undefined
   if (localOrigin.test(origin)) return origin
   if (origin === 'https://admin.shopify.com') return origin
+  if (origin === shopifyExtensionOrigin) return origin
   if (/^https:\/\/[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(origin)) return origin
   if (configuredOrigins().includes(origin)) return origin
   return undefined

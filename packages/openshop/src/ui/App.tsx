@@ -7,6 +7,7 @@ import FlowRun from './pages/FlowRun'
 import Providers from './pages/Providers'
 import Functions from './pages/Functions'
 import Crons from './pages/Crons'
+import { addShopifyNavigateListener } from './navigation'
 
 function NavMenu() {
   const { url } = useLocation()
@@ -72,9 +73,18 @@ function AuthGate({ children }: { children: ComponentChildren }) {
   )
 }
 
+function ShopifyNavigateBridge() {
+  const { route } = useLocation()
+
+  useEffect(() => addShopifyNavigateListener(route), [route])
+
+  return null
+}
+
 export default function App() {
   return (
     <LocationProvider>
+      <ShopifyNavigateBridge />
       <AuthGate>
         <NavMenu />
         <Router>

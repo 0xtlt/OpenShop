@@ -10,6 +10,8 @@
   "scripts": {
     "dev": "openshop dev",
     "build": "openshop build",
+    "start": "openshop start",
+    "worker": "openshop worker",
     "codegen": "openshop codegen",
     "codegen:watch": "openshop codegen:watch",
     "shopify": "shopify app dev --skip-dependencies-installation",
@@ -18,8 +20,9 @@
   },
   "dependencies": {
     "arktype": "^2.2.0",
-    "openshop": "^0.1.0",
-    "pg": "^8.20.0"
+    "openshop": "^0.1.1",
+    "pg": "^8.20.0",
+    "pm2": "^7.0.1"
   },
   "devDependencies": {
     "@graphql-codegen/cli": "7.0.0",

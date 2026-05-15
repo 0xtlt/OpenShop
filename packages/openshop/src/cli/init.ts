@@ -2,7 +2,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, s
 import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const PLACEHOLDER_EXTENSIONS = new Set(['.json', '.ts', '.js', '.toml', '.md', '.gitignore'])
+const PLACEHOLDER_EXTENSIONS = new Set(['.json', '.ts', '.js', '.cjs', '.toml', '.md', '.gitignore', '.dockerignore'])
 
 export interface InitResult {
   targetDir: string
@@ -80,6 +80,8 @@ export async function runInit(target?: string): Promise<InitResult> {
   cpSync(templateDir, targetDir, { recursive: true, errorOnExist: false })
   const gitignoreTemplate = resolve(targetDir, '_gitignore')
   if (existsSync(gitignoreTemplate)) renameSync(gitignoreTemplate, resolve(targetDir, '.gitignore'))
+  const dockerignoreTemplate = resolve(targetDir, '_dockerignore')
+  if (existsSync(dockerignoreTemplate)) renameSync(dockerignoreTemplate, resolve(targetDir, '.dockerignore'))
 
   replacePlaceholders(targetDir, {
     __APP_NAME__: appName,

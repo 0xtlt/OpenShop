@@ -185,7 +185,72 @@ openssl rand -hex 32
 
 Use versioned Drizzle migrations for production schema changes. `openshop dev` still uses `drizzle-kit push --force` for local development only.
 Run `openshop migrate` before production deploys, or let `openshop start` / `openshop worker` apply OpenShop framework migrations on boot.
+
+### Production processes
+
+`openshop start` intentionally starts only the HTTP server: API, embedded admin UI, proxy routes, webhooks, and cron dispatch.
+It does **not** execute queued flow runs.
+
+Run at least one worker process separately:
+
+```bash
+pnpm exec openshop start
+pnpm exec openshop worker --concurrency=5
+```
+
+This separation is deliberate:
+
+- web and worker can be restarted independently;
+- worker concurrency is explicit;
+- production apps can scale workers without multiplying HTTP servers;
+- `openshop start` stays predictable for platforms that expect one web process.
+
+For a single-container deployment, use a process manager such as PM2:
+
+```js
+// ecosystem.config.cjs
+module.exports = {
+  apps: [
+    {
+      name: 'my-app-web',
+      script: 'node_modules/openshop/bin/cli.js',
+      args: 'start',
+      instances: 1,
+      exec_mode: 'fork',
+      env: { NODE_ENV: 'production' },
+    },
+    {
+      name: 'my-app-worker',
+      script: 'node_modules/openshop/bin/cli.js',
+      args: 'worker --concurrency=5',
+      instances: 1,
+      exec_mode: 'fork',
+      env: { NODE_ENV: 'production' },
+    },
+  ],
+}
+```
+
+```dockerfile
+CMD ["pnpm", "exec", "pm2-runtime", "start", "ecosystem.config.cjs"]
+```
+
+Use `node_modules/openshop/bin/cli.js` rather than `node_modules/.bin/openshop` in PM2 configs. The `.bin` file is a shell shim, and PM2 can try to execute it as JavaScript.
+
 `openshop start` and `openshop worker` load the compiled server app from `dist/openshop/server`; run `openshop build` before starting production.
+
+### App database tables
+
+OpenShop boot migrations only manage OpenShop framework tables such as runs, steps, logs, providers, installations, and cron overrides.
+They do not create your app-specific model tables.
+
+If your app defines additional Drizzle models, run your app migrations before starting the web and worker processes. For example:
+
+```dockerfile
+CMD ["sh", "-c", "pnpm run migrate:app && pnpm exec pm2-runtime start ecosystem.config.cjs"]
+```
+
+Without a worker process, runs can stay `pending` forever. Without app migrations, a worker can start and then fail when a flow reads or writes missing app tables.
 
 ## License
 

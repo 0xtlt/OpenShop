@@ -3,7 +3,9 @@ import { createHmac } from 'node:crypto'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { createServer } from '#server/index'
 import { createProxyRoutes } from '#server/proxy'
+import { createConfig } from './helpers.ts'
 
 const secret = process.env.SHOPIFY_API_SECRET!
 const apiKey = process.env.SHOPIFY_API_KEY!
@@ -154,6 +156,32 @@ test.group('Proxy routes (createProxyRoutes)', (group) => {
     assert.isNull(data.customerId)
     assert.equal(data.queryShop, 'jwt-shop.myshopify.com')
     assert.isNull(data.queryCustomerId)
+  })
+
+  test('server proxy routes allow Shopify UI extension CORS', async ({ assert }) => {
+    const app = await createServer(() => createConfig({}), { proxyDir: tmpDir })
+    const token = createJwt('jwt-shop.myshopify.com')
+
+    const preflight = await app.request('http://localhost/proxy/ping', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'https://extensions.shopifycdn.com',
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': 'authorization',
+      },
+    })
+    assert.equal(preflight.status, 204)
+    assert.equal(preflight.headers.get('access-control-allow-origin'), 'https://extensions.shopifycdn.com')
+    assert.equal(preflight.headers.get('access-control-allow-headers'), 'authorization')
+
+    const response = await app.request('http://localhost/proxy/ping', {
+      headers: {
+        Origin: 'https://extensions.shopifycdn.com',
+        Authorization: `Bearer ${token}`,
+      },
+    })
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('access-control-allow-origin'), 'https://extensions.shopifycdn.com')
   })
 
   test('missing SHOPIFY_API_SECRET fails closed', async ({ assert }) => {

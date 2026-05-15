@@ -10,6 +10,8 @@ interface ModelOptions {
   createdAt?: boolean
   /** Include `updatedAt` column (default: true) */
   updatedAt?: boolean
+  /** Define custom indexes/constraints for this model */
+  indexes?: (table: any) => any[]
 }
 
 /**
@@ -17,6 +19,7 @@ interface ModelOptions {
  * - `id` (uuid, primary key)
  * - `shop` (text, indexed) — unless `{ shop: false }`
  * - `createdAt` / `updatedAt` (timestamp, default now)
+ * - custom indexes via `options.indexes`
  */
 export function defineModel<TName extends string>(
   tableName: TName,
@@ -35,7 +38,7 @@ export function defineModel<TName extends string>(
   if (includeCreatedAt) base.createdAt = timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
   if (includeUpdatedAt) base.updatedAt = timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 
-  return pgTable(tableName, { ...base, ...columns })
+  return pgTable(tableName, { ...base, ...columns }, options?.indexes)
 }
 
 // ─── Framework schema ───────────────────────────────────────────────
@@ -66,11 +69,11 @@ export const flowRuns = pgTable('flow_runs', {
   startedAt: timestamp('started_at', { withTimezone: true }),
   completedAt: timestamp('completed_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => ({
-  statusAvailableIdx: index('flow_runs_status_available_created_idx').on(table.status, table.availableAt, table.createdAt),
-  shopCreatedIdx: index('flow_runs_shop_created_idx').on(table.shop, table.createdAt),
-  shopFlowStatusIdx: index('flow_runs_shop_flow_status_idx').on(table.shop, table.flowName, table.status),
-}))
+}, (table) => [
+  index('flow_runs_status_available_created_idx').on(table.status, table.availableAt, table.createdAt),
+  index('flow_runs_shop_created_idx').on(table.shop, table.createdAt),
+  index('flow_runs_shop_flow_status_idx').on(table.shop, table.flowName, table.status),
+])
 
 export const stepResults = pgTable('step_results', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -82,10 +85,10 @@ export const stepResults = pgTable('step_results', {
   durationMs: integer('duration_ms'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   flowRunId: text('flow_run_id').notNull(),
-}, (table) => ({
-  flowRunIdx: index('step_results_flow_run_idx').on(table.flowRunId),
-  flowRunStepAttemptUnique: uniqueIndex('step_results_flow_run_step_attempt_unique').on(table.flowRunId, table.stepName, table.attempt),
-}))
+}, (table) => [
+  index('step_results_flow_run_idx').on(table.flowRunId),
+  uniqueIndex('step_results_flow_run_step_attempt_unique').on(table.flowRunId, table.stepName, table.attempt),
+])
 
 export const providerConfigs = pgTable('provider_configs', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -95,9 +98,9 @@ export const providerConfigs = pgTable('provider_configs', {
   lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
   lastCheckOk: boolean('last_check_ok'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => ({
-  shopProviderUnique: uniqueIndex('provider_configs_shop_provider_unique').on(table.shop, table.providerName),
-}))
+}, (table) => [
+  uniqueIndex('provider_configs_shop_provider_unique').on(table.shop, table.providerName),
+])
 
 export const cronOverrides = pgTable('cron_overrides', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -105,9 +108,9 @@ export const cronOverrides = pgTable('cron_overrides', {
   cronKey: text('cron_key').notNull(), // "flow:schedule"
   enabled: boolean('enabled').default(true).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => ({
-  shopCronUnique: uniqueIndex('cron_overrides_shop_cron_unique').on(table.shop, table.cronKey),
-}))
+}, (table) => [
+  uniqueIndex('cron_overrides_shop_cron_unique').on(table.shop, table.cronKey),
+])
 
 export const logs = pgTable('logs', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -116,12 +119,12 @@ export const logs = pgTable('logs', {
   message: text('message'),
   payload: json('payload'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => ({
-  flowRunCreatedIdx: index('logs_flow_run_created_idx').on(table.flowRunId, table.createdAt),
-}))
+}, (table) => [
+  index('logs_flow_run_created_idx').on(table.flowRunId, table.createdAt),
+])
 
 // Re-export drizzle column builders for devs using defineModel
-export { text, integer, boolean, json, timestamp, uuid, pgTable, numeric } from 'drizzle-orm/pg-core'
+export { text, integer, boolean, json, timestamp, uuid, pgTable, numeric, index, uniqueIndex } from 'drizzle-orm/pg-core'
 
 // Re-export query operators so consumers use the same drizzle-orm instance as OpenShop.
 export { eq, and, or, not, gt, gte, lt, lte, ne, inArray, sql, desc, asc } from 'drizzle-orm'

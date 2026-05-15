@@ -72,6 +72,14 @@ test.group('Static files and SPA fallback', (group) => {
     assert.notInclude(text, 'spa-shell')
   })
 
+  test('GET run deep link without a valid Shopify launch does not serve SPA fallback', async ({ assert }) => {
+    const res = await app.request('http://localhost/runs/550e8400-e29b-41d4-a716-446655440000')
+    assert.equal(res.status, 401)
+    const text = await res.text()
+    assert.include(text, 'Open this app from Shopify admin')
+    assert.notInclude(text, 'spa-shell')
+  })
+
   test('GET with signed Shopify launch serves index.html for installed shops', async ({ assert }) => {
     await getDb().insert(installations).values({
       shop: 'static-test.myshopify.com',

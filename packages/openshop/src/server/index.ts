@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serve, type ServerType } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { and, eq, isNull, isNotNull } from 'drizzle-orm'
 import { createApiRoutes } from '#server/api'
@@ -10,12 +10,13 @@ import { createAuthRoutes } from '#server/auth'
 import { createFunctionRoutes } from '#server/functions'
 import { createProxyRoutes } from '#server/proxy'
 import { createWebhookRoutes } from '#server/webhooks'
-import { shopMiddleware } from '#server/shop'
-import { verifyQueryHmac } from '#server/hmac'
+import { createShopMiddleware } from '#server/shop'
 import { normalizeShopDomain } from '#server/shop-domain'
+import { DEFAULT_SHOPIFY_APP_HANDLE, resolveShopifyAppBySignedQuery } from '#server/shopify-apps'
 import { getDb } from '#db/client'
 import { installations } from '#db/schema'
 import type { OpenShopConfig } from '#types'
+import { getRuntimeLogger } from '../runtime/logger.ts'
 
 export type ConfigGetter = () => OpenShopConfig
 export interface ServerOptions {
@@ -66,11 +67,12 @@ function unauthorizedUi() {
   )
 }
 
-async function isInstalledShop(shop: string): Promise<boolean> {
+async function isInstalledShop(shopifyApp: string, shop: string): Promise<boolean> {
   const [installation] = await getDb()
     .select({ id: installations.id })
     .from(installations)
     .where(and(
+      eq(installations.appHandle, shopifyApp),
       eq(installations.shop, shop),
       isNotNull(installations.accessToken),
       isNull(installations.uninstalledAt),
@@ -91,7 +93,7 @@ export async function createServer(getConfig: ConfigGetter, options?: ServerOpti
   app.get('/robots.txt', (c) => c.text(robotsTxt))
 
   // Auth routes (no shop middleware — these are public)
-  app.route('/auth', createAuthRoutes())
+  app.route('/auth', createAuthRoutes(getConfig))
 
   // Webhook routes (no shop middleware — Shopify sends HMAC, not JWT)
   app.route('/webhooks', createWebhookRoutes(getConfig))
@@ -100,12 +102,12 @@ export async function createServer(getConfig: ConfigGetter, options?: ServerOpti
   const proxyDir = options?.proxyDir ?? resolve(process.cwd(), 'proxy')
   if (existsSync(proxyDir)) {
     app.use('/proxy/*', restrictedCors)
-    const proxyRoutes = await createProxyRoutes(proxyDir, { authModes: ['appProxyHmac', 'customerAccountJwt'] })
+    const proxyRoutes = await createProxyRoutes(proxyDir, getConfig, { authModes: ['appProxyHmac', 'customerAccountJwt'] })
     app.route('/proxy', proxyRoutes)
 
     // Extension-direct routes: same handlers, CORS enabled, JWT required
     // Mounted on /ext/* so Shopify CLI proxy doesn't intercept
-    const extRoutes = await createProxyRoutes(proxyDir, { authModes: ['customerAccountJwt'] })
+    const extRoutes = await createProxyRoutes(proxyDir, getConfig, { authModes: ['customerAccountJwt'] })
     app.use('/ext/*', restrictedCors)
     app.route('/ext', extRoutes)
   }
@@ -116,7 +118,7 @@ export async function createServer(getConfig: ConfigGetter, options?: ServerOpti
   }
 
   // Extract shop from session token / query param
-  app.use('/api/*', shopMiddleware)
+  app.use('/api/*', createShopMiddleware(getConfig))
 
   // Mount API
   app.route('/api', createApiRoutes(getConfig))
@@ -127,28 +129,52 @@ export async function createServer(getConfig: ConfigGetter, options?: ServerOpti
 
   // Static file serving + SPA fallback (production)
   if (options?.staticDir) {
+    const staticHandler = serveStatic({ root: options.staticDir })
+    const indexHtmlPath = resolve(options.staticDir, 'index.html')
+
     app.use('/*', async (c, next) => {
       const pathname = new URL(c.req.url).pathname
       if (!isUiShellPath(pathname)) return next()
 
-      const secret = process.env.SHOPIFY_API_SECRET ?? ''
-      if (!secret) return c.html('SHOPIFY_API_SECRET is not configured', 500)
-
       const query = c.req.query() as Record<string, string>
       const shop = normalizeShopDomain(query.shop)
-      if (!shop || !verifyQueryHmac(query, secret)) return unauthorizedUi()
+      if (!shop) return unauthorizedUi()
 
-      if (!(await isInstalledShop(shop))) {
-        return c.redirect(`/auth?shop=${encodeURIComponent(shop)}`)
+      let shopifyApp
+      try {
+        shopifyApp = resolveShopifyAppBySignedQuery(getConfig(), query)
+      } catch {
+        return unauthorizedUi()
       }
 
+      if (!(await isInstalledShop(shopifyApp.handle, shop))) {
+        const appParam = shopifyApp.handle === DEFAULT_SHOPIFY_APP_HANDLE ? '' : `&app=${encodeURIComponent(shopifyApp.handle)}`
+        return c.redirect(`/auth?shop=${encodeURIComponent(shop)}${appParam}`)
+      }
+
+      ;(c as unknown as { set: (key: string, value: string) => void }).set('shopifyApiKey', shopifyApp.apiKey)
       await next()
     })
 
-    app.use('/*', serveStatic({ root: options.staticDir }))
+    app.use('/*', async (c, next) => {
+      const pathname = new URL(c.req.url).pathname
+      if (isUiShellPath(pathname)) return next()
+      return staticHandler(c, next)
+    })
 
     // SPA fallback: serve index.html for non-API, non-static routes
-    app.get('*', serveStatic({ root: options.staticDir, path: 'index.html' }))
+    app.get('*', async (c) => {
+      const pathname = new URL(c.req.url).pathname
+      if (!isUiShellPath(pathname)) return staticHandler(c, async () => undefined)
+      const apiKey = (c as unknown as { get: (key: string) => unknown }).get('shopifyApiKey') as string | undefined
+      const html = readFileSync(indexHtmlPath, 'utf8')
+        .replace(/<meta name="shopify-api-key" content="[^"]*" \/>/, `<meta name="shopify-api-key" content="${apiKey ?? ''}" />`)
+        .replace(
+          /data-api-key="[^"]*" src="https:\/\/cdn\.shopify\.com\/shopifycloud\/app-bridge\.js"/,
+          `data-api-key="${apiKey ?? ''}" src="https://cdn.shopify.com/shopifycloud/app-bridge.js"`,
+        )
+      return c.html(html)
+    })
   }
 
   return app
@@ -161,6 +187,6 @@ export async function startApiServer(config: OpenShopConfig | ConfigGetter, port
 
   const server = serve({ fetch: app.fetch, port })
 
-  console.log(`[openshop] API server running on http://localhost:${port}`)
+  getRuntimeLogger().info(`[openshop] API server running on http://localhost:${port}`)
   return server
 }

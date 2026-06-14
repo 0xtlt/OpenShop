@@ -31,8 +31,8 @@ switch (command) {
       migrateFrameworkSchema,
       migrateProjectSchema,
       migrateSchema,
-      printMigrationStatus,
     } = await import('../src/cli/schema.ts')
+    const { printMigrationStatus } = await import('../src/cli/schema-status.ts')
     const { closeDb } = await import('../src/db/client.ts')
     try {
       const subcommand = process.argv[3]

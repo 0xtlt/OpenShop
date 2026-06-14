@@ -2,111 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
 import { useLocation } from 'preact-iso'
 import { apiFetch } from '../fetch'
 import { eventValue } from '../events'
-import type { RunDetail, LogEntry, StepResult } from '../types'
+import type { RunDetail, LogEntry } from '../types'
 import { statusTone } from '../types'
-
-interface AppBridgeModal extends HTMLElement {
-  show(): void
-  hide(): void
-  showOverlay(): void
-  hideOverlay(): void
-}
-
-const logLevelColor: Record<string, string> = {
-  info: '#2e72d2',
-  warn: '#b98900',
-  error: '#d72c0d',
-}
-
-const MAX_OUTPUT_CHARS = 2000
-
-function formatSize(json: string): string {
-  const bytes = new Blob([json]).size
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function buildStepRows(steps: StepResult[]) {
-  const sorted = [...steps].sort((a, b) => {
-    const timeDiff = new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime()
-    if (timeDiff !== 0) return timeDiff
-    return a.id.localeCompare(b.id)
-  })
-
-  const baseIndexByName = new Map<string, number>()
-  const occurrencesByName = new Map<string, number>()
-
-  return sorted.map((step) => {
-    let baseIndex = baseIndexByName.get(step.stepName)
-    if (!baseIndex) {
-      baseIndex = baseIndexByName.size + 1
-      baseIndexByName.set(step.stepName, baseIndex)
-    }
-
-    const occurrence = (occurrencesByName.get(step.stepName) ?? 0) + 1
-    occurrencesByName.set(step.stepName, occurrence)
-
-    return {
-      step,
-      label: occurrence === 1 ? String(baseIndex) : `${baseIndex}.${occurrence}`,
-      isRetry: occurrence > 1,
-    }
-  })
-}
-
-function StepRow({ step, label, isRetry }: { step: StepResult; label: string; isRetry: boolean }) {
-  const hasOutput = step.output != null
-
-  return (
-    <s-table-row>
-      <s-table-cell>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            minWidth: '20px', height: '20px', borderRadius: '999px',
-            padding: '0 6px',
-            background: '#f1f1f1', fontSize: '11px', fontWeight: 700, color: '#616161', flexShrink: 0,
-          }}>
-            {label}
-          </span>
-          <strong>{step.stepName}</strong>
-          {isRetry && <span style={{ color: '#8c9196', fontSize: '12px' }}>retry</span>}
-        </span>
-      </s-table-cell>
-      <s-table-cell>
-        <s-badge tone={statusTone[step.status] ?? 'auto'}>{step.status}</s-badge>
-      </s-table-cell>
-      <s-table-cell>{step.durationMs != null ? `${step.durationMs}ms` : '—'}</s-table-cell>
-      <s-table-cell>
-        {step.error && <span style={{ color: '#d72c0d', fontSize: '13px' }}>{step.error}</span>}
-        {hasOutput && (
-          <s-button variant="secondary" onClick={() => {
-            const modal = document.getElementById('output-modal') as AppBridgeModal | null
-            if (!modal) return
-            const pre = document.getElementById('output-modal-pre')
-            const title = document.getElementById('output-modal-title')
-            if (pre) {
-              const full = JSON.stringify(step.output, null, 2)
-              const truncated = full.length > MAX_OUTPUT_CHARS
-              pre.textContent = truncated ? full.slice(0, MAX_OUTPUT_CHARS) + '\n…' : full
-              pre.dataset.full = full
-              pre.dataset.stepName = step.stepName
-              pre.dataset.truncated = String(truncated)
-              pre.dataset.size = formatSize(full)
-              const sizeEl = document.getElementById('output-modal-size')
-              if (sizeEl) sizeEl.textContent = formatSize(full)
-            }
-            if (title) title.setAttribute('title', `Output — ${step.stepName}`)
-            modal.show()
-          }}>
-            Output
-          </s-button>
-        )}
-      </s-table-cell>
-    </s-table-row>
-  )
-}
+import { LogsSection } from './flow-run/LogsSection'
+import { OutputModal, StepRow, buildStepRows } from './flow-run/output'
+import { RunActionModals } from './flow-run/RunActionModals'
 
 export default function FlowRun({ id }: { id?: string }) {
   const { route } = useLocation()
@@ -257,88 +157,8 @@ export default function FlowRun({ id }: { id?: string }) {
 
   return (
     <>
-    {/* Output modal */}
-    <ui-modal id="output-modal">
-      <div style={{ padding: '16px' }}>
-        <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
-          <s-button variant="secondary" onClick={() => {
-            const pre = document.getElementById('output-modal-pre')
-            if (pre?.dataset.full) navigator.clipboard.writeText(pre.dataset.full)
-          }}>
-            Copy
-          </s-button>
-          <s-button variant="secondary" onClick={() => {
-            const pre = document.getElementById('output-modal-pre')
-            if (!pre?.dataset.full) return
-            const blob = new Blob([pre.dataset.full], { type: 'application/json' })
-            const a = document.createElement('a')
-            a.href = URL.createObjectURL(blob)
-            a.download = `${pre.dataset.stepName ?? 'output'}.json`
-            a.click()
-            URL.revokeObjectURL(a.href)
-          }}>
-            Download
-          </s-button>
-          <span id="output-modal-size" style={{ color: '#8c9196', fontSize: '12px', alignSelf: 'center', marginLeft: 'auto' }} />
-        </div>
-        <pre
-          id="output-modal-pre"
-          style={{
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-            fontSize: '12px',
-            lineHeight: '1.5',
-            background: '#fafafa',
-            borderRadius: '6px',
-            padding: '8px 12px',
-            overflow: 'auto',
-            maxHeight: '60vh',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-            margin: 0,
-            border: '1px solid #e3e3e3',
-          }}
-        />
-      </div>
-      <ui-title-bar id="output-modal-title" title="Output">
-        <button onClick={() => (document.getElementById('output-modal') as AppBridgeModal | null)?.hide()}>Close</button>
-      </ui-title-bar>
-    </ui-modal>
-
-    {/* Retry modal */}
-    <s-modal id="retry-modal" heading="Retry run" accessibility-label="Choose retry mode">
-      <s-stack direction="block" gap="base">
-        <s-text>How do you want to retry this run?</s-text>
-        <s-button variant="primary" disabled={retrying} onClick={async () => {
-          await retryRun('resume')
-          ;(document.getElementById('retry-modal') as AppBridgeModal | null)?.hideOverlay()
-        }}>
-          Resume — pick up where it failed
-        </s-button>
-        <s-button variant="secondary" disabled={retrying} onClick={async () => {
-          await retryRun('reset')
-          ;(document.getElementById('retry-modal') as AppBridgeModal | null)?.hideOverlay()
-        }}>
-          Restart — discard steps and start fresh
-        </s-button>
-      </s-stack>
-      <s-button slot="secondary-actions" variant="secondary" commandFor="retry-modal" command="--hide">
-        Cancel
-      </s-button>
-    </s-modal>
-
-    {/* Delete confirmation modal */}
-    <s-modal id="delete-modal" heading="Delete run" accessibility-label="Confirm run deletion">
-      <s-text>This will permanently delete this run, its steps, and all logs. This cannot be undone.</s-text>
-      <s-button slot="primary-action" variant="primary" tone="critical" onClick={async () => {
-        ;(document.getElementById('delete-modal') as AppBridgeModal | null)?.hideOverlay()
-        await deleteRun()
-      }}>
-        Delete
-      </s-button>
-      <s-button slot="secondary-actions" variant="secondary" commandFor="delete-modal" command="--hide">
-        Cancel
-      </s-button>
-    </s-modal>
+    <OutputModal />
+    <RunActionModals retrying={retrying} retryRun={retryRun} deleteRun={deleteRun} />
 
     <s-page heading={`Run #${run.id}`}>
       <s-link
@@ -396,160 +216,19 @@ export default function FlowRun({ id }: { id?: string }) {
         </s-table>
       </s-section>
 
-      {/* Logs */}
-      <s-section heading="Logs">
-        {/* Search bar */}
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
-          <div style={{ flex: 1 }}>
-            <s-search-field
-              label="Search logs"
-              labelAccessibilityVisibility="exclusive"
-              placeholder='|= "text" != "exclude" |~ "regex" C:3'
-              value={query}
-              onInput={handleQueryInput}
-            />
-          </div>
-          <s-button
-            variant="secondary"
-            accessibilityLabel="Show log query syntax"
-            aria-expanded={showHelp}
-            onClick={() => setShowHelp(!showHelp)}
-          >
-            ?
-          </s-button>
-        </div>
-
-        {/* Level toggles + export */}
-        <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
-          {(['info', 'warn', 'error'] as const).map((lvl) => (
-            <s-button
-              key={lvl}
-              variant={levels.has(lvl) ? 'primary' : 'secondary'}
-              onClick={() => toggleLevel(lvl)}
-            >
-              {lvl.toUpperCase()} ({levelCounts[lvl] ?? 0})
-            </s-button>
-          ))}
-          <span style={{ marginLeft: 'auto', fontSize: '12px', color: '#8c9196', alignSelf: 'center' }}>
-            {filteredLogs.length}/{totalLogs} logs
-          </span>
-          <s-button variant="secondary" onClick={async () => {
-            const params = new URLSearchParams()
-            if (query) params.set('q', query)
-            params.set('levels', [...levels].join(','))
-            params.set('format', 'json')
-            const res = await apiFetch(`/api/runs/${id}/logs/export?${params}`)
-            const blob = await res.blob()
-            const a = document.createElement('a')
-            a.href = URL.createObjectURL(blob)
-            a.download = `run-${id}-logs.json`
-            a.click()
-            URL.revokeObjectURL(a.href)
-          }}>JSON</s-button>
-          <s-button variant="secondary" onClick={async () => {
-            const params = new URLSearchParams()
-            if (query) params.set('q', query)
-            params.set('levels', [...levels].join(','))
-            params.set('format', 'csv')
-            const res = await apiFetch(`/api/runs/${id}/logs/export?${params}`)
-            const blob = await res.blob()
-            const a = document.createElement('a')
-            a.href = URL.createObjectURL(blob)
-            a.download = `run-${id}-logs.csv`
-            a.click()
-            URL.revokeObjectURL(a.href)
-          }}>CSV</s-button>
-        </div>
-
-        {/* Help */}
-        {showHelp && (
-          <div style={{ marginBottom: '12px' }}>
-            <s-banner tone="info" heading="Query syntax">
-              <div style={{ fontFamily: 'monospace', fontSize: '12px', lineHeight: '2' }}>
-                <div><strong>|= "text"</strong> — Contains (case-insensitive)</div>
-                <div><strong>!= "text"</strong> — Excludes</div>
-                <div><strong>|~ "regex"</strong> — Regex match</div>
-                <div><strong>C:N</strong> — Show N context lines around matches</div>
-                <div><strong>B:N / A:N</strong> — Before / After context only</div>
-                <div><strong>last:5m</strong> — Last 5 minutes (s/m/h/d)</div>
-                <div><strong>from:ISO to:ISO</strong> — Absolute date range</div>
-                <div><strong>between:start,end</strong> — Date range shorthand</div>
-                <div>Free text — Simple substring search</div>
-                <div style={{ marginTop: '4px' }}>Example: <code>|= "order" != "retry" last:1h C:2</code></div>
-              </div>
-            </s-banner>
-          </div>
-        )}
-
-        {/* Log viewer */}
-        {filteredLogs.length === 0 ? (
-          <s-text color="subdued">{totalLogs === 0 ? 'No logs.' : 'No matching logs.'}</s-text>
-        ) : (
-          <div
-            tabIndex={0}
-            role="log"
-            aria-label="Run logs"
-            style={{
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-            fontSize: '12px',
-            lineHeight: '1.7',
-            maxHeight: '500px',
-            overflowY: 'auto',
-            borderRadius: '8px',
-            background: '#fafafa',
-            padding: '8px 12px',
-          }}>
-            <style>{`
-              @keyframes logSlideIn {
-                from { opacity: 0; max-height: 0; transform: translateY(-4px); }
-                to { opacity: 1; max-height: 80px; transform: translateY(0); }
-              }
-              .log-line-new { animation: logSlideIn 0.4s ease-out both; }
-              .log-line-highlight { background: #fff3cd; }
-              .log-line-fade { transition: background 3s ease-out; background: transparent; }
-            `}</style>
-            {filteredLogs.map((log) => {
-              const isNew = newLogIds.has(log.id)
-              const isSearchMatch = log._matched === true && query
-              return (
-              <div
-                key={log.id}
-                className={isNew ? 'log-line-new log-line-highlight' : 'log-line-fade'}
-                style={{
-                  display: 'flex',
-                  gap: '10px',
-                  padding: '1px 4px',
-                  borderRadius: '3px',
-                  overflow: 'hidden',
-                  opacity: log._matched === false ? 0.5 : undefined,
-                  background: !isNew && isSearchMatch ? '#fff8e1' : undefined,
-                }}
-              >
-                <span style={{ color: '#8c9196', flexShrink: 0, minWidth: '75px' }}>
-                  {new Date(log.createdAt ?? 0).toLocaleTimeString()}
-                </span>
-                <span style={{
-                  color: logLevelColor[log.level] ?? 'inherit',
-                  fontWeight: 700,
-                  flexShrink: 0,
-                  minWidth: '40px',
-                }}>
-                  {log.level.toUpperCase()}
-                </span>
-                <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                  {log.message}
-                  {log.payload && Object.keys(log.payload).length > 0 && (
-                    <span style={{ color: '#8c9196' }}>
-                      {' '}{Object.entries(log.payload).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(' ')}
-                    </span>
-                  )}
-                </span>
-              </div>
-              )
-            })}
-          </div>
-        )}
-      </s-section>
+      <LogsSection
+        runId={id}
+        query={query}
+        levels={levels}
+        levelCounts={levelCounts}
+        filteredLogs={filteredLogs}
+        totalLogs={totalLogs}
+        newLogIds={newLogIds}
+        showHelp={showHelp}
+        onQueryInput={handleQueryInput}
+        onToggleHelp={() => setShowHelp(!showHelp)}
+        onToggleLevel={toggleLevel}
+      />
     </s-page>
     </>
   )

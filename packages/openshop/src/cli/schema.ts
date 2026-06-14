@@ -1,6 +1,5 @@
 import { dirname, resolve } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
-import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { sql } from 'drizzle-orm'
@@ -126,49 +125,6 @@ export async function warnAboutPendingProjectMigrations(cwd: string): Promise<vo
 
   console.warn(`[openshop] ${status.pending.length} project migration(s) pending: ${status.pending.join(', ')}`)
   console.warn('[openshop] Run `openshop migrate project` to apply project migrations.')
-}
-
-/**
- * Push database schema using drizzle-kit.
- * No codegen needed — Drizzle types are inferred from TypeScript.
- */
-export function pushSchema(cwd: string, options?: { silent?: boolean }) {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('[openshop] Refusing drizzle-kit push --force in production. Run `openshop migrate` before starting OpenShop.')
-  }
-
-  const configPath = resolve(cwd, 'drizzle.config.ts')
-  if (!existsSync(configPath)) {
-    console.warn('[openshop] No drizzle.config.ts found, skipping schema push')
-    return
-  }
-
-  const bin = resolve(cwd, 'node_modules', '.bin', 'drizzle-kit')
-  if (!existsSync(bin)) {
-    console.warn('[openshop] drizzle-kit not found, skipping schema push')
-    return
-  }
-
-  const result = spawnSync(bin, ['push', `--config=${configPath}`, '--force'], {
-    cwd,
-    encoding: 'utf8',
-    env: process.env,
-  })
-
-  const stdout = result.stdout ?? ''
-  const stderr = result.stderr ?? ''
-  if (!options?.silent) {
-    if (stdout) process.stdout.write(stdout)
-    if (stderr) process.stderr.write(stderr)
-  }
-
-  if (result.error) throw result.error
-  if (result.status !== 0) throw new Error(`[openshop] drizzle-kit push failed with exit code ${result.status}`)
-
-  // drizzle-kit can print prompt errors while still exiting with code 0.
-  if (/\bError:\s/.test(`${stdout}\n${stderr}`)) {
-    throw new Error('[openshop] drizzle-kit push reported errors')
-  }
 }
 
 export async function migrateFrameworkSchema(cwd: string, options?: { silent?: boolean }) {
@@ -299,30 +255,6 @@ function sqlErrorCode(error: unknown): string | undefined {
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return `${error.message}\n${error.cause instanceof Error ? error.cause.message : ''}`
   return String(error)
-}
-
-export async function printMigrationStatus(cwd: string): Promise<void> {
-  const [framework, project] = await Promise.all([
-    getFrameworkMigrationStatus(cwd),
-    getProjectMigrationStatus(cwd),
-  ])
-
-  printStatusGroup('Framework', framework)
-  printStatusGroup('Project', project)
-}
-
-function printStatusGroup(label: string, status: MigrationStatus): void {
-  console.log(`${label} migrations:`)
-  if (!status.folder) {
-    console.log('  folder: none')
-    console.log('  applied: 0')
-    console.log('  pending: 0')
-    return
-  }
-
-  console.log(`  folder: ${status.folder}`)
-  console.log(`  applied: ${status.applied.length}${status.applied.length ? ` (${status.applied.join(', ')})` : ''}`)
-  console.log(`  pending: ${status.pending.length}${status.pending.length ? ` (${status.pending.join(', ')})` : ''}`)
 }
 
 export async function migrateSchema(cwd: string, options?: { silent?: boolean }) {

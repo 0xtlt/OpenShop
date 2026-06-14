@@ -1,0 +1,17 @@
+{
+  "name": "openshop-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "@astrojs/starlight": "0.40.0",
+    "astro": "6.4.6",
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,6 +1,22 @@
 import { defineFlow } from 'openshop'
 import { type } from 'arktype'
 
+type RecentOrder = {
+  node: {
+    id: string
+    name: string
+    totalPriceSet: { shopMoney: { currencyCode: string } }
+    lineItems: { edges: unknown[] }
+  }
+}
+
+type WarehouseOrder = {
+  id: string
+  name: string
+  total: string
+  items: number
+}
+
 export const syncOrders = defineFlow({
   name: 'syncOrders',
   input: type({ limit: 'number.integer > 0' }),
@@ -28,7 +44,7 @@ export const syncOrders = defineFlow({
         }
       `, { variables: { first: input.limit } })
 
-      return data.orders.edges.map((edge) => ({
+      return data.orders.edges.map((edge: RecentOrder): WarehouseOrder => ({
         id: edge.node.id,
         name: edge.node.name,
         total: edge.node.totalPriceSet.shopMoney.currencyCode,
@@ -39,7 +55,7 @@ export const syncOrders = defineFlow({
     logger.info({ count: orders.length }, `Fetched ${orders.length} orders`)
 
     const transformed = await step('transform-data', async () => {
-      return orders.map((order) => ({
+      return orders.map((order: WarehouseOrder) => ({
         ref: order.name,
         amount: order.total,
         lineCount: order.items,

@@ -4,6 +4,7 @@ import { eq, and, inArray, lte, isNotNull, sql } from 'drizzle-orm'
 import { getDb } from '#db/client'
 import { flowRuns } from '#db/schema'
 import { runFlow } from '#engine/runner'
+import { getRuntimeLogger } from '../runtime/logger.ts'
 import type { OpenShopConfig, WorkerConfig } from '#types'
 
 const inputSchema = type('Record<string, unknown>')
@@ -35,19 +36,19 @@ export class Worker {
 
   async start(): Promise<void> {
     this.#running = true
-    console.log(`[openshop] Worker started (id=${this.#workerId.slice(0, 8)}, concurrency=${this.#config.concurrency})`)
+    getRuntimeLogger().info(`[openshop] Worker started (id=${this.#workerId.slice(0, 8)}, concurrency=${this.#config.concurrency})`)
     this.#loopPromise = this.#runLoop()
   }
 
   async stop(): Promise<void> {
     this.#running = false
-    console.log('[openshop] Worker stopping...')
+    getRuntimeLogger().info('[openshop] Worker stopping...')
     if (this.#loopPromise) await this.#loopPromise
     const deadline = Date.now() + this.#config.leaseDurationMs
     while (this.#activeRuns.size > 0 && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 200))
     }
-    console.log('[openshop] Worker stopped')
+    getRuntimeLogger().info('[openshop] Worker stopped')
   }
 
   updateConfig(config: OpenShopConfig): void {
@@ -91,7 +92,7 @@ export class Worker {
       ))
 
     // Atomic claim using FOR UPDATE SKIP LOCKED
-    const claimed = await db.execute<{ id: string; flow_name: string; shop: string; input: unknown; attempts: number }>(sql`
+    const claimed = await db.execute<{ id: string; flow_name: string; app_handle: string; shop: string; input: unknown; attempts: number }>(sql`
       WITH candidate AS (
         SELECT id FROM flow_runs
         WHERE (
@@ -110,7 +111,7 @@ export class Worker {
         available_at = ${leaseUntil},
         started_at = COALESCE(started_at, ${now})
       WHERE id = (SELECT id FROM candidate)
-      RETURNING id, flow_name, shop, input, attempts
+      RETURNING id, flow_name, app_handle, shop, input, attempts
     `)
 
     const rows = claimed.rows ?? claimed
@@ -120,18 +121,19 @@ export class Worker {
     return {
       id: row.id,
       flowName: row.flow_name,
+      shopifyApp: row.app_handle,
       shop: row.shop,
       input: row.input,
       attempt: row.attempts,
     }
   }
 
-  #processRun(claimed: { id: string; flowName: string; shop: string; input: unknown; attempt: number }): void {
+  #processRun(claimed: { id: string; flowName: string; shopifyApp: string; shop: string; input: unknown; attempt: number }): void {
     const promise = this.#executeAndCleanup(claimed)
     this.#activeRuns.set(claimed.id, promise)
   }
 
-  async #executeAndCleanup(claimed: { id: string; flowName: string; shop: string; input: unknown; attempt: number }): Promise<void> {
+  async #executeAndCleanup(claimed: { id: string; flowName: string; shopifyApp: string; shop: string; input: unknown; attempt: number }): Promise<void> {
     const db = getDb()
     try {
       const flow = this.#openshopConfig.flows[claimed.flowName]
@@ -150,6 +152,7 @@ export class Worker {
         flowName: claimed.flowName,
         input,
         config: this.#openshopConfig,
+        shopifyApp: claimed.shopifyApp,
         shop: claimed.shop,
         onHeartbeat: async () => {
           const leaseUntil = new Date(Date.now() + this.#config.leaseDurationMs)

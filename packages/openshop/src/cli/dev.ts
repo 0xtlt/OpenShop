@@ -2,7 +2,7 @@ import { resolve, dirname } from 'node:path'
 import { fork, type ChildProcess } from 'node:child_process'
 import { watch, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { pushSchema } from './schema.ts'
+import { pushSchema } from './schema-push.ts'
 import { ApiProcessRestartCoordinator } from './dev-restart.ts'
 import { loadEnvFile } from './env.ts'
 

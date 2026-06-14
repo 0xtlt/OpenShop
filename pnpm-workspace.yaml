@@ -1,11 +1,15 @@
 packages:
   - packages/*
   - apps/*
+  - docs
 
 overrides:
-  brace-expansion: 5.0.5
-  esbuild: 0.28.0
-  '@esbuild-kit/core-utils>esbuild': 0.28.0
+  brace-expansion: 5.0.6
+  esbuild: 0.28.1
+  '@esbuild-kit/core-utils>esbuild': 0.28.1
+  shell-quote: 1.8.4
+  ws: 8.21.0
+  qs: 6.15.2
   lodash: 4.18.1
   '@graphql-codegen/plugin-helpers>lodash': 4.18.1
   picomatch: 4.0.4
@@ -14,3 +18,4 @@ overrides:
 allowBuilds:
   '@parcel/watcher': true
   esbuild: true
+  sharp: true

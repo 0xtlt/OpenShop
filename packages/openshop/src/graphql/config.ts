@@ -4,15 +4,31 @@ const DEFAULT_API_VERSION = '2026-04'
 const DEFAULT_DOCUMENTS = ['./flows/**/*.{ts,tsx}', './webhooks/**/*.{ts,tsx}', './queries/**/*.{ts,tsx}']
 const DEFAULT_OUTPUT_DIR = './types/generated'
 
+type GqlTemplateNode = {
+  type?: string
+  quasis?: Array<{ value?: { raw?: string } }>
+  leadingComments?: Array<{ value?: string; start?: number }>
+}
+
+interface PluckOptions {
+  gqlMagicComment?: string
+}
+
+interface PluckLocation {
+  start: number
+  end: number
+  leadingComments?: Array<{ start?: number }>
+}
+
 /** Pluck config for detecting `#graphql` inside template literals. */
 const pluckConfig = {
-  isGqlTemplateLiteral: (node: any, options: any) => {
-    const hasInternalGqlComment = node.type === 'TemplateLiteral' && /\s*#graphql\s*\n/i.test(node.quasis[0]?.value?.raw || '')
+  isGqlTemplateLiteral: (node: GqlTemplateNode, options: PluckOptions) => {
+    const hasInternalGqlComment = node.type === 'TemplateLiteral' && /\s*#graphql\s*\n/i.test(node.quasis?.[0]?.value?.raw || '')
     if (hasInternalGqlComment) return true
     const leadingComment = node.leadingComments?.[node.leadingComments.length - 1]
     return leadingComment?.value?.trim().toLowerCase() === options?.gqlMagicComment
   },
-  pluckStringFromFile: (code: string, { start, end, leadingComments }: any) => {
+  pluckStringFromFile: (code: string, { start, end, leadingComments }: PluckLocation) => {
     let gqlTemplate = code.slice(start + 1, end - 1).replace(/\$\{([^}]*)\}/g, (_: string, m1: string) => '#REQUIRED_VAR=' + m1).split('\\`').join('`')
     const chunkStart = leadingComments?.[0]?.start ?? start
     const codeBeforeNode = code.slice(0, chunkStart)

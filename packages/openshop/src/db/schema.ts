@@ -1,4 +1,5 @@
 import { pgTable, text, boolean, integer, timestamp, json, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core'
+import type { PgColumnBuilderBase, PgTableExtraConfigValue } from 'drizzle-orm/pg-core'
 import type { FlowRunStatus, LogLevel, StepStatus } from '../types.ts'
 
 // ─── defineModel helper ─────────────────────────────────────────────
@@ -11,7 +12,7 @@ interface ModelOptions {
   /** Include `updatedAt` column (default: true) */
   updatedAt?: boolean
   /** Define custom indexes/constraints for this model */
-  indexes?: (table: any) => any[]
+  indexes?: (table: Record<string, unknown>) => PgTableExtraConfigValue[]
 }
 
 /**
@@ -23,14 +24,14 @@ interface ModelOptions {
  */
 export function defineModel<TName extends string>(
   tableName: TName,
-  columns: Record<string, any>,
+  columns: Record<string, PgColumnBuilderBase>,
   options?: ModelOptions,
 ) {
   const includeShop = options?.shop !== false
   const includeCreatedAt = options?.createdAt !== false
   const includeUpdatedAt = options?.updatedAt !== false
 
-  const base: Record<string, any> = {
+  const base: Record<string, PgColumnBuilderBase> = {
     id: uuid('id').primaryKey().defaultRandom(),
   }
 
@@ -38,23 +39,27 @@ export function defineModel<TName extends string>(
   if (includeCreatedAt) base.createdAt = timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
   if (includeUpdatedAt) base.updatedAt = timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 
-  return pgTable(tableName, { ...base, ...columns }, options?.indexes)
+  return pgTable(tableName, { ...base, ...columns }, options?.indexes as unknown as Parameters<typeof pgTable>[2])
 }
 
 // ─── Framework schema ───────────────────────────────────────────────
 
 export const installations = pgTable('installations', {
   id: uuid('id').primaryKey().defaultRandom(),
-  shop: text('shop').unique().notNull(),
+  appHandle: text('app_handle').default('default').notNull(),
+  shop: text('shop').notNull(),
   accessToken: text('access_token'),
   scopes: text('scopes'),
   nonce: text('nonce'),
   installedAt: timestamp('installed_at', { withTimezone: true }).defaultNow().notNull(),
   uninstalledAt: timestamp('uninstalled_at', { withTimezone: true }),
-})
+}, (table) => [
+  uniqueIndex('installations_app_shop_unique').on(table.appHandle, table.shop),
+])
 
 export const flowRuns = pgTable('flow_runs', {
   id: uuid('id').primaryKey().defaultRandom(),
+  appHandle: text('app_handle').default('default').notNull(),
   shop: text('shop').notNull(),
   flowName: text('flow_name').notNull(),
   status: text('status').$type<FlowRunStatus>().default('pending').notNull(),
@@ -71,8 +76,8 @@ export const flowRuns = pgTable('flow_runs', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   index('flow_runs_status_available_created_idx').on(table.status, table.availableAt, table.createdAt),
-  index('flow_runs_shop_created_idx').on(table.shop, table.createdAt),
-  index('flow_runs_shop_flow_status_idx').on(table.shop, table.flowName, table.status),
+  index('flow_runs_app_shop_created_idx').on(table.appHandle, table.shop, table.createdAt),
+  index('flow_runs_app_shop_flow_status_idx').on(table.appHandle, table.shop, table.flowName, table.status),
 ])
 
 export const stepResults = pgTable('step_results', {
@@ -92,6 +97,7 @@ export const stepResults = pgTable('step_results', {
 
 export const providerConfigs = pgTable('provider_configs', {
   id: uuid('id').primaryKey().defaultRandom(),
+  appHandle: text('app_handle').default('default').notNull(),
   shop: text('shop').notNull(),
   providerName: text('provider_name').notNull(),
   config: json('config').default({}),
@@ -99,17 +105,18 @@ export const providerConfigs = pgTable('provider_configs', {
   lastCheckOk: boolean('last_check_ok'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
-  uniqueIndex('provider_configs_shop_provider_unique').on(table.shop, table.providerName),
+  uniqueIndex('provider_configs_app_shop_provider_unique').on(table.appHandle, table.shop, table.providerName),
 ])
 
 export const cronOverrides = pgTable('cron_overrides', {
   id: uuid('id').primaryKey().defaultRandom(),
+  appHandle: text('app_handle').default('default').notNull(),
   shop: text('shop').notNull(),
   cronKey: text('cron_key').notNull(), // "flow:schedule"
   enabled: boolean('enabled').default(true).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
-  uniqueIndex('cron_overrides_shop_cron_unique').on(table.shop, table.cronKey),
+  uniqueIndex('cron_overrides_app_shop_cron_unique').on(table.appHandle, table.shop, table.cronKey),
 ])
 
 export const logs = pgTable('logs', {

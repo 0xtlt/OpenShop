@@ -10,7 +10,7 @@
     "skipLibCheck": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
-    "types": ["@shopify/polaris-types"],
+    "types": ["node", "@shopify/polaris-types"],
     "paths": {
       "#db/*": ["./src/db/*"],
       "#engine/*": ["./src/engine/*"],

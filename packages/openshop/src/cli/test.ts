@@ -1,7 +1,7 @@
 import { resolve } from 'node:path'
 import { existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { pushSchema } from './schema.ts'
+import { pushSchema } from './schema-push.ts'
 
 export async function runTests(args: string[]) {
   const cwd = process.cwd()

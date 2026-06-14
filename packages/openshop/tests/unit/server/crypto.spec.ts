@@ -1,5 +1,5 @@
 import { test } from '@japa/runner'
-import { encryptConfig, decryptConfig } from '#server/crypto'
+import { encryptConfig, decryptConfig, encryptString, decryptString } from '#server/crypto'
 
 test.group('crypto', () => {
   test('encrypt returns encrypted envelope', ({ assert }) => {
@@ -41,5 +41,17 @@ test.group('crypto', () => {
   test('null input returns empty object', ({ assert }) => {
     const result = decryptConfig(null)
     assert.deepEqual(result, {})
+  })
+
+  test('encryptString + decryptString roundtrip', ({ assert }) => {
+    const encrypted = encryptString('offline-token')
+    assert.notEqual(encrypted, 'offline-token')
+    assert.isTrue(encrypted.startsWith('enc:aes-256-gcm:'))
+    assert.equal(decryptString(encrypted), 'offline-token')
+  })
+
+  test('decryptString keeps legacy plaintext values', ({ assert }) => {
+    assert.equal(decryptString('legacy-token'), 'legacy-token')
+    assert.isNull(decryptString(null))
   })
 })

@@ -1,13 +1,15 @@
 {
   "name": "openshop",
   "version": "0.1.1",
+  "license": "Elastic-2.0",
   "type": "module",
   "engines": {
     "node": ">=26 <27"
   },
   "scripts": {
-    "build:cli": "node scripts/build-cli.mjs",
+    "build:cli": "tsc -p tsconfig.build.json && node scripts/build-cli.mjs",
     "prepack": "pnpm run build:cli",
+    "smoke:pack": "node scripts/smoke-pack.mjs",
     "test": "node tests/bootstrap.ts",
     "test:integration": "node tests/bootstrap-integration.ts"
   },
@@ -20,41 +22,42 @@
     "dist",
     "src",
     "templates",
+    "LICENSE",
     "README.md"
   ],
   "exports": {
     ".": {
-      "types": "./src/index.ts",
+      "types": "./dist/types/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./vite": {
-      "types": "./src/vite/codegen-plugin.ts",
+      "types": "./dist/types/vite/codegen-plugin.d.ts",
       "import": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./test": {
-      "types": "./src/test/index.ts",
+      "types": "./dist/types/test/index.d.ts",
       "import": "./dist/test.js",
       "default": "./dist/test.js"
     },
     "./schema": {
-      "types": "./src/db/schema.ts",
+      "types": "./dist/types/db/schema.d.ts",
       "import": "./dist/schema.js",
       "default": "./dist/schema.js"
     },
     "./drizzle": {
-      "types": "./src/db/drizzle-config.ts",
+      "types": "./dist/types/db/drizzle-config.d.ts",
       "import": "./dist/drizzle.js",
       "default": "./dist/drizzle.js"
     },
     "./eslint": {
-      "types": "./src/eslint/config.ts",
+      "types": "./dist/types/eslint/config.d.ts",
       "import": "./dist/eslint.js",
       "default": "./dist/eslint.js"
     },
     "./graphql": {
-      "types": "./src/graphql/config.ts",
+      "types": "./dist/types/graphql/config.d.ts",
       "import": "./dist/graphql.js",
       "default": "./dist/graphql.js"
     }
@@ -67,19 +70,19 @@
     "#types": "./src/types.ts"
   },
   "dependencies": {
-    "@hono/node-server": "2.0.2",
+    "@hono/node-server": "2.0.4",
     "@preact/preset-vite": "2.10.5",
     "@types/pg": "^8.18.0",
     "arktype": "^2.2.0",
     "croner": "^10.0.0",
     "drizzle-orm": "0.45.2",
-    "esbuild": "0.28.0",
-    "hono": "4.12.18",
+    "esbuild": "0.28.1",
+    "hono": "4.12.25",
     "pg": "^8.20.0",
-    "preact": "10.29.1",
+    "preact": "10.29.2",
     "preact-iso": "2.12.0",
     "ts-cron-validator": "^1.1.5",
-    "vite": "8.0.12"
+    "vite": "8.0.16"
   },
   "peerDependencies": {
     "@graphql-eslint/eslint-plugin": ">=4",
@@ -91,6 +94,7 @@
     "@japa/assert": "4",
     "@japa/runner": "5",
     "@shopify/polaris-types": "^1.0.1",
+    "@types/node": "25.9.3",
     "drizzle-kit": "^0.31.10",
     "eslint": "10.3.0",
     "typescript": "^5.9.0"

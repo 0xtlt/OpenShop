@@ -12,7 +12,7 @@
     "codegen:watch": "openshop codegen:watch",
     "shopify": "shopify app dev --config shopify.app.openshop-demo.toml --skip-dependencies-installation",
     "test": "openshop test",
-    "lint": "tsc --noEmit; eslint ."
+    "lint": "tsc --noEmit && eslint ."
   },
   "dependencies": {
     "@graphql-codegen/cli": "7.0.0",

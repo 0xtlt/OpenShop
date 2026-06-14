@@ -9,14 +9,29 @@ import { createConfig } from './helpers.ts'
 
 const secret = process.env.SHOPIFY_API_SECRET!
 const apiKey = process.env.SHOPIFY_API_KEY!
+const MULTI_SHOPIFY = {
+  scopes: 'read_products',
+  apps: {
+    clientA: {
+      apiKey: 'client-a-key',
+      apiSecret: 'client-a-secret',
+      appUrl: 'https://client-a.example.test',
+    },
+    clientB: {
+      apiKey: 'client-b-key',
+      apiSecret: 'client-b-secret',
+      appUrl: 'https://client-b.example.test',
+    },
+  },
+}
 
-function signProxyQuery(params: Record<string, string>): Record<string, string> {
+function signProxyQuery(params: Record<string, string>, signingSecret = secret): Record<string, string> {
   const sorted = Object.keys(params)
     .filter((k) => k !== 'signature')
     .sort()
     .map((k) => `${k}=${params[k]}`)
     .join('')
-  const signature = createHmac('sha256', secret).update(sorted).digest('hex')
+  const signature = createHmac('sha256', signingSecret).update(sorted).digest('hex')
   return { ...params, signature }
 }
 
@@ -24,7 +39,7 @@ function queryString(q: Record<string, string>): string {
   return new URLSearchParams(q).toString()
 }
 
-function createJwt(shop: string, sub = 'gid://shopify/Customer/123', aud = apiKey, expOffsetSeconds = 3600): string {
+function createJwt(shop: string, sub = 'gid://shopify/Customer/123', aud = apiKey, expOffsetSeconds = 3600, signingSecret = secret): string {
   const now = Math.floor(Date.now() / 1000)
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
   const payload = Buffer.from(JSON.stringify({
@@ -38,18 +53,19 @@ function createJwt(shop: string, sub = 'gid://shopify/Customer/123', aud = apiKe
     jti: 'proxy-jti',
     sid: 'proxy-sid',
   })).toString('base64url')
-  const sig = createHmac('sha256', secret).update(`${header}.${payload}`).digest('base64url')
+  const sig = createHmac('sha256', signingSecret).update(`${header}.${payload}`).digest('base64url')
   return `${header}.${payload}.${sig}`
 }
 
 const proxyHandlerFile = `
 export default {
-  GET: async ({ shop, customerId, auth, query }) => ({
+  GET: async ({ shop, shopifyApp, customerId, auth, query }) => ({
     pong: true,
     from: 'proxy-spec',
     shop,
     customerId,
     authKind: auth.kind,
+    shopifyApp,
     queryShop: query.shop ?? null,
     queryCustomerId: query.logged_in_customer_id ?? null,
   }),
@@ -93,8 +109,20 @@ test.group('Proxy routes (createProxyRoutes)', (group) => {
     assert.equal(data.shop, 'test.myshopify.com')
     assert.equal(data.customerId, '42')
     assert.equal(data.authKind, 'appProxyHmac')
+    assert.equal(data.shopifyApp, 'default')
     assert.equal(data.queryShop, 'test.myshopify.com')
     assert.equal(data.queryCustomerId, '42')
+  })
+
+  test('GET with app proxy signature resolves the matching Shopify app', async ({ assert }) => {
+    const app = await createProxyRoutes(tmpDir, () => createConfig({}, { shopify: MULTI_SHOPIFY }))
+    const q = signProxyQuery({ shop: 'client-b-shop.myshopify.com', logged_in_customer_id: '42' }, 'client-b-secret')
+    const res = await app.request(`http://localhost/ping?${queryString(q)}`)
+    assert.equal(res.status, 200)
+    const data = await res.json()
+    assert.equal(data.shop, 'client-b-shop.myshopify.com')
+    assert.equal(data.authKind, 'appProxyHmac')
+    assert.equal(data.shopifyApp, 'clientB')
   })
 
   test('extension mode rejects unsigned forged query identity', async ({ assert }) => {
@@ -115,8 +143,23 @@ test.group('Proxy routes (createProxyRoutes)', (group) => {
     assert.equal(data.shop, 'jwt-shop.myshopify.com')
     assert.equal(data.customerId, '123')
     assert.equal(data.authKind, 'customerAccountJwt')
+    assert.equal(data.shopifyApp, 'default')
     assert.equal(data.queryShop, 'jwt-shop.myshopify.com')
     assert.equal(data.queryCustomerId, '123')
+  })
+
+  test('extension mode resolves Shopify app from JWT audience', async ({ assert }) => {
+    const app = await createProxyRoutes(tmpDir, () => createConfig({}, { shopify: MULTI_SHOPIFY }), { authModes: ['customerAccountJwt'] })
+    const token = createJwt('jwt-client-b.myshopify.com', 'gid://shopify/Customer/123', 'client-b-key', 3600, 'client-b-secret')
+    const res = await app.request('http://localhost/ping?shop=attacker.myshopify.com&logged_in_customer_id=999', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    assert.equal(res.status, 200)
+    const data = await res.json()
+    assert.equal(data.shop, 'jwt-client-b.myshopify.com')
+    assert.equal(data.authKind, 'customerAccountJwt')
+    assert.equal(data.shopifyApp, 'clientB')
+    assert.equal(data.queryShop, 'jwt-client-b.myshopify.com')
   })
 
   test('extension mode rejects JWT with wrong audience', async ({ assert }) => {

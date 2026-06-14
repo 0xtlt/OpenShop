@@ -10,15 +10,30 @@ import { createConfig, truncateAll } from './helpers.ts'
 
 const simpleFlow = { name: 'static-flow', async run() {} }
 const secret = process.env.SHOPIFY_API_SECRET!
+const MULTI_SHOPIFY = {
+  scopes: 'read_products',
+  apps: {
+    clientA: {
+      apiKey: 'client-a-key',
+      apiSecret: 'client-a-secret',
+      appUrl: 'https://client-a.example.test',
+    },
+    clientB: {
+      apiKey: 'client-b-key',
+      apiSecret: 'client-b-secret',
+      appUrl: 'https://client-b.example.test',
+    },
+  },
+}
 
-function signedLaunchUrl(path = '/', shop = 'static-test.myshopify.com'): string {
+function signedLaunchUrl(path = '/', shop = 'static-test.myshopify.com', signingSecret = secret): string {
   const params: Record<string, string> = {
     host: 'admin.shopify.com/store/static-test',
     shop,
     timestamp: '1770000000',
   }
   const message = Object.keys(params).sort().map((key) => `${key}=${params[key]}`).join('&')
-  const hmac = createHmac('sha256', secret).update(message).digest('hex')
+  const hmac = createHmac('sha256', signingSecret).update(message).digest('hex')
   const query = new URLSearchParams({ ...params, hmac })
   return `http://localhost${path}?${query.toString()}`
 }
@@ -92,6 +107,35 @@ test.group('Static files and SPA fallback', (group) => {
     assert.equal(res.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive, nosnippet')
     const text = await res.text()
     assert.include(text, 'spa-shell')
+  })
+
+  test('GET with signed Shopify launch injects the matching app bridge API key', async ({ assert }) => {
+    const multiStaticRoot = mkdtempSync(join(tmpdir(), 'openshop-static-multi-test-'))
+    writeFileSync(
+      join(multiStaticRoot, 'index.html'),
+      '<html><head><meta name="shopify-api-key" content="" /><script data-api-key="" src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script></head><body>spa-shell</body></html>',
+      'utf8',
+    )
+    try {
+      const multiApp = await createServer(
+        () => createConfig({ 'static-flow': simpleFlow }, { shopify: MULTI_SHOPIFY }),
+        { staticDir: multiStaticRoot },
+      )
+      await getDb().insert(installations).values({
+        appHandle: 'clientB',
+        shop: 'static-client-b.myshopify.com',
+        accessToken: 'offline-token',
+        scopes: 'read_products',
+      })
+
+      const res = await multiApp.request(signedLaunchUrl('/', 'static-client-b.myshopify.com', 'client-b-secret'))
+      assert.equal(res.status, 200)
+      const text = await res.text()
+      assert.include(text, '<meta name="shopify-api-key" content="client-b-key" />')
+      assert.include(text, 'data-api-key="client-b-key"')
+    } finally {
+      rmSync(multiStaticRoot, { recursive: true, force: true })
+    }
   })
 
   test('GET with signed Shopify launch redirects uninstalled shops to auth', async ({ assert }) => {

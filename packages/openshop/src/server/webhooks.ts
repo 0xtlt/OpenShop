@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
-import { verifyWebhookHmac } from '#server/hmac'
+import { hasConfiguredShopifyAppSecret, resolveShopifyAppByWebhookHmac } from '#server/shopify-apps'
 import type { OpenShopConfig } from '#types'
+import { getRuntimeLogger } from '../runtime/logger.ts'
 
 /**
  * Creates webhook routes from the config's webhook definitions.
@@ -9,7 +10,7 @@ import type { OpenShopConfig } from '#types'
  */
 export function createWebhookRoutes(getConfig: () => OpenShopConfig) {
   const webhooks = new Hono()
-  const secret = process.env.SHOPIFY_API_SECRET ?? ''
+  const logger = getRuntimeLogger()
 
   // Catch-all webhook handler — matches topic from header
   webhooks.post('/', async (c) => {
@@ -20,9 +21,12 @@ export function createWebhookRoutes(getConfig: () => OpenShopConfig) {
     const shop = c.req.header('x-shopify-shop-domain') ?? ''
     const apiVersion = c.req.header('x-shopify-api-version') ?? ''
 
-    // Verify HMAC
-    if (!secret) return c.json({ error: 'SHOPIFY_API_SECRET is not configured' }, 500)
-    if (!verifyWebhookHmac(body, hmac, secret)) {
+    if (!hasConfiguredShopifyAppSecret(config)) return c.json({ error: 'SHOPIFY_API_SECRET is not configured' }, 500)
+
+    let shopifyApp
+    try {
+      shopifyApp = resolveShopifyAppByWebhookHmac(config, body, hmac)
+    } catch {
       return c.json({ error: 'Invalid webhook HMAC' }, 401)
     }
 
@@ -33,7 +37,7 @@ export function createWebhookRoutes(getConfig: () => OpenShopConfig) {
     const handler = config.webhooks?.[topic] ?? config.webhooks?.[normalizedTopic]
 
     if (!handler) {
-      console.warn(`[openshop] No webhook handler for topic "${topic}"`)
+      logger.warn(`[openshop] No webhook handler for topic "${topic}"`)
       return c.json({ ok: true }) // Always return 200 to Shopify
     }
 
@@ -45,9 +49,9 @@ export function createWebhookRoutes(getConfig: () => OpenShopConfig) {
     }
 
     try {
-      await handler.run({ topic, shop, payload, apiVersion })
+      await handler.run({ topic, shop, shopifyApp: shopifyApp.handle, payload, apiVersion })
     } catch (error) {
-      console.error(`[openshop] Webhook handler error for "${topic}":`, error)
+      logger.error(`[openshop] Webhook handler error for "${topic}"`, { error })
       // Still return 200 — don't let Shopify retry on handler errors
     }
 

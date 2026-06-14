@@ -8,6 +8,13 @@
       "when": 1778544000000,
       "tag": "0001_runtime_constraints",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781429000000,
+      "tag": "0002_multi_shopify_apps",
+      "breakpoints": true
     }
   ]
 }

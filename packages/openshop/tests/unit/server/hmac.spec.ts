@@ -27,6 +27,12 @@ test.group('verifyQueryHmac', () => {
     assert.isFalse(verifyQueryHmac({ shop: 'test.myshopify.com' }, SECRET))
   })
 
+  test('empty secret returns false even when query is signed with an empty secret', ({ assert }) => {
+    const query = signQuery({ shop: 'test.myshopify.com', timestamp: '123456' }, '')
+    assert.isFalse(verifyQueryHmac(query, ''))
+    assert.isFalse(verifyQueryHmac(query, '   '))
+  })
+
   test('wrong hmac returns false', ({ assert }) => {
     const query = signQuery({ shop: 'test.myshopify.com' })
     query.hmac = 'deadbeef'
@@ -55,5 +61,12 @@ test.group('verifyWebhookHmac', () => {
     const body = '{"id":123}'
     const hmac = signBody('{"id":456}')
     assert.isFalse(verifyWebhookHmac(body, hmac, SECRET))
+  })
+
+  test('empty secret returns false even when body is signed with an empty secret', ({ assert }) => {
+    const body = '{"id":123}'
+    const hmac = signBody(body, '')
+    assert.isFalse(verifyWebhookHmac(body, hmac, ''))
+    assert.isFalse(verifyWebhookHmac(body, hmac, '   '))
   })
 })

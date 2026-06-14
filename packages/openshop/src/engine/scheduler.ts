@@ -1,38 +1,64 @@
 import { Cron } from 'croner'
-import { eq, and, isNull } from 'drizzle-orm'
+import { eq, and, isNull, inArray } from 'drizzle-orm'
 import { getDb } from '#db/client'
 import { installations, cronOverrides } from '#db/schema'
 import { dispatchFlow } from '#engine/dispatch'
+import { getRuntimeLogger } from '../runtime/logger.ts'
+import { DEFAULT_SHOPIFY_APP_HANDLE } from '#server/shopify-apps'
 import type { OpenShopConfig, CronEntry } from '#types'
 
 const activeCrons: Cron[] = []
 
-async function resolveShops(entry: CronEntry): Promise<string[]> {
+interface CronTarget {
+  shopifyApp: string
+  shop: string
+}
+
+async function resolveInstalledTargets(shops: string[]): Promise<CronTarget[]> {
+  if (shops.length === 0) return []
+  const db = getDb()
+  const rows = await db.select({ shopifyApp: installations.appHandle, shop: installations.shop })
+    .from(installations)
+    .where(and(isNull(installations.uninstalledAt), inArray(installations.shop, shops)))
+
+  if (shops.length === 1) return rows.length ? rows : [{ shopifyApp: DEFAULT_SHOPIFY_APP_HANDLE, shop: shops[0]! }]
+
+  const results: CronTarget[] = []
+  for (const shop of shops) {
+    const matches = rows.filter((row) => row.shop === shop)
+    if (matches.length) results.push(...matches)
+    else results.push({ shopifyApp: DEFAULT_SHOPIFY_APP_HANDLE, shop })
+  }
+  return results
+}
+
+async function resolveTargets(entry: CronEntry): Promise<CronTarget[]> {
   const mode = entry.shops ?? 'global'
 
-  if (mode === 'global') return ['__global__']
+  if (mode === 'global') return [{ shopifyApp: DEFAULT_SHOPIFY_APP_HANDLE, shop: '__global__' }]
 
   if (mode === 'all') {
     const db = getDb()
-    const rows = await db.select({ shop: installations.shop })
+    const rows = await db.select({ shopifyApp: installations.appHandle, shop: installations.shop })
       .from(installations)
       .where(isNull(installations.uninstalledAt))
-    return rows.map((r) => r.shop)
+    return rows
   }
 
-  if (Array.isArray(mode)) return mode
+  if (Array.isArray(mode)) return resolveInstalledTargets(mode)
 
-  return [mode]
+  return resolveInstalledTargets([mode])
 }
 
 export function startScheduler(config: OpenShopConfig) {
   if (!config.crons?.length) return
+  const logger = getRuntimeLogger()
 
   for (const entry of config.crons) {
     const { schedule, flow } = entry
 
     if (!config.flows[flow]) {
-      console.warn(`[openshop] Cron references unknown flow "${flow}", skipping`)
+      logger.warn(`[openshop] Cron references unknown flow "${flow}", skipping`)
       continue
     }
 
@@ -45,32 +71,32 @@ export function startScheduler(config: OpenShopConfig) {
     const cronKey = `${flow}:${schedule}`
 
     const job = new Cron(schedule, async () => {
-      const shops = await resolveShops(entry)
+      const targets = await resolveTargets(entry)
 
-      if (shops.length === 0) {
-        console.log(`[openshop] Cron "${flow}": no shops to run for, skipping`)
+      if (targets.length === 0) {
+        logger.info(`[openshop] Cron "${flow}": no shops to run for, skipping`)
         return
       }
 
-      console.log(`[openshop] Cron triggered: ${flow} → ${shops.length} shop(s)`)
+      logger.info(`[openshop] Cron triggered: ${flow} → ${targets.length} target(s)`)
 
       const db = getDb()
-      for (const shop of shops) {
+      for (const { shopifyApp, shop } of targets) {
         try {
           // Check if cron is disabled for this shop
           const [override] = await db.select({ enabled: cronOverrides.enabled })
             .from(cronOverrides)
-            .where(and(eq(cronOverrides.cronKey, cronKey), eq(cronOverrides.shop, shop)))
+            .where(and(eq(cronOverrides.appHandle, shopifyApp), eq(cronOverrides.cronKey, cronKey), eq(cronOverrides.shop, shop)))
             .limit(1)
 
           if (override && !override.enabled) {
-            console.log(`[openshop] Cron "${flow}" disabled for ${shop}, skipping`)
+            logger.info(`[openshop] Cron "${flow}" disabled for ${shop}, skipping`)
             continue
           }
 
-          await dispatchFlow({ flowName: flow, input: entry.input, config, shop })
+          await dispatchFlow({ flowName: flow, input: entry.input, config, shopifyApp, shop })
         } catch (error) {
-          console.error(`[openshop] Cron flow "${flow}" failed for ${shop}:`, error)
+          logger.error(`[openshop] Cron flow "${flow}" failed for ${shop}`, { error })
         }
       }
     })
@@ -78,7 +104,7 @@ export function startScheduler(config: OpenShopConfig) {
     activeCrons.push(job)
     const mode = entry.shops ?? 'global'
     const label = entry.name ?? flow
-    console.log(`[openshop] Cron registered: "${label}" → ${schedule} (${mode})`)
+    logger.info(`[openshop] Cron registered: "${label}" → ${schedule} (${mode})`)
   }
 }
 

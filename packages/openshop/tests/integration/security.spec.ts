@@ -11,18 +11,34 @@ import { truncateAll, createConfig } from './helpers.ts'
 const SECRET = process.env.SHOPIFY_API_SECRET!
 const SHOP_A = 'shop-a.myshopify.com'
 const SHOP_B = 'shop-b.myshopify.com'
+const MULTI_APP_SHOP = 'same-shop.myshopify.com'
+const MULTI_SHOPIFY = {
+  scopes: 'read_products',
+  apps: {
+    clientA: {
+      apiKey: 'client-a-key',
+      apiSecret: 'client-a-secret',
+      appUrl: 'https://client-a.example.test',
+    },
+    clientB: {
+      apiKey: 'client-b-key',
+      apiSecret: 'client-b-secret',
+      appUrl: 'https://client-b.example.test',
+    },
+  },
+}
 
-function createJwt(shop: string): string {
+function createJwt(shop: string, options: { aud?: string; secret?: string; jti?: string; sid?: string } = {}): string {
   const now = Math.floor(Date.now() / 1000)
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
   const payload = Buffer.from(JSON.stringify({
     iss: `https://${shop}/admin`,
     dest: `https://${shop}`,
-    aud: 'test-app', sub: '123',
+    aud: options.aud ?? 'test-app', sub: '123',
     exp: now + 3600, nbf: now - 10, iat: now,
-    jti: 'jti-sec', sid: 'sid-sec',
+    jti: options.jti ?? 'jti-sec', sid: options.sid ?? 'sid-sec',
   })).toString('base64url')
-  const sig = createHmac('sha256', SECRET).update(`${header}.${payload}`).digest('base64url')
+  const sig = createHmac('sha256', options.secret ?? SECRET).update(`${header}.${payload}`).digest('base64url')
   return `${header}.${payload}.${sig}`
 }
 
@@ -37,6 +53,14 @@ let app: Awaited<ReturnType<typeof createServer>>
 const reqAs = (shop: string, path: string, opts: RequestInit = {}) => {
   const headers = new Headers(opts.headers)
   headers.set('Authorization', `Bearer ${createJwt(shop)}`)
+  if (opts.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  return app.request(path, { ...opts, headers })
+}
+
+const reqAsApp = (shop: string, shopifyApp: 'clientA' | 'clientB', path: string, opts: RequestInit = {}) => {
+  const headers = new Headers(opts.headers)
+  const appConfig = MULTI_SHOPIFY.apps[shopifyApp]
+  headers.set('Authorization', `Bearer ${createJwt(shop, { aud: appConfig.apiKey, secret: appConfig.apiSecret, jti: `jti-${shopifyApp}`, sid: `sid-${shopifyApp}` })}`)
   if (opts.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   return app.request(path, { ...opts, headers })
 }
@@ -236,6 +260,72 @@ test.group('Security: cross-shop isolation', (group) => {
 
     const rows = await getDb().select().from(providerConfigs)
     assert.sameMembers(rows.map((row) => row.shop), [SHOP_A, SHOP_B])
+  })
+})
+
+test.group('Security: cross-app isolation', (group) => {
+  let multiConfig: ReturnType<typeof createConfig>
+
+  group.setup(async () => {
+    multiConfig = createConfig({ 'test-flow': simpleFlow }, { shopify: MULTI_SHOPIFY })
+    multiConfig.providers = {
+      warehouse: {
+        name: 'warehouse',
+        ui: {
+          fields: {
+            endpoint: { type: 'text', label: 'Endpoint' },
+            apiKey: { type: 'password', label: 'API key' },
+          },
+        },
+        methods: {},
+      },
+    }
+    app = await createServer(() => multiConfig)
+  })
+  group.each.setup(() => truncateAll())
+
+  test('same shop runs are isolated by Shopify app', async ({ assert }) => {
+    const { runId: runA } = await dispatchFlow({ flowName: 'test-flow', config: multiConfig, shopifyApp: 'clientA', shop: MULTI_APP_SHOP })
+    const { runId: runB } = await dispatchFlow({ flowName: 'test-flow', config: multiConfig, shopifyApp: 'clientB', shop: MULTI_APP_SHOP })
+
+    const listA = await reqAsApp(MULTI_APP_SHOP, 'clientA', '/api/runs')
+    const dataA = await listA.json()
+    assert.equal(listA.status, 200)
+    assert.deepEqual(dataA.map((run: any) => run.id), [runA])
+    assert.deepEqual(dataA.map((run: any) => run.appHandle), ['clientA'])
+
+    const detailBFromA = await reqAsApp(MULTI_APP_SHOP, 'clientA', `/api/runs/${runB}`)
+    assert.equal(detailBFromA.status, 404)
+
+    const listB = await reqAsApp(MULTI_APP_SHOP, 'clientB', '/api/runs')
+    const dataB = await listB.json()
+    assert.deepEqual(dataB.map((run: any) => run.id), [runB])
+    assert.deepEqual(dataB.map((run: any) => run.appHandle), ['clientB'])
+  })
+
+  test('same shop provider configs are isolated by Shopify app', async ({ assert }) => {
+    const createA = await reqAsApp(MULTI_APP_SHOP, 'clientA', '/api/providers/warehouse', {
+      method: 'PUT',
+      body: JSON.stringify({ config: { endpoint: 'https://client-a.test', apiKey: 'secret-a' } }),
+    })
+    const createB = await reqAsApp(MULTI_APP_SHOP, 'clientB', '/api/providers/warehouse', {
+      method: 'PUT',
+      body: JSON.stringify({ config: { endpoint: 'https://client-b.test', apiKey: 'secret-b' } }),
+    })
+    assert.equal(createA.status, 200)
+    assert.equal(createB.status, 200)
+
+    const listA = await reqAsApp(MULTI_APP_SHOP, 'clientA', '/api/providers')
+    const [providerA] = await listA.json()
+    assert.equal(providerA.config.endpoint, 'https://client-a.test')
+
+    const listB = await reqAsApp(MULTI_APP_SHOP, 'clientB', '/api/providers')
+    const [providerB] = await listB.json()
+    assert.equal(providerB.config.endpoint, 'https://client-b.test')
+
+    const rows = await getDb().select().from(providerConfigs)
+    assert.sameMembers(rows.map((row) => row.appHandle), ['clientA', 'clientB'])
+    assert.isTrue(rows.every((row) => row.shop === MULTI_APP_SHOP))
   })
 })
 

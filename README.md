@@ -2,6 +2,10 @@
 
 Shopify integration framework. Define flows, connect providers, get an admin UI — zero boilerplate.
 
+## Beta status
+
+OpenShop is currently in beta. APIs, configuration shape, generated files, and documented workflows are subject to change before a stable `1.0` release.
+
 ## What it does
 
 You write **flows** (jobs with checkpointed steps) and **providers** (external connectors), OpenShop handles the rest: scheduling, retries, logging, admin dashboard, and Shopify embedding.
@@ -146,6 +150,42 @@ shopify app dev --skip-dependencies-installation
 
 The framework handles App Bridge, Cloudflare tunnels, and embedded app setup.
 
+### Multiple Shopify apps
+
+One OpenShop instance can serve multiple Shopify apps when all apps use the same scopes. Declare them in `openshop.config.ts` with TOML files:
+
+```ts
+export default defineConfig({
+  shopify: {
+    scopes: 'read_products,write_products',
+    apps: {
+      clientA: { toml: 'shopify.app.client-a.toml', apiSecret: process.env.SHOPIFY_CLIENT_A_API_SECRET! },
+      clientB: { toml: 'shopify.app.client-b.toml', apiSecret: process.env.SHOPIFY_CLIENT_B_API_SECRET! },
+    },
+  },
+  providers: {},
+  flows: {},
+})
+```
+
+Or without TOML:
+
+```ts
+export default defineConfig({
+  shopify: {
+    scopes: 'read_products,write_products',
+    apps: {
+      clientA: { apiKey: process.env.SHOPIFY_CLIENT_A_API_KEY!, apiSecret: process.env.SHOPIFY_CLIENT_A_API_SECRET!, appUrl: 'https://openshop.example.com' },
+      clientB: { apiKey: process.env.SHOPIFY_CLIENT_B_API_KEY!, apiSecret: process.env.SHOPIFY_CLIENT_B_API_SECRET!, appUrl: 'https://openshop.example.com' },
+    },
+  },
+  providers: {},
+  flows: {},
+})
+```
+
+Data is isolated by `(appHandle, shop)`. For TOML-based setups, deploy every Shopify app config separately with Shopify CLI, for example `shopify app deploy --config shopify.app.client-a.toml`.
+
 ## Development
 
 ```bash
@@ -254,4 +294,8 @@ Without a worker process, runs can stay `pending` forever. Without app migration
 
 ## License
 
-MIT
+OpenShop is source-available under the Elastic License 2.0.
+
+You may use, modify, and redistribute OpenShop, including for internal production use and client projects. You may not provide OpenShop to third parties as a hosted or managed service where users get access to a substantial set of OpenShop's features.
+
+For commercial platform integrations, hosted offerings, or managed services based on OpenShop, contact Thomas Tastet for a separate commercial license.

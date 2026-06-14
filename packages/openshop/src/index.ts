@@ -1,6 +1,7 @@
-import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, CronEntry, FunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ProxyContext } from './types.ts'
+import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, CronEntry, FunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ProxyContext, ShopifyConfig, ShopifyAppConfig } from './types.ts'
 import type { Type } from 'arktype'
 import type { StandardCRON } from 'ts-cron-validator'
+import { validateOpenShopConfig } from './config/validate.ts'
 
 /**
  * Define a OpenShop config. Flow names autocomplete in crons, input is type-checked.
@@ -10,6 +11,7 @@ export function defineConfig<
   const TFlows extends Record<string, FlowDefinition<any>>,
   const TFunctions extends Record<string, FunctionDefinition<any>> = Record<string, FunctionDefinition<any>>,
 >(config: {
+  shopify?: ShopifyConfig
   providers: TProviders
   flows: TFlows
   functions?: TFunctions
@@ -19,6 +21,7 @@ export function defineConfig<
   retryPolicy?: Partial<RetryPolicy>
   onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void
 }): OpenShopConfig<TProviders, TFlows, TFunctions> {
+  validateOpenShopConfig(config as OpenShopConfig)
   return config as OpenShopConfig<TProviders, TFlows, TFunctions>
 }
 
@@ -111,6 +114,8 @@ export type {
   Logger,
   CronEntry,
   CronEntryFor,
+  ShopifyConfig,
+  ShopifyAppConfig,
   FunctionDefinition,
   ShopifyFunctionType,
   ConnectorOf,
@@ -123,3 +128,4 @@ export type { RetryPolicy, WorkerConfig, DispatchOptions } from './types.ts'
 export { dispatchFlow } from './engine/dispatch.ts'
 export { defineModel } from './db/schema.ts'
 export { getDb } from './db/client.ts'
+export { setRuntimeLogger, getRuntimeLogger, type RuntimeLogger } from './runtime/logger.ts'

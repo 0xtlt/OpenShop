@@ -6,6 +6,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
  */
 export function verifyQueryHmac(query: Record<string, string>, secret: string): boolean {
   const { hmac, ...rest } = query
+  if (!secret.trim()) return false
   if (!hmac) return false
 
   const message = Object.keys(rest)
@@ -27,6 +28,7 @@ export function verifyQueryHmac(query: Record<string, string>, secret: string): 
  * Shopify sends the HMAC in the X-Shopify-Hmac-Sha256 header.
  */
 export function verifyWebhookHmac(body: string, hmac: string, secret: string): boolean {
+  if (!secret.trim()) return false
   const computed = createHmac('sha256', secret).update(body, 'utf8').digest('base64')
 
   try {

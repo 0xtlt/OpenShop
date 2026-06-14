@@ -3,6 +3,7 @@ import { flowRuns } from '../db/schema.ts'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { resolveRetryPolicy } from './backoff.ts'
 import { FlowConcurrencyError } from './errors.ts'
+import { DEFAULT_SHOPIFY_APP_HANDLE } from '#server/shopify-apps'
 import type { OpenShopConfig, DispatchOptions } from '../types.ts'
 
 export interface DispatchFlowParams {
@@ -10,12 +11,14 @@ export interface DispatchFlowParams {
   input?: Record<string, unknown>
   config: OpenShopConfig
   shop: string
+  shopifyApp?: string
   parentRunId?: string
   options?: DispatchOptions
 }
 
 export async function dispatchFlow(params: DispatchFlowParams) {
   const { flowName, input = {}, config, shop, parentRunId, options } = params
+  const shopifyApp = params.shopifyApp ?? DEFAULT_SHOPIFY_APP_HANDLE
   const db = getDb()
   const flow = config.flows[flowName]
 
@@ -24,13 +27,14 @@ export async function dispatchFlow(params: DispatchFlowParams) {
   }
 
   return db.transaction(async (tx) => {
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${shop}:${flowName}`}))`)
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${shopifyApp}:${shop}:${flowName}`}))`)
 
     const concurrency = flow.concurrency ?? 'reject'
     if (concurrency === 'reject') {
       const existing = await tx.select({ id: flowRuns.id })
         .from(flowRuns)
         .where(and(
+          eq(flowRuns.appHandle, shopifyApp),
           eq(flowRuns.shop, shop),
           eq(flowRuns.flowName, flowName),
           inArray(flowRuns.status, ['pending', 'running', 'sleeping']),
@@ -47,6 +51,7 @@ export async function dispatchFlow(params: DispatchFlowParams) {
     const availableAt = new Date(Date.now() + (options?.delayMs ?? 0))
 
     const [run] = await tx.insert(flowRuns).values({
+      appHandle: shopifyApp,
       shop,
       flowName,
       status: 'pending',

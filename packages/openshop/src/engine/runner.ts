@@ -8,6 +8,8 @@ import { computeNextRetryAt } from '#engine/backoff'
 import { FlowCanceledError, FlowTimeoutError, SleepSignal } from '#engine/errors'
 import { decryptConfig } from '#server/crypto'
 import { createShopifyClient } from '../shopify/client.ts'
+import { getRuntimeLogger } from '../runtime/logger.ts'
+import { DEFAULT_SHOPIFY_APP_HANDLE } from '#server/shopify-apps'
 import type { OpenShopConfig, Logger, RetryPolicy } from '#types'
 
 export interface RunFlowOptions {
@@ -16,6 +18,7 @@ export interface RunFlowOptions {
   input?: Record<string, unknown>
   config: OpenShopConfig
   shop: string
+  shopifyApp?: string
   workerId?: string
   attempt?: number
   onHeartbeat?: () => Promise<void>
@@ -31,6 +34,7 @@ export type RunFlowResult =
 
 export async function runFlow(opts: RunFlowOptions): Promise<RunFlowResult> {
   const { runId, flowName, input = {}, config, shop, onHeartbeat, workerId } = opts
+  const shopifyApp = opts.shopifyApp ?? DEFAULT_SHOPIFY_APP_HANDLE
   const db = getDb()
   const flow = config.flows[flowName]
 
@@ -52,8 +56,8 @@ export async function runFlow(opts: RunFlowOptions): Promise<RunFlowResult> {
     ? and(eq(flowRuns.id, runId), eq(flowRuns.workerId, workerId), eq(flowRuns.status, 'running'))
     : eq(flowRuns.id, runId)
   const step = createStepExecutor(db, runId, logger, signal, flow.stepTimeout, attempt)
-  const connectors = opts.connectors ?? await buildConnectors(config, shop)
-  const shopify = await createShopifyClient(shop)
+  const connectors = opts.connectors ?? await buildConnectors(config, shop, shopifyApp)
+  const shopify = await createShopifyClient(shop, shopifyApp)
 
   try {
     let validatedInput = input
@@ -69,13 +73,13 @@ export async function runFlow(opts: RunFlowOptions): Promise<RunFlowResult> {
 
     if (flow.timeout) {
       await Promise.race([
-        flow.run({ input: validatedInput, connectors, shopify, shop, step, logger, db }),
+        flow.run({ input: validatedInput, connectors, shopify, shop, shopifyApp, step, logger, signal, db }),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new FlowTimeoutError(flowName, flow.timeout!)), flow.timeout),
         ),
       ])
     } else {
-      await flow.run({ input: validatedInput, connectors, shopify, shop, step, logger, db })
+      await flow.run({ input: validatedInput, connectors, shopify, shop, shopifyApp, step, logger, signal, db })
     }
 
     const completed = await db.update(flowRuns)
@@ -165,11 +169,11 @@ async function resolveRunAttempt(runId: string): Promise<number> {
 }
 
 function createLogger(db: ReturnType<typeof getDb>, flowRunId: string): Logger {
+  const runtimeLogger = getRuntimeLogger()
   const log = (level: 'info' | 'warn' | 'error') => {
     return (payload: Record<string, unknown>, message?: string) => {
       const line = `[${level.toUpperCase()}] ${message ?? ''}`
-      if (level === 'error') console.error(line, payload)
-      else console.log(line, payload)
+      runtimeLogger[level](line, payload)
 
       db.insert(logs).values({
         flowRunId, level, message: message ?? '', payload,
@@ -179,14 +183,14 @@ function createLogger(db: ReturnType<typeof getDb>, flowRunId: string): Logger {
   return { info: log('info'), warn: log('warn'), error: log('error') }
 }
 
-async function buildConnectors(config: OpenShopConfig, shop: string): Promise<OpenShopConnectors> {
+async function buildConnectors(config: OpenShopConfig, shop: string, shopifyApp: string): Promise<OpenShopConnectors> {
   const connectors: Record<string, Record<string, (...args: unknown[]) => unknown>> = {}
   const db = getDb()
 
   for (const [name, provider] of Object.entries(config.providers)) {
     const [stored] = await db.select({ config: providerConfigs.config })
       .from(providerConfigs)
-      .where(and(eq(providerConfigs.shop, shop), eq(providerConfigs.providerName, name)))
+      .where(and(eq(providerConfigs.appHandle, shopifyApp), eq(providerConfigs.shop, shop), eq(providerConfigs.providerName, name)))
       .limit(1)
     const providerConfig = decryptConfig(stored?.config)
 

@@ -1,6 +1,15 @@
 import { defineFlow } from 'openshop'
 import { type } from 'arktype'
 
+type ProductVariantEdge = {
+  node: {
+    title: string | null
+    sku: string | null
+    price: string
+    inventoryQuantity: number | null
+  }
+}
+
 export const countVariants = defineFlow({
   name: 'countVariants',
   input: type({ productId: 'string' }),
@@ -89,7 +98,7 @@ export const countVariants = defineFlow({
         totalInventory: product?.totalInventory,
         options: product?.options,
         imageCount: product?.media?.edges?.length ?? 0,
-        variantSkus: product?.variants?.edges?.map((e) => ({
+        variantSkus: product?.variants?.edges?.map((e: ProductVariantEdge) => ({
           title: e.node.title,
           sku: e.node.sku,
           price: e.node.price,

@@ -90,8 +90,11 @@ export interface FlowRunContext<TInput = Record<string, unknown>> {
   connectors: OpenShopConnectors
   shopify: import('./shopify/client.ts').ShopifyClient
   shop: string
+  shopifyApp: string
   step: StepFn
   logger: Logger
+  /** Aborts when the run is canceled. Pass it to abortable APIs in long-running work. */
+  signal: AbortSignal
   db: import('drizzle-orm/node-postgres').NodePgDatabase<Record<string, unknown>>
 }
 
@@ -131,6 +134,7 @@ export interface WebhookDefinition {
 export interface WebhookContext {
   topic: string
   shop: string
+  shopifyApp: string
   payload: unknown
   apiVersion: string
 }
@@ -152,6 +156,7 @@ export interface OpenShopConfig<
   TFlows extends Record<string, FlowDefinition<any>> = Record<string, FlowDefinition<any>>,
   TFunctions extends Record<string, FunctionDefinition<any>> = Record<string, FunctionDefinition<any>>,
 > {
+  shopify?: ShopifyConfig
   providers: TProviders
   flows: TFlows
   functions?: TFunctions
@@ -161,6 +166,35 @@ export interface OpenShopConfig<
   retryPolicy?: Partial<RetryPolicy>
   onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void
 }
+
+export interface ShopifyConfig {
+  /** Global OAuth scopes. If omitted, OpenShop reads scopes from Shopify TOML files when available. */
+  scopes?: string
+  /** Multiple Shopify apps served by the same OpenShop instance. Omit for legacy env-based single-app mode. */
+  apps?: Record<string, ShopifyAppConfig>
+}
+
+export type ShopifyAppConfig =
+  | {
+      /** Shopify app TOML path, relative to the project root. OpenShop reads client_id and app URL from it. */
+      toml: string
+      /** Shopify API secret. Keep it in env-backed config, not in TOML. */
+      apiSecret: string
+      /** Optional app URL override. Defaults to TOML application_url, HOST, or SHOPIFY_APP_URL. */
+      appUrl?: string
+      apiKey?: never
+      scopes?: never
+    }
+  | {
+      toml?: never
+      /** Shopify API key/client ID for non-TOML setups. */
+      apiKey: string
+      /** Shopify API secret. */
+      apiSecret: string
+      /** Public app URL used for OAuth redirects. */
+      appUrl?: string
+      scopes?: never
+    }
 
 // ─── Shopify Function ────────────────────────────────────────────────
 
@@ -208,6 +242,8 @@ export type ProxyResponseType = 'liquid' | 'json' | 'html'
 export interface ProxyContext {
   /** Shop domain (from HMAC query param or JWT `dest` claim) */
   shop: string
+  /** Internal OpenShop Shopify app handle that authenticated this request. */
+  shopifyApp: string
   /** Customer ID as numeric string (from HMAC `logged_in_customer_id` or JWT `sub` claim). Always trusted. */
   customerId: string | null
   /** Auth source used to establish shop/customer identity. */

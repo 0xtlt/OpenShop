@@ -4,7 +4,9 @@ import { readdirSync, statSync } from 'node:fs'
 import { resolve, relative } from 'node:path'
 import { customerIdFromJwtSub, verifySessionToken } from '#server/jwt'
 import { normalizeShopDomain } from '#server/shop-domain'
-import type { ProxyDefinition, ProxyContext } from '#types'
+import { hasConfiguredShopifyAppSecret, readJwtAudience, resolveShopifyAppByApiKey, resolveShopifyApps, type ResolvedShopifyApp } from '#server/shopify-apps'
+import type { OpenShopConfig, ProxyDefinition, ProxyContext } from '#types'
+import { getRuntimeLogger } from '../runtime/logger.ts'
 
 // ─── HMAC Verification ──────────────────────────────────────────────
 
@@ -70,6 +72,7 @@ export type ProxyAuthMode = 'appProxyHmac' | 'customerAccountJwt'
 
 interface ResolvedProxyAuth {
   kind: ProxyAuthMode
+  shopifyApp: ResolvedShopifyApp
   shop: string
   customerId: string | null
 }
@@ -82,7 +85,13 @@ function signedCustomerId(value: string | undefined): string | null {
   return value && /^\d+$/.test(value) ? value : null
 }
 
-function resolveProxyAuth(query: Record<string, string>, headers: Record<string, string>, modes: ProxyAuthMode[], secret: string): AuthResolution {
+function resolveProxySignatureApp(config: OpenShopConfig, query: Record<string, string>): ResolvedShopifyApp | null {
+  const matches = resolveShopifyApps(config).filter((app) => verifyProxySignature(query, app.apiSecret))
+  if (matches.length !== 1) return null
+  return matches[0]!
+}
+
+function resolveProxyAuth(query: Record<string, string>, headers: Record<string, string>, modes: ProxyAuthMode[], config: OpenShopConfig): AuthResolution {
   const auth = headers['authorization'] ?? ''
   if (auth.startsWith('Bearer ')) {
     if (!modes.includes('customerAccountJwt')) {
@@ -90,11 +99,16 @@ function resolveProxyAuth(query: Record<string, string>, headers: Record<string,
     }
 
     try {
-      const { shop, payload } = verifySessionToken(auth.slice(7), secret)
+      const token = auth.slice(7)
+      const audience = readJwtAudience(token)
+      if (!audience) return { ok: false, error: 'Unauthorized: missing token audience' }
+      const shopifyApp = resolveShopifyAppByApiKey(config, audience)
+      const { shop, payload } = verifySessionToken(token, shopifyApp.apiSecret, { audience: shopifyApp.apiKey })
       return {
         ok: true,
         auth: {
           kind: 'customerAccountJwt',
+          shopifyApp,
           shop,
           customerId: customerIdFromJwtSub(payload.sub),
         },
@@ -105,7 +119,8 @@ function resolveProxyAuth(query: Record<string, string>, headers: Record<string,
   }
 
   if (modes.includes('appProxyHmac')) {
-    if (!verifyProxySignature(query, secret)) {
+    const shopifyApp = resolveProxySignatureApp(config, query)
+    if (!shopifyApp) {
       return { ok: false, error: 'Invalid proxy signature' }
     }
 
@@ -116,6 +131,7 @@ function resolveProxyAuth(query: Record<string, string>, headers: Record<string,
       ok: true,
       auth: {
         kind: 'appProxyHmac',
+        shopifyApp,
         shop,
         customerId: signedCustomerId(query.logged_in_customer_id),
       },
@@ -140,6 +156,7 @@ function sanitizedQuery(query: Record<string, string>, auth: ResolvedProxyAuth):
 function buildContext(query: Record<string, string>, headers: Record<string, string>, method: string, url: string, auth: ResolvedProxyAuth): ProxyContext {
   return {
     shop: auth.shop,
+    shopifyApp: auth.shopifyApp.handle,
     customerId: auth.customerId,
     auth: { kind: auth.kind },
     query: sanitizedQuery(query, auth),
@@ -172,10 +189,20 @@ function sendResponse(result: unknown, type: ProxyDefinition['type']): Response 
 
 // ─── Public API ─────────────────────────────────────────────────────
 
-export async function createProxyRoutes(proxyDir: string, options?: { authModes?: ProxyAuthMode[] }): Promise<Hono> {
+function legacyConfig(): OpenShopConfig {
+  return { providers: {}, flows: {} }
+}
+
+export async function createProxyRoutes(
+  proxyDir: string,
+  getConfigOrOptions?: (() => OpenShopConfig) | { authModes?: ProxyAuthMode[] },
+  maybeOptions?: { authModes?: ProxyAuthMode[] },
+): Promise<Hono> {
   const app = new Hono()
-  const secret = process.env.SHOPIFY_API_SECRET ?? ''
+  const getConfig = typeof getConfigOrOptions === 'function' ? getConfigOrOptions : legacyConfig
+  const options = typeof getConfigOrOptions === 'function' ? maybeOptions : getConfigOrOptions
   const authModes = options?.authModes ?? ['appProxyHmac', 'customerAccountJwt']
+  const logger = getRuntimeLogger()
 
   // Scan and register routes
   const files = scanProxyDir(proxyDir)
@@ -187,7 +214,7 @@ export async function createProxyRoutes(proxyDir: string, options?: { authModes?
       const mod = await import(filePath)
       definition = mod.default ?? mod
     } catch (err) {
-      console.warn(`[openshop] Failed to load proxy route ${routePath}:`, err)
+      logger.warn(`[openshop] Failed to load proxy route ${routePath}`, { error: err })
       continue
     }
 
@@ -202,12 +229,13 @@ export async function createProxyRoutes(proxyDir: string, options?: { authModes?
       const honoMethod = method.toLowerCase() as 'get' | 'post' | 'put' | 'delete' | 'patch'
 
       app[honoMethod](routePath, async (c) => {
-        if (!secret) return c.json({ error: 'SHOPIFY_API_SECRET is not configured' }, 500)
+        const config = getConfig()
+        if (!hasConfiguredShopifyAppSecret(config)) return c.json({ error: 'SHOPIFY_API_SECRET is not configured' }, 500)
 
         const hdrs: Record<string, string> = {}
         for (const [k, v] of Object.entries(c.req.header())) { if (typeof v === 'string') hdrs[k.toLowerCase()] = v }
         const query = c.req.query()
-        const resolvedAuth = resolveProxyAuth(query, hdrs, authModes, secret)
+        const resolvedAuth = resolveProxyAuth(query, hdrs, authModes, config)
 
         if (!resolvedAuth.ok) {
           return c.json({ error: resolvedAuth.error }, 401)
@@ -236,17 +264,17 @@ export async function createProxyRoutes(proxyDir: string, options?: { authModes?
           const result = await handler(ctx)
           return sendResponse(result, responseType)
         } catch (error) {
-          console.error(`[openshop] Proxy ${method} ${routePath} error:`, error)
+          logger.error(`[openshop] Proxy ${method} ${routePath} error`, { error })
           return c.json({ error: 'Internal proxy error' }, 500)
         }
       })
     }
 
-    console.log(`[openshop] Proxy route: ${routePath} (${responseType})`)
+    logger.info(`[openshop] Proxy route: ${routePath} (${responseType})`)
   }
 
   if (files.length) {
-    console.log(`[openshop] ${files.length} proxy route(s) registered`)
+    logger.info(`[openshop] ${files.length} proxy route(s) registered`)
   }
 
   return app

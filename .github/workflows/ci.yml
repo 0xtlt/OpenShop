@@ -35,6 +35,7 @@ jobs:
       - run: createdb -h localhost -U openshop openshop_test
         env:
           PGPASSWORD: openshop
+      - run: pnpm --filter openshop run build:cli
       - run: pnpm run check
       - run: pnpm run coverage:unit
       - run: pnpm run coverage:integration

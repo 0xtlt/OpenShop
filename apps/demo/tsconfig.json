@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "#db/*": ["../../packages/openshop/src/db/*"],
+      "#engine/*": ["../../packages/openshop/src/engine/*"],
+      "#server/*": ["../../packages/openshop/src/server/*"],
+      "#shopify/*": ["../../packages/openshop/src/shopify/*"],
+      "#types": ["../../packages/openshop/src/types"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", "types/generated"]
+}

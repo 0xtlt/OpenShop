@@ -1,0 +1,116 @@
+{
+  "name": "openshop",
+  "version": "0.1.1",
+  "license": "Elastic-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=26 <27"
+  },
+  "scripts": {
+    "build:cli": "tsc -p tsconfig.build.json && node scripts/build-cli.mjs",
+    "prepack": "pnpm run build:cli",
+    "smoke:pack": "node scripts/smoke-pack.mjs",
+    "test": "node tests/bootstrap.ts",
+    "test:integration": "node tests/bootstrap-integration.ts"
+  },
+  "bin": {
+    "openshop": "./bin/cli.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "src",
+    "templates",
+    "LICENSE",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./vite": {
+      "types": "./dist/types/vite/codegen-plugin.d.ts",
+      "import": "./dist/vite.js",
+      "default": "./dist/vite.js"
+    },
+    "./test": {
+      "types": "./dist/types/test/index.d.ts",
+      "import": "./dist/test.js",
+      "default": "./dist/test.js"
+    },
+    "./schema": {
+      "types": "./dist/types/db/schema.d.ts",
+      "import": "./dist/schema.js",
+      "default": "./dist/schema.js"
+    },
+    "./drizzle": {
+      "types": "./dist/types/db/drizzle-config.d.ts",
+      "import": "./dist/drizzle.js",
+      "default": "./dist/drizzle.js"
+    },
+    "./eslint": {
+      "types": "./dist/types/eslint/config.d.ts",
+      "import": "./dist/eslint.js",
+      "default": "./dist/eslint.js"
+    },
+    "./graphql": {
+      "types": "./dist/types/graphql/config.d.ts",
+      "import": "./dist/graphql.js",
+      "default": "./dist/graphql.js"
+    }
+  },
+  "imports": {
+    "#db/*": {
+      "types": "./dist/types/db/*.d.ts",
+      "default": "./src/db/*.ts"
+    },
+    "#engine/*": {
+      "types": "./dist/types/engine/*.d.ts",
+      "default": "./src/engine/*.ts"
+    },
+    "#server/*": {
+      "types": "./dist/types/server/*.d.ts",
+      "default": "./src/server/*.ts"
+    },
+    "#shopify/*": {
+      "types": "./dist/types/shopify/*.d.ts",
+      "default": "./src/shopify/*.ts"
+    },
+    "#types": {
+      "types": "./dist/types/types.d.ts",
+      "default": "./src/types.ts"
+    }
+  },
+  "dependencies": {
+    "@hono/node-server": "2.0.4",
+    "@preact/preset-vite": "2.10.5",
+    "@types/pg": "^8.18.0",
+    "arktype": "^2.2.0",
+    "croner": "^10.0.0",
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "0.45.2",
+    "esbuild": "0.28.1",
+    "hono": "4.12.25",
+    "pg": "^8.20.0",
+    "preact": "10.29.2",
+    "preact-iso": "2.12.0",
+    "ts-cron-validator": "^1.1.5",
+    "vite": "8.0.16"
+  },
+  "peerDependencies": {
+    "@graphql-eslint/eslint-plugin": ">=4",
+    "eslint": ">=9",
+    "typescript-eslint": ">=8"
+  },
+  "devDependencies": {
+    "@japa/api-client": "3",
+    "@japa/assert": "4",
+    "@japa/runner": "5",
+    "@shopify/polaris-types": "^1.0.1",
+    "@types/node": "25.9.3",
+    "eslint": "10.3.0",
+    "typescript": "^5.9.0"
+  }
+}

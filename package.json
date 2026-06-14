@@ -1,0 +1,68 @@
+{
+  "name": "openshop-workspace",
+  "private": true,
+  "license": "Elastic-2.0",
+  "packageManager": "pnpm@11.1.0",
+  "engines": {
+    "node": ">=26 <27",
+    "pnpm": ">=11 <12"
+  },
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "check": "pnpm run check:core && pnpm run check:ui && pnpm --filter openshop-demo run lint",
+    "check:core": "tsc --noEmit -p packages/openshop/tsconfig.json",
+    "check:ui": "tsc --noEmit -p packages/openshop/tsconfig.ui.json",
+    "dev": "pnpm --filter openshop-demo dev",
+    "coverage:unit": "node scripts/run-c8.mjs --cwd packages/openshop --clean --temp-directory coverage/tmp --reporter=none -- node tests/bootstrap.ts",
+    "coverage:integration": "node scripts/run-c8.mjs --cwd packages/openshop --clean=false --temp-directory coverage/tmp --reporter=none -- node tests/bootstrap-integration.ts",
+    "coverage:demo": "DATABASE_URL=${DATABASE_URL:-postgresql://openshop:openshop@localhost:5432/openshop} pnpm --dir apps/demo exec drizzle-kit push --config=drizzle.config.ts --force && DATABASE_URL=${DATABASE_URL:-postgresql://openshop:openshop@localhost:5432/openshop} node scripts/run-c8.mjs --cwd apps/demo --clean=false --temp-directory coverage/tmp --reporter=none -- node tests/bootstrap.ts",
+    "coverage:report": "node scripts/run-c8.mjs report",
+    "coverage": "rm -rf coverage && pnpm run coverage:unit && pnpm run coverage:integration && pnpm run coverage:demo && pnpm run coverage:report"
+  },
+  "c8": {
+    "all": true,
+    "src": [
+      "packages/openshop/src"
+    ],
+    "include": [
+      "packages/openshop/src/**/*.ts"
+    ],
+    "exclude": [
+      "**/tests/**",
+      "**/types/generated/**",
+      "apps/demo/**",
+      "**/src/types.ts",
+      "**/src/ui/types.ts",
+      "**/src/db/schema.ts",
+      "**/src/db/drizzle-config.ts",
+      "**/src/graphql/config.ts",
+      "**/src/eslint/config.ts",
+      "**/src/cli/api-process.ts",
+      "**/src/cli/build.ts",
+      "**/src/cli/codegen.ts",
+      "**/src/cli/dev.ts",
+      "**/src/cli/schema.ts",
+      "**/src/cli/start.ts",
+      "**/src/cli/test.ts",
+      "**/src/cli/worker.ts",
+      "**/src/vite/codegen-plugin.ts",
+      "node_modules/**",
+      "dist/**",
+      ".openshop/**",
+      "**/*.d.ts"
+    ],
+    "reporter": [
+      "text",
+      "lcov"
+    ],
+    "reports-dir": "coverage",
+    "temp-directory": "coverage/tmp",
+    "exclude-after-remap": true
+  },
+  "devDependencies": {
+    "@shopify/polaris-types": "^1.0.1",
+    "c8": "11.0.0",
+    "openshop": "workspace:*",
+    "typescript": "^5.9.0"
+  }
+}

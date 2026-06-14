@@ -1,0 +1,19 @@
+# Template — Run `shopify app config link` to generate your shopify.app.<name>.toml
+
+client_id = ""
+name = "openshop-demo"
+application_url = "https://localhost:3000"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+include_config_on_deploy = true
+
+[webhooks]
+api_version = "2026-04"
+
+[access_scopes]
+scopes = "read_products,read_orders"
+
+[auth]
+redirect_urls = [ "https://localhost:3000/auth/callback" ]

@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: openshop
+          POSTGRES_USER: openshop
+          POSTGRES_PASSWORD: openshop
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U openshop -d openshop"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.1.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - run: createdb -h localhost -U openshop openshop_test
+        env:
+          PGPASSWORD: openshop
+      - run: pnpm --filter openshop run build:cli
+      - run: pnpm run check
+      - run: pnpm run coverage:unit
+      - run: pnpm run coverage:integration
+      - run: pnpm run coverage:demo
+      - run: pnpm audit --audit-level moderate

@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node", "@shopify/polaris-types"],
+    "paths": {
+      "#db/*": ["./src/db/*"],
+      "#engine/*": ["./src/engine/*"],
+      "#server/*": ["./src/server/*"],
+      "#shopify/*": ["./src/shopify/*"],
+      "#types": ["./src/types"]
+    }
+  },
+  "include": ["src/**/*", "bin/**/*"],
+  "exclude": ["src/ui/**/*"]
+}

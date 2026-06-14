@@ -1,0 +1,43 @@
+{
+  "name": "__PACKAGE_NAME__",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.1.0",
+  "engines": {
+    "node": ">=26 <27",
+    "pnpm": ">=11 <12"
+  },
+  "scripts": {
+    "dev": "openshop dev",
+    "build": "openshop build",
+    "start": "openshop start",
+    "worker": "openshop worker",
+    "db:generate": "openshop migrate generate",
+    "db:migrate": "openshop migrate",
+    "db:check": "openshop migrate check",
+    "db:status": "openshop migrate status",
+    "codegen": "openshop codegen",
+    "codegen:watch": "openshop codegen:watch",
+    "shopify": "shopify app dev --skip-dependencies-installation",
+    "test": "openshop test",
+    "lint": "pnpm run codegen && tsc --noEmit && eslint ."
+  },
+  "dependencies": {
+    "arktype": "^2.2.0",
+    "openshop": "^0.1.1",
+    "pg": "^8.20.0",
+    "pm2": "^7.0.1"
+  },
+  "devDependencies": {
+    "@graphql-codegen/cli": "7.0.0",
+    "@graphql-codegen/introspection": "6.0.0",
+    "@graphql-codegen/typescript": "6.0.0",
+    "@shopify/api-codegen-preset": "2.0.0",
+    "@shopify/graphql-codegen": "^0.1.0",
+    "@types/node": "^25.5.0",
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "0.45.2",
+    "eslint": "10.3.0",
+    "typescript": "^6.0.2"
+  }
+}

@@ -1,0 +1,313 @@
+import type { Type } from 'arktype'
+
+// ─── Global augmentable interfaces for GraphQL codegen ───────────────
+
+declare global {
+  /** Augment this interface to get typed query results from codegen */
+  interface OpenShopQueries {}
+  /** Augment this interface to get typed mutation results from codegen */
+  interface OpenShopMutations {}
+}
+
+// ─── Provider ────────────────────────────────────────────────────────
+
+export interface ProviderFieldDef<T = unknown> {
+  type: 'text' | 'password' | 'number' | 'select' | 'checkbox'
+  label: string
+  placeholder?: string
+  options?: { label: string; value: string }[] // for select
+  required?: boolean
+  validate?: Type<T>
+}
+
+/** Extracts the inferred type from ProviderFieldDef<T> */
+export type ProviderFieldDefinitions = Record<string, ProviderFieldDef>
+export type ProviderMethod<TConfig, TArgs extends readonly unknown[] = readonly unknown[], TReturn = unknown> = (config: TConfig, ...args: TArgs) => TReturn
+type DropFirstParameter<T> = T extends (first: infer _First, ...args: infer A) => infer R ? (...args: A) => R : never
+
+type InferField<F> = F extends ProviderFieldDef<infer T> ? T : unknown
+type OptionalFieldKeys<F extends ProviderFieldDefinitions> = {
+  [K in keyof F]: F[K] extends { required: false } ? K : never
+}[keyof F]
+type RequiredFieldKeys<F extends ProviderFieldDefinitions> = Exclude<keyof F, OptionalFieldKeys<F>>
+
+/** Derives a typed config object from the fields' `validate` schemas */
+export type ConfigFromFields<F extends ProviderFieldDefinitions> = {
+  [K in RequiredFieldKeys<F>]: InferField<F[K]>
+} & {
+  [K in OptionalFieldKeys<F>]?: InferField<F[K]>
+}
+
+export type AnyProviderDefinition = ProviderDefinition
+export type AnyFlowDefinition = FlowDefinition<unknown>
+export type AnyFunctionDefinition = Omit<FunctionDefinition<ProviderFieldDefinitions>, 'owner'> & { owner?: FunctionOwner<never> }
+
+export type ConnectorsFromProviders<TProviders extends Record<string, ProviderDefinition>> = {
+  [K in keyof TProviders]: ConnectorOf<TProviders[K]>
+}
+
+export interface ProviderDefinition<
+  TFields extends ProviderFieldDefinitions = ProviderFieldDefinitions,
+  TMethods extends Record<string, unknown> = Record<string, unknown>,
+> {
+  name: string
+  ui: { fields: TFields }
+  transformer?: (data: { data: Record<string, unknown> }) => Record<string, unknown>
+  checker?(ctx: { config: ConfigFromFields<TFields> }): Promise<boolean>
+  methods: TMethods
+}
+
+/** Strips the config first arg from provider methods to get the connector type */
+export type ConnectorOf<P extends ProviderDefinition> = {
+  [K in keyof P['methods']]: DropFirstParameter<P['methods'][K]>
+}
+
+export interface ProviderInstance {
+  definition: ProviderDefinition
+  config: Record<string, unknown>
+  call: <T = unknown>(method: string, ...args: unknown[]) => Promise<T>
+}
+
+// ─── Flow ────────────────────────────────────────────────────────────
+
+export interface StepOptions {
+  timeout?: number
+}
+
+export interface StepFn {
+  <T>(name: string, fn: () => Promise<T> | T, options?: StepOptions): Promise<T>
+  sleep(name: string, durationMs: number): Promise<void>
+}
+
+export interface Logger {
+  info: (payload: Record<string, unknown>, message?: string) => void
+  warn: (payload: Record<string, unknown>, message?: string) => void
+  error: (payload: Record<string, unknown>, message?: string) => void
+}
+
+export interface FlowRunContext<
+  TInput = Record<string, unknown>,
+  TConnectors = Record<string, Record<string, (...args: unknown[]) => unknown>>,
+> {
+  input: TInput
+  connectors: TConnectors
+  shopify: import('./shopify/client.ts').ShopifyClient
+  shop: string
+  shopifyApp: string
+  step: StepFn
+  logger: Logger
+  /** Aborts when the run is canceled. Pass it to abortable APIs in long-running work. */
+  signal: AbortSignal
+  db: import('drizzle-orm/node-postgres').NodePgDatabase<Record<string, unknown>>
+}
+
+export interface FlowDefinition<TInput = Record<string, unknown>> {
+  name: string
+  input?: Type<TInput>
+  timeout?: number
+  stepTimeout?: number
+  concurrency?: 'reject' | 'allow'
+  retryPolicy?: Partial<RetryPolicy>
+  run(ctx: FlowRunContext<TInput>): Promise<void>
+}
+
+// ─── Cron schedule type ──────────────────────────────────────────────
+
+// ─── Config ──────────────────────────────────────────────────────────
+
+export interface CronEntry {
+  name?: string
+  schedule: string
+  flow: string
+  input?: Record<string, unknown>
+  /**
+   * Shop targeting mode:
+   * - 'global'           → runs once without shop context (default)
+   * - 'all'              → runs once per installed shop
+   * - 'shop.myshopify.com'  → runs only for this specific shop
+   * - ['a.myshopify.com', 'b.myshopify.com'] → runs for these shops
+   */
+  shops?: 'global' | 'all' | string | string[]
+}
+
+export interface WebhookDefinition {
+  run: (ctx: WebhookContext) => Promise<void>
+}
+
+export interface WebhookContext {
+  topic: string
+  shop: string
+  shopifyApp: string
+  payload: unknown
+  apiVersion: string
+}
+
+/** Typed cron entry — flow name autocompletes, input matches the flow's schema */
+export type CronEntryFor<TFlows extends Record<string, FlowDefinition<unknown>>> = {
+  [K in keyof TFlows & string]: {
+    name?: string
+    schedule: string
+    flow: K
+    input?: TFlows[K] extends FlowDefinition<infer I> ? I : Record<string, unknown>
+    shops?: 'global' | 'all' | string | string[]
+  }
+}[keyof TFlows & string]
+
+
+export interface OpenShopConfig<
+  TProviders extends Record<string, ProviderDefinition> = Record<string, ProviderDefinition>,
+  TFlows extends Record<string, FlowDefinition<unknown>> = Record<string, FlowDefinition<unknown>>,
+  TFunctions extends Record<string, AnyFunctionDefinition> = Record<string, AnyFunctionDefinition>,
+> {
+  shopify?: ShopifyConfig
+  providers: TProviders
+  flows: TFlows
+  functions?: TFunctions
+  webhooks?: Record<string, WebhookDefinition>
+  crons?: CronEntryFor<TFlows>[]
+  worker?: Partial<WorkerConfig>
+  retryPolicy?: Partial<RetryPolicy>
+  onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void
+}
+
+export interface ShopifyConfig {
+  /** Global OAuth scopes. If omitted, OpenShop reads scopes from Shopify TOML files when available. */
+  scopes?: string
+  /** Multiple Shopify apps served by the same OpenShop instance. Omit for legacy env-based single-app mode. */
+  apps?: Record<string, ShopifyAppConfig>
+}
+
+export type ShopifyAppConfig =
+  | {
+      /** Shopify app TOML path, relative to the project root. OpenShop reads client_id and app URL from it. */
+      toml: string
+      /** Shopify API secret. Keep it in env-backed config, not in TOML. */
+      apiSecret: string
+      /** Optional app URL override. Defaults to TOML application_url, HOST, or SHOPIFY_APP_URL. */
+      appUrl?: string
+      apiKey?: never
+      scopes?: never
+    }
+  | {
+      toml?: never
+      /** Shopify API key/client ID for non-TOML setups. */
+      apiKey: string
+      /** Shopify API secret. */
+      apiSecret: string
+      /** Public app URL used for OAuth redirects. */
+      appUrl?: string
+      scopes?: never
+    }
+
+// ─── Shopify Function ────────────────────────────────────────────────
+
+export type ShopifyFunctionType =
+  | 'discount'
+  | 'cart-transform'
+  | 'delivery-customization'
+  | 'payment-customization'
+  | 'checkout-validation'
+  | 'fulfillment-constraints'
+  // order-routing has no GraphQL mutations (admin UI only)
+
+export type DiscountMode = 'automatic' | 'code'
+
+export interface CombinesWith {
+  productDiscounts?: boolean
+  orderDiscounts?: boolean
+  shippingDiscounts?: boolean
+}
+
+export interface FunctionOwner<TConfig = Record<string, unknown>> {
+  title: string | ((config: TConfig) => string)
+  // Discount-specific
+  startsAt?: boolean
+  endsAt?: boolean
+  usageLimit?: boolean
+  combinesWith?: CombinesWith
+  appliesOnEachItem?: boolean
+  // Non-discount
+  enabled?: boolean
+}
+
+export interface FunctionDefinition<TFields extends ProviderFieldDefinitions = ProviderFieldDefinitions> {
+  type: ShopifyFunctionType
+  handle: string
+  modes?: DiscountMode[]
+  owner?: FunctionOwner<ConfigFromFields<TFields>>
+  config: TFields
+}
+
+// ─── App Proxy ──────────────────────────────────────────────────────
+
+export type ProxyResponseType = 'liquid' | 'json' | 'html'
+
+export interface ProxyContext {
+  /** Shop domain (from HMAC query param or JWT `dest` claim) */
+  shop: string
+  /** Internal OpenShop Shopify app handle that authenticated this request. */
+  shopifyApp: string
+  /** Customer ID as numeric string (from HMAC `logged_in_customer_id` or JWT `sub` claim). Always trusted. */
+  customerId: string | null
+  /** Auth source used to establish shop/customer identity. */
+  auth: { kind: 'appProxyHmac' | 'customerAccountJwt' }
+  query: Record<string, string>
+  params: Record<string, string>
+  headers: Record<string, string>
+  path: string
+  method: string
+  body: unknown
+}
+
+export type ProxyHandler = (ctx: ProxyContext) => Promise<unknown> | unknown
+
+export interface ProxyDefinition {
+  type?: ProxyResponseType
+  GET?: ProxyHandler
+  POST?: ProxyHandler
+  PUT?: ProxyHandler
+  DELETE?: ProxyHandler
+  PATCH?: ProxyHandler
+}
+
+// ─── Retry & Worker ─────────────────────────────────────────────────
+
+export interface RetryPolicy {
+  maxAttempts: number
+  initialIntervalMs: number
+  backoffCoefficient: number
+  maxIntervalMs: number
+}
+
+export interface WorkerConfig {
+  concurrency: number
+  pollIntervalMs: number
+  pollMaxIntervalMs: number
+  pollBackoffCoefficient: number
+  leaseDurationMs: number
+}
+
+export interface DispatchOptions {
+  delayMs?: number
+  retryPolicy?: Partial<RetryPolicy>
+}
+
+// ─── DB row types ────────────────────────────────────────────────────
+
+export type FlowRunStatus = 'pending' | 'running' | 'sleeping' | 'completed' | 'failed' | 'canceled'
+export type StepStatus = 'pending' | 'running' | 'sleeping' | 'completed' | 'failed' | 'canceled'
+export type LogLevel = 'info' | 'warn' | 'error'
+
+// ─── JWT ─────────────────────────────────────────────────────────────
+
+export interface JwtPayload {
+  iss: string
+  dest: string
+  aud: string
+  sub: string
+  exp: number
+  nbf: number
+  iat: number
+  jti: string
+  sid: string
+}

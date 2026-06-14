@@ -9,6 +9,7 @@ coverage/
 bun.lock
 .vite
 .openshop
+PLAN.md
 
 # Shopify CLI (contient des infos de projet/store)
 .shopify/

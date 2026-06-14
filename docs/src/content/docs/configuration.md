@@ -6,12 +6,22 @@ description: Configure providers, flows, functions, webhooks, crons, workers, an
 OpenShop apps export a default config from `openshop.config.ts`.
 
 ```ts
-import { defineConfig, cron } from 'openshop'
-import { syncOrders } from './flows/syncOrders'
+// openshop.app.ts
+import { defineOpenShop } from 'openshop'
 import { warehouse } from './providers/warehouse'
 
-export default defineConfig({
+export const app = defineOpenShop({
   providers: { warehouse },
+})
+```
+
+```ts
+// openshop.config.ts
+import { cron } from 'openshop'
+import { app } from './openshop.app'
+import { syncOrders } from './flows/syncOrders'
+
+export default app.defineConfig({
   flows: { syncOrders },
   crons: [
     { name: 'Quick sync', schedule: cron('*/5 * * * *'), flow: 'syncOrders', shops: 'all' },
@@ -33,7 +43,7 @@ export default defineConfig({
 
 ## Runtime validation
 
-`defineConfig()` validates the runtime shape early:
+`app.defineConfig()` validates the runtime shape early:
 
 - cron entries must reference registered flows;
 - providers and functions must declare valid fields;
@@ -52,9 +62,11 @@ For one production OpenShop instance serving multiple Shopify apps, declare each
 Use this mode when each Shopify app has its own `shopify.app*.toml` file. OpenShop reads `client_id`, `application_url`, and TOML scopes from the file. Keep `apiSecret` in environment-backed config, not in TOML.
 
 ```ts
-import { defineConfig } from 'openshop'
+import { defineOpenShop } from 'openshop'
 
-export default defineConfig({
+const app = defineOpenShop({ providers: {} })
+
+export default app.defineConfig({
   shopify: {
     scopes: 'read_products,write_products',
     apps: {
@@ -68,7 +80,6 @@ export default defineConfig({
       },
     },
   },
-  providers: {},
   flows: {},
 })
 ```
@@ -82,9 +93,11 @@ This mirrors the direction of Gadget framework v1.7, where Shopify connection se
 Use this mode for custom deployments where Shopify app configuration is not stored in local TOML files.
 
 ```ts
-import { defineConfig } from 'openshop'
+import { defineOpenShop } from 'openshop'
 
-export default defineConfig({
+const app = defineOpenShop({ providers: {} })
+
+export default app.defineConfig({
   shopify: {
     scopes: 'read_products,write_products',
     apps: {
@@ -100,7 +113,6 @@ export default defineConfig({
       },
     },
   },
-  providers: {},
   flows: {},
 })
 ```

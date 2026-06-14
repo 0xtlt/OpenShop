@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { defineConfig, defineFlow } from '../../../src/index.ts'
+import { defineOpenShop } from '../../../src/index.ts'
 import {
   DEFAULT_SHOPIFY_APP_HANDLE,
   resolveShopifyAppByApiKey,
@@ -13,7 +13,8 @@ import {
   resolveShopifyApps,
 } from '../../../src/server/shopify-apps.ts'
 
-const flow = defineFlow({ name: 'noop', async run() {} })
+const app = defineOpenShop({ providers: {} })
+const flow = app.defineFlow({ name: 'noop', async run() {} })
 
 function tempDir() {
   return mkdtempSync(join(tmpdir(), 'openshop-apps-'))
@@ -35,11 +36,11 @@ test.group('shopify app resolver', () => {
     process.env.SHOPIFY_API_SECRET = 'legacy-secret'
 
     try {
-      const config = defineConfig({ providers: {}, flows: { noop: flow } })
-      const [app] = resolveShopifyApps(config)
-      assert.equal(app.handle, DEFAULT_SHOPIFY_APP_HANDLE)
-      assert.equal(app.apiKey, 'legacy-key')
-      assert.equal(app.apiSecret, 'legacy-secret')
+      const config = app.defineConfig({ flows: { noop: flow } })
+      const [resolvedApp] = resolveShopifyApps(config)
+      assert.equal(resolvedApp.handle, DEFAULT_SHOPIFY_APP_HANDLE)
+      assert.equal(resolvedApp.apiKey, 'legacy-key')
+      assert.equal(resolvedApp.apiSecret, 'legacy-secret')
     } finally {
       process.env.SHOPIFY_API_KEY = previousKey
       process.env.SHOPIFY_API_SECRET = previousSecret
@@ -57,7 +58,7 @@ application_url = "https://client-a.example.com"
 scopes = "read_products,read_orders"
 `)
 
-      const config = defineConfig({
+      const config = app.defineConfig({
         shopify: {
           apps: {
             clientA: { toml: 'shopify.app.client-a.toml', apiSecret: 'secret-a' },
@@ -65,7 +66,6 @@ scopes = "read_products,read_orders"
           },
           scopes: 'read_products,read_orders',
         },
-        providers: {},
         flows: { noop: flow },
       })
 
@@ -79,7 +79,7 @@ scopes = "read_products,read_orders"
   })
 
   test('rejects app-level scopes', ({ assert }) => {
-    assert.throws(() => defineConfig({
+    assert.throws(() => app.defineConfig({
       shopify: {
         apps: {
           bad: {
@@ -89,13 +89,12 @@ scopes = "read_products,read_orders"
           } as never,
         },
       },
-      providers: {},
       flows: { noop: flow },
     }), /shopify\.apps\.bad\.scopes is not supported/)
   })
 
   test('resolves signed OAuth and webhook requests against the matching app secret', ({ assert }) => {
-    const config = defineConfig({
+    const config = app.defineConfig({
       shopify: {
         scopes: 'read_products',
         apps: {
@@ -103,7 +102,6 @@ scopes = "read_products,read_orders"
           clientB: { apiKey: 'client-b-key', apiSecret: 'secret-b', appUrl: 'https://client-b.example.com' },
         },
       },
-      providers: {},
       flows: { noop: flow },
     })
 
@@ -116,7 +114,7 @@ scopes = "read_products,read_orders"
   })
 
   test('throws explicit errors when no app or multiple apps match', ({ assert }) => {
-    const config = defineConfig({
+    const config = app.defineConfig({
       shopify: {
         scopes: 'read_products',
         apps: {
@@ -124,7 +122,6 @@ scopes = "read_products,read_orders"
           clientB: { apiKey: 'duplicate-key', apiSecret: 'shared-secret', appUrl: 'https://client-b.example.com' },
         },
       },
-      providers: {},
       flows: { noop: flow },
     })
 
@@ -140,7 +137,7 @@ scopes = "read_products,read_orders"
     delete process.env.SHOPIFY_API_SECRET
 
     try {
-      const config = defineConfig({ providers: {}, flows: { noop: flow } })
+      const config = app.defineConfig({ flows: { noop: flow } })
       const query = signQuery({ shop: 'x.myshopify.com', timestamp: '1780000000' }, '')
       const body = '{"id":1}'
       const hmac = createHmac('sha256', '').update(body, 'utf8').digest('base64')

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { pushSchema } from './schema-push.ts'
 import { ApiProcessRestartCoordinator } from './dev-restart.ts'
 import { loadEnvFile } from './env.ts'
+import { runCodegenOnce } from '../vite/codegen-utils.ts'
 
 function currentDir() {
   return dirname(fileURLToPath(import.meta.url))
@@ -32,6 +33,13 @@ export async function startDev() {
   const apiPort = port + 1
 
   console.log('[openshop] Starting dev server...')
+
+  try {
+    runCodegenOnce(cwd, { optional: true })
+  } catch (e) {
+    console.error('[openshop] Codegen failed:', e)
+    process.exit(1)
+  }
 
   // 1. Database setup — push schema via drizzle-kit
   process.env.DATABASE_URL ??= 'postgresql://openshop:openshop@localhost:5432/openshop'

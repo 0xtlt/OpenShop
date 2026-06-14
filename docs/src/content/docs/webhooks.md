@@ -3,12 +3,12 @@ title: Webhooks
 description: Define Shopify webhook handlers.
 ---
 
-Webhook handlers export `defineWebhook()`.
+Webhook handlers export `app.defineWebhook()`.
 
 ```ts
-import { defineWebhook } from 'openshop'
+import { app } from '../openshop.app'
 
-export const ordersCreate = defineWebhook({
+export const ordersCreate = app.defineWebhook({
   async run({ topic, shop, payload, apiVersion }) {
     console.log({ topic, shop, apiVersion, payload })
   },
@@ -18,8 +18,10 @@ export const ordersCreate = defineWebhook({
 Register handlers in config:
 
 ```ts
-export default defineConfig({
-  providers: {},
+import { app } from './openshop.app'
+import { ordersCreate } from './webhooks/ordersCreate'
+
+export default app.defineConfig({
   flows: {},
   webhooks: {
     'orders/create': ordersCreate,

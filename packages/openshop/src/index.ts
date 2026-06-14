@@ -1,18 +1,37 @@
-import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, CronEntry, FunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ProxyContext, ShopifyConfig, ShopifyAppConfig } from './types.ts'
+import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders } from './types.ts'
 import type { Type } from 'arktype'
 import type { StandardCRON } from 'ts-cron-validator'
 import { validateOpenShopConfig } from './config/validate.ts'
 
-/**
- * Define a OpenShop config. Flow names autocomplete in crons, input is type-checked.
- */
-export function defineConfig<
-  const TProviders extends Record<string, ProviderDefinition<any, any>>,
-  const TFlows extends Record<string, FlowDefinition<any>>,
-  const TFunctions extends Record<string, FunctionDefinition<any>> = Record<string, FunctionDefinition<any>>,
->(config: {
+interface OpenShopAppBase<TProviders extends Record<string, ProviderDefinition<any, any>>> {
   shopify?: ShopifyConfig
   providers: TProviders
+  worker?: Partial<WorkerConfig>
+  retryPolicy?: Partial<RetryPolicy>
+  onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void
+}
+
+type AppFlowRunContext<
+  TInput,
+  TProviders extends Record<string, ProviderDefinition<any, any>>,
+> = FlowRunContext<TInput, ConnectorsFromProviders<TProviders>>
+
+interface FlowInput<TInput, TProviders extends Record<string, ProviderDefinition<any, any>>> {
+  name: string
+  input?: Type<TInput>
+  timeout?: number
+  stepTimeout?: number
+  concurrency?: 'reject' | 'allow'
+  retryPolicy?: Partial<RetryPolicy>
+  run: (ctx: AppFlowRunContext<TInput, TProviders>) => Promise<void>
+}
+
+interface OpenShopConfigInput<
+  TProviders extends Record<string, ProviderDefinition<any, any>>,
+  TFlows extends Record<string, FlowDefinition<any>>,
+  TFunctions extends Record<string, FunctionDefinition<any>>,
+> {
+  shopify?: ShopifyConfig
   flows: TFlows
   functions?: TFunctions
   webhooks?: Record<string, WebhookDefinition>
@@ -20,9 +39,74 @@ export function defineConfig<
   worker?: Partial<WorkerConfig>
   retryPolicy?: Partial<RetryPolicy>
   onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void
-}): OpenShopConfig<TProviders, TFlows, TFunctions> {
-  validateOpenShopConfig(config as OpenShopConfig)
-  return config as OpenShopConfig<TProviders, TFlows, TFunctions>
+}
+
+export interface OpenShopApp<TProviders extends Record<string, ProviderDefinition<any, any>>> {
+  defineFlow<TInput = Record<string, unknown>>(flow: FlowInput<TInput, TProviders>): FlowDefinition<TInput>
+  defineFunction<const TFields extends Record<string, ProviderFieldDef<any>>>(fn: {
+    type: ShopifyFunctionType
+    handle: string
+    modes?: DiscountMode[]
+    owner?: FunctionOwner<ConfigFromFields<TFields>>
+    config: TFields
+  }): FunctionDefinition<TFields>
+  defineProxy(proxy: ProxyDefinition): ProxyDefinition
+  defineWebhook(webhook: WebhookDefinition): WebhookDefinition
+  defineConfig<
+    const TFlows extends Record<string, FlowDefinition<any>>,
+    const TFunctions extends Record<string, FunctionDefinition<any>> = Record<string, FunctionDefinition<any>>,
+  >(config: OpenShopConfigInput<TProviders, TFlows, TFunctions>): OpenShopConfig<TProviders, TFlows, TFunctions>
+}
+
+function validateConfig<
+  const TProviders extends Record<string, ProviderDefinition<any, any>>,
+  const TFlows extends Record<string, FlowDefinition<any>>,
+  const TFunctions extends Record<string, FunctionDefinition<any>> = Record<string, FunctionDefinition<any>>,
+>(config: OpenShopConfig<TProviders, TFlows, TFunctions>): OpenShopConfig<TProviders, TFlows, TFunctions> {
+  validateOpenShopConfig(config as unknown as OpenShopConfig)
+  return config
+}
+
+/**
+ * Define an OpenShop app. The app carries provider types into flows and config.
+ */
+export function defineOpenShop<const TProviders extends Record<string, ProviderDefinition<any, any>>>(
+  app: OpenShopAppBase<TProviders>,
+): OpenShopApp<TProviders> {
+  return {
+    defineFlow<TInput = Record<string, unknown>>(flow: FlowInput<TInput, TProviders>): FlowDefinition<TInput> {
+      return flow as unknown as FlowDefinition<TInput>
+    },
+    defineFunction<const TFields extends Record<string, ProviderFieldDef<any>>>(fn: {
+      type: ShopifyFunctionType
+      handle: string
+      modes?: DiscountMode[]
+      owner?: FunctionOwner<ConfigFromFields<TFields>>
+      config: TFields
+    }): FunctionDefinition<TFields> {
+      return fn
+    },
+    defineProxy(proxy: ProxyDefinition): ProxyDefinition {
+      return proxy
+    },
+    defineWebhook(webhook: WebhookDefinition): WebhookDefinition {
+      return webhook
+    },
+    defineConfig<
+      const TFlows extends Record<string, FlowDefinition<any>>,
+      const TFunctions extends Record<string, FunctionDefinition<any>> = Record<string, FunctionDefinition<any>>,
+    >(config: OpenShopConfigInput<TProviders, TFlows, TFunctions>): OpenShopConfig<TProviders, TFlows, TFunctions> {
+      return validateConfig({
+        ...app,
+        ...config,
+        shopify: config.shopify ?? app.shopify,
+        providers: app.providers,
+        worker: config.worker ?? app.worker,
+        retryPolicy: config.retryPolicy ?? app.retryPolicy,
+        onError: config.onError ?? app.onError,
+      })
+    },
+  }
 }
 
 /** Standard cron nicknames supported by croner */
@@ -43,21 +127,6 @@ export function cron<T extends string>(schedule: T extends CronNickname ? T : St
 }
 
 /**
- * Define a flow. If `input` is an ArkType schema, ctx.input is typed + validated at runtime.
- */
-export function defineFlow<TInput = Record<string, unknown>>(flow: {
-  name: string
-  input?: Type<TInput>
-  timeout?: number
-  stepTimeout?: number
-  concurrency?: 'reject' | 'allow'
-  retryPolicy?: Partial<RetryPolicy>
-  run: (ctx: FlowRunContext<TInput>) => Promise<void>
-}): FlowDefinition<TInput> {
-  return flow
-}
-
-/**
  * Define a provider. Identity function for type inference.
  */
 export function defineProvider<
@@ -71,33 +140,6 @@ export function defineProvider<
   methods: TMethods
 }): ProviderDefinition<TFields, TMethods> {
   return provider as ProviderDefinition<TFields, TMethods>
-}
-
-/**
- * Define a Shopify Function management config (UI + mutations, not the WASM code).
- */
-export function defineFunction<const TFields extends Record<string, ProviderFieldDef<any>>>(fn: {
-  type: ShopifyFunctionType
-  handle: string
-  modes?: DiscountMode[]
-  owner?: FunctionOwner<ConfigFromFields<TFields>>
-  config: TFields
-}): FunctionDefinition<TFields> {
-  return fn
-}
-
-/**
- * Define an app proxy route handler (file-based routing in proxy/ directory).
- */
-export function defineProxy(proxy: ProxyDefinition): ProxyDefinition {
-  return proxy
-}
-
-/**
- * Define a webhook handler.
- */
-export function defineWebhook(webhook: WebhookDefinition): WebhookDefinition {
-  return webhook
 }
 
 // Re-export types
@@ -116,6 +158,7 @@ export type {
   CronEntryFor,
   ShopifyConfig,
   ShopifyAppConfig,
+  ConnectorsFromProviders,
   FunctionDefinition,
   ShopifyFunctionType,
   ConnectorOf,

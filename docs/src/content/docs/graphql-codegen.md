@@ -11,7 +11,9 @@ import { graphqlConfig } from 'openshop/graphql'
 export default graphqlConfig()
 ```
 
-Run codegen:
+`openshop dev` runs codegen once before the first server start, then starts a watcher through Vite. The template also runs codegen before `tsc` in `pnpm run lint`.
+
+Run codegen manually:
 
 ```bash
 pnpm run codegen
@@ -34,3 +36,4 @@ const data = await shopify.graphql(`#graphql
 ```
 
 OpenShop generates a bridge file that augments global query and mutation interfaces, allowing `shopify.graphql()` to infer variables and return types.
+The generated `types/generated/` directory and `types/openshop-operations.d.ts` bridge are ignored by the template gitignore.

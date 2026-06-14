@@ -1,7 +1,7 @@
 import { type } from 'arktype'
-import { defineFlow } from 'openshop'
+import { app } from '../openshop.app.ts'
 
-export const syncOrders = defineFlow({
+export const syncOrders = app.defineFlow({
   name: 'syncOrders',
   input: type({ limit: 'number.integer > 0' }),
 

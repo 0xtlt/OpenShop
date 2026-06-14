@@ -1,5 +1,6 @@
 import { resolve, dirname, relative } from 'node:path'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 
 const BRIDGE_FILENAME = 'openshop-operations.d.ts'
 
@@ -30,6 +31,33 @@ export function findConfig(cwd: string): string | null {
 export function findBin(cwd: string): string | null {
   const binPath = resolve(cwd, 'node_modules', '.bin', 'graphql-codegen')
   return existsSync(binPath) ? binPath : null
+}
+
+export function runCodegenOnce(cwd: string, options?: { optional?: boolean }) {
+  const configPath = findConfig(cwd)
+  const binPath = findBin(cwd)
+
+  if (!configPath) {
+    if (options?.optional) return false
+    throw new Error('[openshop] GraphQL codegen requires .graphqlrc.ts or codegen.ts.')
+  }
+  if (!binPath) throw new Error('[openshop] GraphQL codegen requires @graphql-codegen/cli in the project dependencies.')
+
+  console.log('[openshop] Running GraphQL codegen...')
+  const result = spawnSync(binPath, ['--config', configPath], {
+    cwd,
+    stdio: 'inherit',
+  })
+
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    throw new Error(`[openshop] Codegen failed (exit ${result.status ?? 1})`)
+  }
+
+  patchScalars(cwd)
+  generateBridge(cwd)
+  console.log('[openshop] Types generated.')
+  return true
 }
 
 export function findGeneratedFile(cwd: string): string | null {

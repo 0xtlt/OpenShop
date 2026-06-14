@@ -6,10 +6,10 @@ description: Define background jobs with checkpointed steps.
 Flows are background jobs executed by OpenShop workers.
 
 ```ts
-import { defineFlow } from 'openshop'
 import { type } from 'arktype'
+import { app } from '../openshop.app'
 
-export const syncOrders = defineFlow({
+export const syncOrders = app.defineFlow({
   name: 'syncOrders',
   input: type({ limit: 'number.integer > 0' }),
   timeout: 60_000,

@@ -12,6 +12,8 @@ import { getRuntimeLogger } from '../runtime/logger.ts'
 import { DEFAULT_SHOPIFY_APP_HANDLE } from '#server/shopify-apps'
 import type { OpenShopConfig, Logger, RetryPolicy } from '#types'
 
+type RuntimeConnectors = Record<string, Record<string, (...args: unknown[]) => unknown>>
+
 export interface RunFlowOptions {
   runId: string
   flowName: string
@@ -22,7 +24,7 @@ export interface RunFlowOptions {
   workerId?: string
   attempt?: number
   onHeartbeat?: () => Promise<void>
-  connectors?: OpenShopConnectors
+  connectors?: RuntimeConnectors
 }
 
 export type RunFlowResult =
@@ -183,7 +185,7 @@ function createLogger(db: ReturnType<typeof getDb>, flowRunId: string): Logger {
   return { info: log('info'), warn: log('warn'), error: log('error') }
 }
 
-async function buildConnectors(config: OpenShopConfig, shop: string, shopifyApp: string): Promise<OpenShopConnectors> {
+async function buildConnectors(config: OpenShopConfig, shop: string, shopifyApp: string): Promise<RuntimeConnectors> {
   const connectors: Record<string, Record<string, (...args: unknown[]) => unknown>> = {}
   const db = getDb()
 
@@ -201,5 +203,5 @@ async function buildConnectors(config: OpenShopConfig, shop: string, shopifyApp:
     }
     connectors[name] = connector
   }
-  return connectors as unknown as OpenShopConnectors
+  return connectors
 }

@@ -151,7 +151,7 @@ export interface TestContext {
   sessionToken: (shop?: string, sub?: string) => string
   /** Authorization header value for authenticated API requests. */
   authorizationHeader: (shop?: string, sub?: string) => string
-  /** Auto-generated provider fakes — typed from OpenShopConnectors */
+  /** Auto-generated provider fakes. */
   fakes: TypedFakeProviders
   /** Reset all fakes call history */
   resetFakes: () => void
@@ -243,7 +243,7 @@ export async function createTestContext(options: TestOptions = {}): Promise<Test
         input,
         config,
         shop: flowShop,
-        connectors: fakes as unknown as OpenShopConnectors,
+        connectors: fakes as Record<string, Record<string, (...args: unknown[]) => unknown>>,
       })
     },
 

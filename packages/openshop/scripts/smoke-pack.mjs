@@ -57,7 +57,7 @@ try {
   }, null, 2))
 
   writeFileSync(resolve(consumerDir, 'index.ts'), `
-import { defineConfig, defineFlow, defineProvider, cron } from 'openshop'
+import { defineOpenShop, defineProvider, cron } from 'openshop'
 import { openshopCodegen } from 'openshop/vite'
 import { createTestContext } from 'openshop/test'
 import { defineModel, text } from 'openshop/schema'
@@ -66,15 +66,24 @@ import { eslintConfig } from 'openshop/eslint'
 import { graphqlConfig } from 'openshop/graphql'
 
 const model = defineModel('items', { title: text('title').notNull() })
-const flow = defineFlow({ name: 'sync', async run() {} })
 const provider = defineProvider({
   name: 'warehouse',
   ui: { fields: { apiUrl: { type: 'text', label: 'API URL' } } },
   methods: { async push(_config, _rows: unknown[]) {} },
 })
 
-defineConfig({
+const app = defineOpenShop({
   providers: { warehouse: provider },
+})
+
+const flow = app.defineFlow({
+  name: 'sync',
+  async run({ connectors }) {
+    await connectors.warehouse.push([])
+  },
+})
+
+app.defineConfig({
   flows: { sync: flow },
   crons: [{ schedule: cron('*/5 * * * *'), flow: 'sync' }],
 })

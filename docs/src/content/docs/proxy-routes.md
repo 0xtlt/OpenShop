@@ -3,12 +3,12 @@ title: Proxy Routes
 description: Define file-based app proxy and extension-direct routes.
 ---
 
-Proxy routes live in the `proxy/` directory and export `defineProxy()`.
+Proxy routes live in the `proxy/` directory and export `app.defineProxy()`.
 
 ```ts
-import { defineProxy } from 'openshop'
+import { app } from '../openshop.app'
 
-export default defineProxy({
+export default app.defineProxy({
   type: 'json',
   async GET({ shop, customerId, query }) {
     return { shop, customerId, query }

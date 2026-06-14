@@ -1,12 +1,22 @@
 import { resolve } from 'node:path'
 import { existsSync } from 'node:fs'
-import { patchScalars, generateBridge } from '../vite/codegen-utils'
+import { runCodegenOnce } from '../vite/codegen-utils'
 
 /**
  * Run GraphQL codegen.
  */
 export async function runCodegen(watch = false) {
   const cwd = process.cwd()
+  if (!watch) {
+    try {
+      runCodegenOnce(cwd)
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : error)
+      process.exit(1)
+    }
+    return
+  }
+
   const configPath =
     existsSync(resolve(cwd, '.graphqlrc.ts')) ? resolve(cwd, '.graphqlrc.ts') :
     existsSync(resolve(cwd, 'codegen.ts')) ? resolve(cwd, 'codegen.ts') :
@@ -43,9 +53,5 @@ export async function runCodegen(watch = false) {
     process.exit(exitCode)
   }
 
-  if (!watch) {
-    patchScalars(cwd)
-    generateBridge(cwd)
-    console.log('[openshop] Types generated.')
-  }
+  // Watch mode is post-processed by the Vite plugin file watcher.
 }

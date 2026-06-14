@@ -3,12 +3,12 @@ title: Shopify Functions
 description: Manage Shopify Function instances from the embedded admin UI.
 ---
 
-`defineFunction()` configures the management UI and GraphQL mutations for Shopify Function instances. It does not define the WASM function implementation.
+`app.defineFunction()` configures the management UI and GraphQL mutations for Shopify Function instances. It does not define the WASM function implementation.
 
 ```ts
-import { defineFunction } from 'openshop'
+import { app } from '../openshop.app'
 
-export const volumeDiscount = defineFunction({
+export const volumeDiscount = app.defineFunction({
   type: 'discount',
   handle: 'volume-discount',
   modes: ['automatic', 'code'],

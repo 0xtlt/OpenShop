@@ -1,6 +1,6 @@
-import { defineProxy } from 'openshop'
+import { app } from '../openshop.app.ts'
 
-export default defineProxy({
+export default app.defineProxy({
   type: 'liquid',
 
   async GET({ shop }) {

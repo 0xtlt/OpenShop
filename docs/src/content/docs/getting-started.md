@@ -16,6 +16,7 @@ The generated project includes:
 
 ```txt
 openshop.config.ts
+openshop.app.ts
 flows/
 providers/
 proxy/

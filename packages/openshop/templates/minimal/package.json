@@ -16,7 +16,7 @@
     "codegen:watch": "openshop codegen:watch",
     "shopify": "shopify app dev --skip-dependencies-installation",
     "test": "openshop test",
-    "lint": "tsc --noEmit && eslint ."
+    "lint": "pnpm run codegen && tsc --noEmit && eslint ."
   },
   "dependencies": {
     "arktype": "^2.2.0",

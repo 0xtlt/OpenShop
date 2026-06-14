@@ -27,6 +27,7 @@ pnpm run shopify
 
 ```
 my-app/
+  openshop.app.ts                # OpenShop app builder + providers
   openshop.config.ts    # Flows, providers, crons
   flows/
     syncOrders.ts       # Your flows
@@ -39,9 +40,9 @@ my-app/
 ## Define a flow
 
 ```ts
-import { defineFlow } from 'openshop'
+import { app } from '../openshop.app'
 
-export const syncOrders = defineFlow({
+export const syncOrders = app.defineFlow({
   name: 'syncOrders',
 
   async run({ connectors, step, logger }) {
@@ -90,22 +91,31 @@ export const warehouse = defineProvider({
   },
 
   methods: {
-    async push(data: unknown[]) { /* ... */ },
+    async push(config, data: unknown[]) { /* ... */ },
   },
 })
 ```
 
 The admin UI auto-generates a config form from `ui.fields` with validation.
 
+## Define an app
+
+```ts
+import { defineOpenShop } from 'openshop'
+import { warehouse } from './providers/warehouse'
+
+export const app = defineOpenShop({
+  providers: { warehouse },
+})
+```
+
 ## Config
 
 ```ts
-import { defineConfig } from 'openshop'
+import { app } from './openshop.app'
 import { syncOrders } from './flows/syncOrders'
-import { warehouse } from './providers/warehouse'
 
-export default defineConfig({
-  providers: { warehouse },
+export default app.defineConfig({
   flows: { syncOrders },
   crons: [
     { schedule: '*/5 * * * *', flow: 'syncOrders' },
@@ -155,7 +165,11 @@ The framework handles App Bridge, Cloudflare tunnels, and embedded app setup.
 One OpenShop instance can serve multiple Shopify apps when all apps use the same scopes. Declare them in `openshop.config.ts` with TOML files:
 
 ```ts
-export default defineConfig({
+import { defineOpenShop } from 'openshop'
+
+const app = defineOpenShop({ providers: {} })
+
+export default app.defineConfig({
   shopify: {
     scopes: 'read_products,write_products',
     apps: {
@@ -163,7 +177,6 @@ export default defineConfig({
       clientB: { toml: 'shopify.app.client-b.toml', apiSecret: process.env.SHOPIFY_CLIENT_B_API_SECRET! },
     },
   },
-  providers: {},
   flows: {},
 })
 ```
@@ -171,7 +184,11 @@ export default defineConfig({
 Or without TOML:
 
 ```ts
-export default defineConfig({
+import { defineOpenShop } from 'openshop'
+
+const app = defineOpenShop({ providers: {} })
+
+export default app.defineConfig({
   shopify: {
     scopes: 'read_products,write_products',
     apps: {
@@ -179,7 +196,6 @@ export default defineConfig({
       clientB: { apiKey: process.env.SHOPIFY_CLIENT_B_API_KEY!, apiSecret: process.env.SHOPIFY_CLIENT_B_API_SECRET!, appUrl: 'https://openshop.example.com' },
     },
   },
-  providers: {},
   flows: {},
 })
 ```

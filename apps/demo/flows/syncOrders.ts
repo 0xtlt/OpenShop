@@ -1,5 +1,5 @@
-import { defineFlow } from 'openshop'
 import { type } from 'arktype'
+import { app } from '../openshop.app.ts'
 
 type RecentOrder = {
   node: {
@@ -17,7 +17,7 @@ type WarehouseOrder = {
   items: number
 }
 
-export const syncOrders = defineFlow({
+export const syncOrders = app.defineFlow({
   name: 'syncOrders',
   input: type({ limit: 'number.integer > 0' }),
 

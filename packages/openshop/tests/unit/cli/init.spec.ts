@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { test } from '@japa/runner'
@@ -47,6 +47,7 @@ test.group('init cli', () => {
       assert.equal(packageJson.scripts.start, 'openshop start')
       assert.equal(packageJson.scripts.worker, 'openshop worker')
       assert.equal(packageJson.scripts.shopify, 'shopify app dev --skip-dependencies-installation')
+      assert.equal(packageJson.scripts.lint, 'pnpm run codegen && tsc --noEmit && eslint .')
       assert.equal(packageJson.dependencies.openshop, '^0.1.1')
       assert.property(packageJson.dependencies, 'pm2')
       assert.notProperty(packageJson.devDependencies, 'tsx')
@@ -55,11 +56,16 @@ test.group('init cli', () => {
       assert.include(shopifyWeb, 'dev = "pnpm run dev"')
       assert.include(readFileSync(resolve(result.targetDir, '.gitignore'), 'utf8'), 'node_modules/')
       assert.include(readFileSync(resolve(result.targetDir, '.dockerignore'), 'utf8'), 'node_modules/')
+      assert.include(readFileSync(resolve(result.targetDir, 'pnpm-workspace.yaml'), 'utf8'), "'@parcel/watcher': true")
+      assert.include(readFileSync(resolve(result.targetDir, 'pnpm-workspace.yaml'), 'utf8'), 'esbuild: true')
       assert.include(readFileSync(resolve(result.targetDir, 'ecosystem.config.cjs'), 'utf8'), "name: 'my-app-web'")
       assert.exists(readFileSync(resolve(result.targetDir, 'Dockerfile'), 'utf8'))
+      assert.include(readFileSync(resolve(result.targetDir, 'openshop.app.ts'), 'utf8'), 'defineOpenShop')
       assert.exists(readFileSync(resolve(result.targetDir, 'openshop.config.ts'), 'utf8'))
       assert.exists(readFileSync(resolve(result.targetDir, 'flows', 'syncOrders.ts'), 'utf8'))
       assert.exists(readFileSync(resolve(result.targetDir, 'providers', 'warehouse.ts'), 'utf8'))
+      assert.isFalse(existsSync(resolve(result.targetDir, 'types', 'openshop.d.ts')))
+      assert.isFalse(existsSync(resolve(result.targetDir, 'types', 'openshop-operations.d.ts')))
     })
   })
 

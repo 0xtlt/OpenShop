@@ -1,7 +1,7 @@
-import { defineFunction } from 'openshop'
 import { type } from 'arktype'
+import { app } from '../openshop.app.ts'
 
-export const volumeDiscount = defineFunction({
+export const volumeDiscount = app.defineFunction({
   type: 'discount',
   handle: 'volume-discount',
   modes: ['automatic', 'code'],

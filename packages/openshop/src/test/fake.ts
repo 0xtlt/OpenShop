@@ -1,4 +1,4 @@
-import type { OpenShopConfig } from '#types'
+import type { ConnectorsFromProviders, OpenShopConfig } from '#types'
 
 // ─── Fake method (spy) ──────────────────────────────────────────────
 
@@ -80,12 +80,14 @@ type FakeOf<T> = {
       : never
 }
 
-/** Typed fakes for all connectors — mirrors OpenShopConnectors but with FakeMethod wrappers */
-export type TypedFakeProviders = {
-  [K in keyof OpenShopConnectors]: FakeOf<OpenShopConnectors[K]>
+/** Typed fakes for connectors, with each connector method wrapped as a FakeMethod. */
+export type TypedFakeProviders<TConnectors extends Record<string, any> = Record<string, Record<string, (...args: unknown[]) => unknown>>> = {
+  [K in keyof TConnectors]: FakeOf<TConnectors[K]>
 }
 
-export function createFakeProviders(providers: OpenShopConfig['providers']): TypedFakeProviders {
+export function createFakeProviders<const TProviders extends OpenShopConfig['providers']>(
+  providers: TProviders,
+): TypedFakeProviders<ConnectorsFromProviders<TProviders>> {
   const fakes: Record<string, Record<string, FakeMethod>> = {}
 
   for (const [name, provider] of Object.entries(providers)) {
@@ -96,10 +98,10 @@ export function createFakeProviders(providers: OpenShopConfig['providers']): Typ
     fakes[name] = fake
   }
 
-  return fakes as unknown as TypedFakeProviders
+  return fakes as unknown as TypedFakeProviders<ConnectorsFromProviders<TProviders>>
 }
 
-export function resetFakeProviders(fakes: TypedFakeProviders) {
+export function resetFakeProviders(fakes: TypedFakeProviders<any>) {
   for (const name of Object.keys(fakes)) {
     const provider = (fakes as Record<string, Record<string, FakeMethod>>)[name]
     for (const methodName of Object.keys(provider)) {

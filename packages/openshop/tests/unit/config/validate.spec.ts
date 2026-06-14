@@ -1,11 +1,6 @@
 import { test } from '@japa/runner'
 import { type } from 'arktype'
-import { defineConfig, defineFlow, defineFunction, defineProvider } from '../../../src/index.ts'
-
-const flow = defineFlow({
-  name: 'sync',
-  async run() {},
-})
+import { defineOpenShop, defineProvider } from '../../../src/index.ts'
 
 const provider = defineProvider({
   name: 'warehouse',
@@ -19,10 +14,17 @@ const provider = defineProvider({
   },
 })
 
-test.group('defineConfig validation', () => {
+const app = defineOpenShop({ providers: { warehouse: provider } })
+const emptyApp = defineOpenShop({ providers: {} })
+
+const flow = app.defineFlow({
+  name: 'sync',
+  async run() {},
+})
+
+test.group('defineOpenShop config validation', () => {
   test('accepts a valid config', ({ assert }) => {
-    const config = defineConfig({
-      providers: { warehouse: provider },
+    const config = app.defineConfig({
       flows: { sync: flow },
       crons: [{ schedule: '*/5 * * * *', flow: 'sync' }],
       worker: { concurrency: 2 },
@@ -33,35 +35,32 @@ test.group('defineConfig validation', () => {
   })
 
   test('rejects crons that reference an unknown flow', ({ assert }) => {
-    assert.throws(() => defineConfig({
-      providers: {},
+    assert.throws(() => emptyApp.defineConfig({
       flows: { sync: flow },
       crons: [{ schedule: '*/5 * * * *', flow: 'missing' }],
     }), /unknown flow "missing"/)
   })
 
   test('rejects duplicate Shopify Function handles', ({ assert }) => {
-    const first = defineFunction({
+    const first = emptyApp.defineFunction({
       type: 'discount',
       handle: 'volume-discount',
       config: { threshold: { type: 'number', label: 'Threshold' } },
     })
-    const second = defineFunction({
+    const second = emptyApp.defineFunction({
       type: 'discount',
       handle: 'volume-discount',
       config: { threshold: { type: 'number', label: 'Threshold' } },
     })
 
-    assert.throws(() => defineConfig({
-      providers: {},
+    assert.throws(() => emptyApp.defineConfig({
       flows: { sync: flow },
       functions: { first, second },
     }), /duplicates "volume-discount"/)
   })
 
   test('rejects invalid worker numbers', ({ assert }) => {
-    assert.throws(() => defineConfig({
-      providers: {},
+    assert.throws(() => emptyApp.defineConfig({
       flows: { sync: flow },
       worker: { concurrency: 0 },
     }), /worker\.concurrency must be a positive integer/)

@@ -7,8 +7,6 @@ declare global {
   interface OpenShopQueries {}
   /** Augment this interface to get typed mutation results from codegen */
   interface OpenShopMutations {}
-  /** Augment this interface to get typed connectors in flow context */
-  interface OpenShopConnectors {}
 }
 
 // ─── Provider ────────────────────────────────────────────────────────
@@ -85,9 +83,12 @@ export interface Logger {
   error: (payload: Record<string, unknown>, message?: string) => void
 }
 
-export interface FlowRunContext<TInput = Record<string, unknown>> {
+export interface FlowRunContext<
+  TInput = Record<string, unknown>,
+  TConnectors = Record<string, Record<string, (...args: any[]) => any>>,
+> {
   input: TInput
-  connectors: OpenShopConnectors
+  connectors: TConnectors
   shopify: import('./shopify/client.ts').ShopifyClient
   shop: string
   shopifyApp: string
@@ -161,7 +162,7 @@ export interface OpenShopConfig<
   flows: TFlows
   functions?: TFunctions
   webhooks?: Record<string, WebhookDefinition>
-  crons?: CronEntry[]
+  crons?: CronEntryFor<TFlows>[]
   worker?: Partial<WorkerConfig>
   retryPolicy?: Partial<RetryPolicy>
   onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void

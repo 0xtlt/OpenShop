@@ -18,15 +18,7 @@ pnpm run shopify
 ## Core API
 
 ```ts
-import { defineConfig, defineFlow, defineProvider } from 'openshop'
-
-const syncOrders = defineFlow({
-  name: 'syncOrders',
-  async run({ step, connectors }) {
-    const orders = await step('fetch-orders', async () => [])
-    await step('push-orders', async () => connectors.warehouse.push(orders))
-  },
-})
+import { defineOpenShop, defineProvider } from 'openshop'
 
 const warehouse = defineProvider({
   name: 'warehouse',
@@ -47,8 +39,19 @@ const warehouse = defineProvider({
   },
 })
 
-export default defineConfig({
+const app = defineOpenShop({
   providers: { warehouse },
+})
+
+const syncOrders = app.defineFlow({
+  name: 'syncOrders',
+  async run({ step, connectors }) {
+    const orders = await step('fetch-orders', async () => [])
+    await step('push-orders', async () => connectors.warehouse.push(orders))
+  },
+})
+
+export default app.defineConfig({
   flows: { syncOrders },
   crons: [{ schedule: '*/5 * * * *', flow: 'syncOrders', shops: 'all' }],
 })
@@ -74,7 +77,11 @@ openssl rand -hex 32
 OpenShop can serve several Shopify apps from one production instance when the apps share the same scopes:
 
 ```ts
-export default defineConfig({
+import { defineOpenShop } from 'openshop'
+
+const app = defineOpenShop({ providers: {} })
+
+export default app.defineConfig({
   shopify: {
     scopes: 'read_products,write_products',
     apps: {
@@ -82,7 +89,6 @@ export default defineConfig({
       clientB: { apiKey: process.env.SHOPIFY_CLIENT_B_API_KEY!, apiSecret: process.env.SHOPIFY_CLIENT_B_API_SECRET!, appUrl: 'https://openshop.example.com' },
     },
   },
-  providers: {},
   flows: {},
 })
 ```

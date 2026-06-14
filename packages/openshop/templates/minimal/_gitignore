@@ -3,3 +3,4 @@ dist/
 .env
 .shopify/
 types/generated/
+types/openshop-operations.d.ts

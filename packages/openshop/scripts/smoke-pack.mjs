@@ -15,6 +15,7 @@ try {
   execFileSync('pnpm', ['pack', '--pack-destination', tarballDir], { cwd: root, stdio: 'inherit' })
   const [tarball] = readdirSync(tarballDir)
   const tarballPath = resolve(tarballDir, tarball)
+  const publicExports = ['openshop', 'openshop/vite', 'openshop/test', 'openshop/schema', 'openshop/drizzle', 'openshop/eslint', 'openshop/graphql']
 
   writeFileSync(resolve(consumerDir, 'package.json'), JSON.stringify({
     name: 'openshop-pack-smoke',
@@ -57,7 +58,11 @@ try {
 
   writeFileSync(resolve(consumerDir, 'index.ts'), `
 import { defineConfig, defineFlow, defineProvider, cron } from 'openshop'
+import { openshopCodegen } from 'openshop/vite'
+import { createTestContext } from 'openshop/test'
 import { defineModel, text } from 'openshop/schema'
+import { frameworkSchemaPath } from 'openshop/drizzle'
+import { eslintConfig } from 'openshop/eslint'
 import { graphqlConfig } from 'openshop/graphql'
 
 const model = defineModel('items', { title: text('title').notNull() })
@@ -75,11 +80,21 @@ defineConfig({
 })
 
 graphqlConfig()
+void openshopCodegen
+void createTestContext
+void frameworkSchemaPath
+void eslintConfig
 void model
 `)
 
   execFileSync('pnpm', ['install', '--ignore-scripts=false'], { cwd: consumerDir, stdio: 'inherit' })
   execFileSync('pnpm', ['run', 'check'], { cwd: consumerDir, stdio: 'inherit' })
+  execFileSync('node', [
+    '--input-type=module',
+    '--eval',
+    `for (const specifier of ${JSON.stringify(publicExports)}) await import(specifier)`,
+  ], { cwd: consumerDir, stdio: 'inherit' })
+  execFileSync('pnpm', ['exec', 'openshop'], { cwd: consumerDir, stdio: 'pipe' })
 } finally {
   rmSync(tmp, { recursive: true, force: true })
 }

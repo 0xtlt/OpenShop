@@ -63,11 +63,26 @@
     }
   },
   "imports": {
-    "#db/*": "./src/db/*.ts",
-    "#engine/*": "./src/engine/*.ts",
-    "#server/*": "./src/server/*.ts",
-    "#shopify/*": "./src/shopify/*.ts",
-    "#types": "./src/types.ts"
+    "#db/*": {
+      "types": "./dist/types/db/*.d.ts",
+      "default": "./src/db/*.ts"
+    },
+    "#engine/*": {
+      "types": "./dist/types/engine/*.d.ts",
+      "default": "./src/engine/*.ts"
+    },
+    "#server/*": {
+      "types": "./dist/types/server/*.d.ts",
+      "default": "./src/server/*.ts"
+    },
+    "#shopify/*": {
+      "types": "./dist/types/shopify/*.d.ts",
+      "default": "./src/shopify/*.ts"
+    },
+    "#types": {
+      "types": "./dist/types/types.d.ts",
+      "default": "./src/types.ts"
+    }
   },
   "dependencies": {
     "@hono/node-server": "2.0.4",

@@ -1,4 +1,4 @@
-import type { CombinesWith, DiscountMode, FunctionDefinition } from '#types'
+import type { AnyFunctionDefinition, CombinesWith, DiscountMode, FunctionOwner } from '#types'
 import { DISCOUNT_MUTATIONS, FUNCTION_MUTATIONS, type MutationSet } from './function-mutation-map.ts'
 
 export interface ShopifyUserError {
@@ -13,7 +13,7 @@ export interface MutationRequest {
 
 export const METAFIELD_NAMESPACE = '$app:openshop'
 
-export function getMutations(def: FunctionDefinition, mode?: DiscountMode): MutationSet | null {
+export function getMutations(def: AnyFunctionDefinition, mode?: DiscountMode): MutationSet | null {
   if (def.type === 'discount') {
     return DISCOUNT_MUTATIONS[mode ?? (def.modes?.[0] ?? 'automatic')]
   }
@@ -39,10 +39,12 @@ export function extractPayload(data: unknown): Record<string, unknown> | null {
   return mutationKey ? obj[mutationKey] : null
 }
 
-export function resolveTitle(owner: FunctionDefinition['owner'], config: Record<string, unknown>): string {
+export function resolveTitle(owner: AnyFunctionDefinition['owner'], config: Record<string, unknown>): string {
   if (!owner) return 'Untitled'
   const title = owner.title
-  return typeof title === 'function' ? title(config) : title
+  return typeof title === 'function'
+    ? (title as FunctionOwner<Record<string, unknown>>['title'] & ((config: Record<string, unknown>) => string))(config)
+    : title
 }
 
 export function buildMetafield(handle: string, config: Record<string, unknown>) {
@@ -54,12 +56,12 @@ export function buildMetafield(handle: string, config: Record<string, unknown>) 
   }
 }
 
-function combinesWith(owner: FunctionDefinition['owner']): CombinesWith {
+function combinesWith(owner: AnyFunctionDefinition['owner']): CombinesWith {
   return owner?.combinesWith ?? {}
 }
 
 export function buildCreateMutation(
-  def: FunctionDefinition,
+  def: AnyFunctionDefinition,
   handle: string,
   mode: DiscountMode,
   title: string,
@@ -183,7 +185,7 @@ export function buildCreateMutation(
 }
 
 export function buildUpdateMutation(
-  def: FunctionDefinition,
+  def: AnyFunctionDefinition,
   handle: string,
   mode: DiscountMode,
   id: string,

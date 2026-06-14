@@ -25,11 +25,11 @@ export interface FakeMethod<TArgs extends unknown[] = unknown[], TReturn = unkno
 function createFakeMethod<TArgs extends unknown[] = unknown[], TReturn = unknown>(): FakeMethod<TArgs, TReturn> {
   let defaultReturn: unknown
   let defaultError: Error | null = null
-  let customImpl: Function | null = null
+  let customImpl: ((...args: TArgs) => TReturn | Promise<TReturn>) | null = null
   const perCall = new Map<number, { type: 'return' | 'reject'; value: unknown }>()
   const calls: FakeCall<TArgs>[] = []
 
-  const fn = (async (...args: unknown[]) => {
+  const fn = (async (...args: TArgs) => {
     const idx = calls.length
     const override = perCall.get(idx)
 
@@ -44,11 +44,11 @@ function createFakeMethod<TArgs extends unknown[] = unknown[], TReturn = unknown
       else returnedValue = defaultReturn
     } catch (e) {
       thrownError = e instanceof Error ? e : new Error(String(e))
-      calls.push({ args: args as TArgs, returnedValue: undefined, thrownError, timestamp: Date.now() })
+      calls.push({ args, returnedValue: undefined, thrownError, timestamp: Date.now() })
       throw thrownError
     }
 
-    calls.push({ args: args as TArgs, returnedValue, thrownError: undefined, timestamp: Date.now() })
+    calls.push({ args, returnedValue, thrownError: undefined, timestamp: Date.now() })
     return returnedValue
   }) as unknown as FakeMethod<TArgs, TReturn>
 
@@ -81,7 +81,7 @@ type FakeOf<T> = {
 }
 
 /** Typed fakes for connectors, with each connector method wrapped as a FakeMethod. */
-export type TypedFakeProviders<TConnectors extends Record<string, any> = Record<string, Record<string, (...args: unknown[]) => unknown>>> = {
+export type TypedFakeProviders<TConnectors extends Record<string, unknown> = Record<string, Record<string, (...args: unknown[]) => unknown>>> = {
   [K in keyof TConnectors]: FakeOf<TConnectors[K]>
 }
 
@@ -101,9 +101,10 @@ export function createFakeProviders<const TProviders extends OpenShopConfig['pro
   return fakes as unknown as TypedFakeProviders<ConnectorsFromProviders<TProviders>>
 }
 
-export function resetFakeProviders(fakes: TypedFakeProviders<any>) {
-  for (const name of Object.keys(fakes)) {
-    const provider = (fakes as Record<string, Record<string, FakeMethod>>)[name]
+export function resetFakeProviders(fakes: unknown) {
+  const providers = fakes as Record<string, Record<string, FakeMethod>>
+  for (const name of Object.keys(providers)) {
+    const provider = providers[name]
     for (const methodName of Object.keys(provider)) {
       provider[methodName].reset()
     }

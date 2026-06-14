@@ -1,5 +1,5 @@
 import { type } from 'arktype'
-import type { FunctionDefinition, ProviderFieldDef } from '../types.ts'
+import type { AnyFunctionDefinition, ProviderFieldDef } from '../types.ts'
 
 export type FunctionConfigResult =
   | { ok: true; config: Record<string, unknown> }
@@ -18,7 +18,7 @@ function coerceFieldValue(field: ProviderFieldDef, value: unknown): unknown {
   return value
 }
 
-export function validateFunctionConfig(def: FunctionDefinition, rawConfig: unknown): FunctionConfigResult {
+export function validateFunctionConfig(def: Pick<AnyFunctionDefinition, 'config'>, rawConfig: unknown): FunctionConfigResult {
   const input = typeof rawConfig === 'object' && rawConfig !== null && !Array.isArray(rawConfig)
     ? rawConfig as Record<string, unknown>
     : {}

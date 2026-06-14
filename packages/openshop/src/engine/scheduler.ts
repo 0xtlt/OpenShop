@@ -14,6 +14,12 @@ interface CronTarget {
   shop: string
 }
 
+function inputRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
+}
+
 async function resolveInstalledTargets(shops: string[]): Promise<CronTarget[]> {
   if (shops.length === 0) return []
   const db = getDb()
@@ -32,7 +38,7 @@ async function resolveInstalledTargets(shops: string[]): Promise<CronTarget[]> {
   return results
 }
 
-async function resolveTargets(entry: CronEntry): Promise<CronTarget[]> {
+async function resolveTargets(entry: Pick<CronEntry, 'shops'>): Promise<CronTarget[]> {
   const mode = entry.shops ?? 'global'
 
   if (mode === 'global') return [{ shopifyApp: DEFAULT_SHOPIFY_APP_HANDLE, shop: '__global__' }]
@@ -94,7 +100,7 @@ export function startScheduler(config: OpenShopConfig) {
             continue
           }
 
-          await dispatchFlow({ flowName: flow, input: entry.input, config, shopifyApp, shop })
+          await dispatchFlow({ flowName: flow, input: inputRecord(entry.input), config, shopifyApp, shop })
         } catch (error) {
           logger.error(`[openshop] Cron flow "${flow}" failed for ${shop}`, { error })
         }

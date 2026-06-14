@@ -13,6 +13,11 @@ import { DEFAULT_SHOPIFY_APP_HANDLE } from '#server/shopify-apps'
 import type { OpenShopConfig, Logger, RetryPolicy } from '#types'
 
 type RuntimeConnectors = Record<string, Record<string, (...args: unknown[]) => unknown>>
+type RuntimeProviderMethod = (config: Record<string, unknown>, ...args: unknown[]) => unknown
+
+function isRuntimeProviderMethod(value: unknown): value is RuntimeProviderMethod {
+  return typeof value === 'function'
+}
 
 export interface RunFlowOptions {
   runId: string
@@ -62,7 +67,7 @@ export async function runFlow(opts: RunFlowOptions): Promise<RunFlowResult> {
   const shopify = await createShopifyClient(shop, shopifyApp)
 
   try {
-    let validatedInput = input
+    let validatedInput: unknown = input
     if (flow.input) {
       const result = flow.input(input)
       if (result instanceof type.errors) {
@@ -199,6 +204,7 @@ async function buildConnectors(config: OpenShopConfig, shop: string, shopifyApp:
     const connector: Record<string, (...args: unknown[]) => unknown> = {}
     for (const methodName of Object.keys(provider.methods)) {
       const methodFn = provider.methods[methodName]
+      if (!isRuntimeProviderMethod(methodFn)) continue
       connector[methodName] = (...args: unknown[]) => methodFn(providerConfig, ...args)
     }
     connectors[name] = connector

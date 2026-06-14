@@ -21,43 +21,45 @@ export interface ProviderFieldDef<T = unknown> {
 }
 
 /** Extracts the inferred type from ProviderFieldDef<T> */
+export type ProviderFieldDefinitions = Record<string, ProviderFieldDef>
+export type ProviderMethod<TConfig, TArgs extends readonly unknown[] = readonly unknown[], TReturn = unknown> = (config: TConfig, ...args: TArgs) => TReturn
+type DropFirstParameter<T> = T extends (first: infer _First, ...args: infer A) => infer R ? (...args: A) => R : never
+
 type InferField<F> = F extends ProviderFieldDef<infer T> ? T : unknown
-type OptionalFieldKeys<F extends Record<string, ProviderFieldDef<any>>> = {
+type OptionalFieldKeys<F extends ProviderFieldDefinitions> = {
   [K in keyof F]: F[K] extends { required: false } ? K : never
 }[keyof F]
-type RequiredFieldKeys<F extends Record<string, ProviderFieldDef<any>>> = Exclude<keyof F, OptionalFieldKeys<F>>
+type RequiredFieldKeys<F extends ProviderFieldDefinitions> = Exclude<keyof F, OptionalFieldKeys<F>>
 
 /** Derives a typed config object from the fields' `validate` schemas */
-export type ConfigFromFields<F extends Record<string, ProviderFieldDef<any>>> = {
+export type ConfigFromFields<F extends ProviderFieldDefinitions> = {
   [K in RequiredFieldKeys<F>]: InferField<F[K]>
 } & {
   [K in OptionalFieldKeys<F>]?: InferField<F[K]>
 }
 
-export type AnyProviderDefinition = ProviderDefinition<Record<string, ProviderFieldDef<any>>, Record<string, (config: any, ...args: any[]) => any>>
-export type AnyFlowDefinition = FlowDefinition<any>
-export type AnyFunctionDefinition = FunctionDefinition<Record<string, ProviderFieldDef<any>>>
+export type AnyProviderDefinition = ProviderDefinition
+export type AnyFlowDefinition = FlowDefinition<unknown>
+export type AnyFunctionDefinition = Omit<FunctionDefinition<ProviderFieldDefinitions>, 'owner'> & { owner?: FunctionOwner<never> }
 
-export type ConnectorsFromProviders<TProviders extends Record<string, ProviderDefinition<any, any>>> = {
+export type ConnectorsFromProviders<TProviders extends Record<string, ProviderDefinition>> = {
   [K in keyof TProviders]: ConnectorOf<TProviders[K]>
 }
 
 export interface ProviderDefinition<
-  TFields extends Record<string, ProviderFieldDef<any>> = Record<string, ProviderFieldDef>,
-  TMethods extends Record<string, (config: any, ...args: any[]) => any> = Record<string, (config: any, ...args: any[]) => any>,
+  TFields extends ProviderFieldDefinitions = ProviderFieldDefinitions,
+  TMethods extends Record<string, unknown> = Record<string, unknown>,
 > {
   name: string
   ui: { fields: TFields }
   transformer?: (data: { data: Record<string, unknown> }) => Record<string, unknown>
-  checker?: (ctx: { config: ConfigFromFields<TFields> }) => Promise<boolean>
+  checker?(ctx: { config: ConfigFromFields<TFields> }): Promise<boolean>
   methods: TMethods
 }
 
 /** Strips the config first arg from provider methods to get the connector type */
-export type ConnectorOf<P extends ProviderDefinition<any, any>> = {
-  [K in keyof P['methods']]: P['methods'][K] extends (config: any, ...args: infer A) => infer R
-    ? (...args: A) => R
-    : never
+export type ConnectorOf<P extends ProviderDefinition> = {
+  [K in keyof P['methods']]: DropFirstParameter<P['methods'][K]>
 }
 
 export interface ProviderInstance {
@@ -85,7 +87,7 @@ export interface Logger {
 
 export interface FlowRunContext<
   TInput = Record<string, unknown>,
-  TConnectors = Record<string, Record<string, (...args: any[]) => any>>,
+  TConnectors = Record<string, Record<string, (...args: unknown[]) => unknown>>,
 > {
   input: TInput
   connectors: TConnectors
@@ -106,7 +108,7 @@ export interface FlowDefinition<TInput = Record<string, unknown>> {
   stepTimeout?: number
   concurrency?: 'reject' | 'allow'
   retryPolicy?: Partial<RetryPolicy>
-  run: (ctx: FlowRunContext<TInput>) => Promise<void>
+  run(ctx: FlowRunContext<TInput>): Promise<void>
 }
 
 // ─── Cron schedule type ──────────────────────────────────────────────
@@ -141,7 +143,7 @@ export interface WebhookContext {
 }
 
 /** Typed cron entry — flow name autocompletes, input matches the flow's schema */
-export type CronEntryFor<TFlows extends Record<string, FlowDefinition<any>>> = {
+export type CronEntryFor<TFlows extends Record<string, FlowDefinition<unknown>>> = {
   [K in keyof TFlows & string]: {
     name?: string
     schedule: string
@@ -153,9 +155,9 @@ export type CronEntryFor<TFlows extends Record<string, FlowDefinition<any>>> = {
 
 
 export interface OpenShopConfig<
-  TProviders extends Record<string, ProviderDefinition<any, any>> = Record<string, ProviderDefinition<any, any>>,
-  TFlows extends Record<string, FlowDefinition<any>> = Record<string, FlowDefinition<any>>,
-  TFunctions extends Record<string, FunctionDefinition<any>> = Record<string, FunctionDefinition<any>>,
+  TProviders extends Record<string, ProviderDefinition> = Record<string, ProviderDefinition>,
+  TFlows extends Record<string, FlowDefinition<unknown>> = Record<string, FlowDefinition<unknown>>,
+  TFunctions extends Record<string, AnyFunctionDefinition> = Record<string, AnyFunctionDefinition>,
 > {
   shopify?: ShopifyConfig
   providers: TProviders
@@ -228,7 +230,7 @@ export interface FunctionOwner<TConfig = Record<string, unknown>> {
   enabled?: boolean
 }
 
-export interface FunctionDefinition<TFields extends Record<string, ProviderFieldDef<any>> = Record<string, ProviderFieldDef>> {
+export interface FunctionDefinition<TFields extends ProviderFieldDefinitions = ProviderFieldDefinitions> {
   type: ShopifyFunctionType
   handle: string
   modes?: DiscountMode[]

@@ -1,9 +1,9 @@
-import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders } from './types.ts'
+import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ProviderFieldDefinitions, ProviderMethod, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, AnyFunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders } from './types.ts'
 import type { Type } from 'arktype'
 import type { StandardCRON } from 'ts-cron-validator'
 import { validateOpenShopConfig } from './config/validate.ts'
 
-interface OpenShopAppBase<TProviders extends Record<string, ProviderDefinition<any, any>>> {
+interface OpenShopAppBase<TProviders extends Record<string, ProviderDefinition>> {
   shopify?: ShopifyConfig
   providers: TProviders
   worker?: Partial<WorkerConfig>
@@ -13,10 +13,10 @@ interface OpenShopAppBase<TProviders extends Record<string, ProviderDefinition<a
 
 type AppFlowRunContext<
   TInput,
-  TProviders extends Record<string, ProviderDefinition<any, any>>,
+  TProviders extends Record<string, ProviderDefinition>,
 > = FlowRunContext<TInput, ConnectorsFromProviders<TProviders>>
 
-interface FlowInput<TInput, TProviders extends Record<string, ProviderDefinition<any, any>>> {
+interface FlowInput<TInput, TProviders extends Record<string, ProviderDefinition>> {
   name: string
   input?: Type<TInput>
   timeout?: number
@@ -27,9 +27,9 @@ interface FlowInput<TInput, TProviders extends Record<string, ProviderDefinition
 }
 
 interface OpenShopConfigInput<
-  TProviders extends Record<string, ProviderDefinition<any, any>>,
-  TFlows extends Record<string, FlowDefinition<any>>,
-  TFunctions extends Record<string, FunctionDefinition<any>>,
+  TProviders extends Record<string, ProviderDefinition>,
+  TFlows extends Record<string, FlowDefinition<unknown>>,
+  TFunctions extends Record<string, AnyFunctionDefinition>,
 > {
   shopify?: ShopifyConfig
   flows: TFlows
@@ -41,9 +41,9 @@ interface OpenShopConfigInput<
   onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void
 }
 
-export interface OpenShopApp<TProviders extends Record<string, ProviderDefinition<any, any>>> {
+export interface OpenShopApp<TProviders extends Record<string, ProviderDefinition>> {
   defineFlow<TInput = Record<string, unknown>>(flow: FlowInput<TInput, TProviders>): FlowDefinition<TInput>
-  defineFunction<const TFields extends Record<string, ProviderFieldDef<any>>>(fn: {
+  defineFunction<const TFields extends ProviderFieldDefinitions>(fn: {
     type: ShopifyFunctionType
     handle: string
     modes?: DiscountMode[]
@@ -53,15 +53,15 @@ export interface OpenShopApp<TProviders extends Record<string, ProviderDefinitio
   defineProxy(proxy: ProxyDefinition): ProxyDefinition
   defineWebhook(webhook: WebhookDefinition): WebhookDefinition
   defineConfig<
-    const TFlows extends Record<string, FlowDefinition<any>>,
-    const TFunctions extends Record<string, FunctionDefinition<any>> = Record<string, FunctionDefinition<any>>,
+    const TFlows extends Record<string, FlowDefinition<unknown>>,
+    const TFunctions extends Record<string, AnyFunctionDefinition> = Record<string, AnyFunctionDefinition>,
   >(config: OpenShopConfigInput<TProviders, TFlows, TFunctions>): OpenShopConfig<TProviders, TFlows, TFunctions>
 }
 
 function validateConfig<
-  const TProviders extends Record<string, ProviderDefinition<any, any>>,
-  const TFlows extends Record<string, FlowDefinition<any>>,
-  const TFunctions extends Record<string, FunctionDefinition<any>> = Record<string, FunctionDefinition<any>>,
+  const TProviders extends Record<string, ProviderDefinition>,
+  const TFlows extends Record<string, FlowDefinition<unknown>>,
+  const TFunctions extends Record<string, AnyFunctionDefinition> = Record<string, AnyFunctionDefinition>,
 >(config: OpenShopConfig<TProviders, TFlows, TFunctions>): OpenShopConfig<TProviders, TFlows, TFunctions> {
   validateOpenShopConfig(config as unknown as OpenShopConfig)
   return config
@@ -70,14 +70,14 @@ function validateConfig<
 /**
  * Define an OpenShop app. The app carries provider types into flows and config.
  */
-export function defineOpenShop<const TProviders extends Record<string, ProviderDefinition<any, any>>>(
+export function defineOpenShop<const TProviders extends Record<string, ProviderDefinition>>(
   app: OpenShopAppBase<TProviders>,
 ): OpenShopApp<TProviders> {
   return {
     defineFlow<TInput = Record<string, unknown>>(flow: FlowInput<TInput, TProviders>): FlowDefinition<TInput> {
       return flow as unknown as FlowDefinition<TInput>
     },
-    defineFunction<const TFields extends Record<string, ProviderFieldDef<any>>>(fn: {
+    defineFunction<const TFields extends ProviderFieldDefinitions>(fn: {
       type: ShopifyFunctionType
       handle: string
       modes?: DiscountMode[]
@@ -93,8 +93,8 @@ export function defineOpenShop<const TProviders extends Record<string, ProviderD
       return webhook
     },
     defineConfig<
-      const TFlows extends Record<string, FlowDefinition<any>>,
-      const TFunctions extends Record<string, FunctionDefinition<any>> = Record<string, FunctionDefinition<any>>,
+      const TFlows extends Record<string, FlowDefinition<unknown>>,
+      const TFunctions extends Record<string, AnyFunctionDefinition> = Record<string, AnyFunctionDefinition>,
     >(config: OpenShopConfigInput<TProviders, TFlows, TFunctions>): OpenShopConfig<TProviders, TFlows, TFunctions> {
       return validateConfig({
         ...app,
@@ -130,8 +130,8 @@ export function cron<T extends string>(schedule: T extends CronNickname ? T : St
  * Define a provider. Identity function for type inference.
  */
 export function defineProvider<
-  const TFields extends Record<string, ProviderFieldDef<any>>,
-  TMethods extends Record<string, (config: ConfigFromFields<TFields>, ...args: any[]) => any>,
+  const TFields extends ProviderFieldDefinitions,
+  TMethods extends Record<string, ProviderMethod<ConfigFromFields<TFields>, never[], unknown>>,
 >(provider: {
   name: string
   ui: { fields: TFields }

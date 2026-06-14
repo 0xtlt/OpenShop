@@ -99,4 +99,4 @@ shopify app deploy --config shopify.app.client-b.toml
 
 Run these deploys whenever client IDs, URLs, scopes, access settings, webhooks, app proxy settings, or extensions change in a TOML file. Shopify's app configuration docs state that TOML changes are local configuration and production stores see them only after the deploy command runs.
 
-This is the same operational model Gadget moved toward in framework v1.7: Shopify app configuration lives in TOML and must be deployed to Shopify through Shopify CLI.
+In short: Shopify app configuration lives in TOML locally, and production Shopify apps only receive those changes after a Shopify CLI deploy.

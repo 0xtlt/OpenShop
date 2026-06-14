@@ -86,7 +86,7 @@ export default app.defineConfig({
 
 All apps in one OpenShop instance must use the same scopes. Prefer setting `shopify.scopes` once, as above. If it is omitted, OpenShop reads scopes from TOML files and rejects mismatches.
 
-This mirrors the direction of Gadget framework v1.7, where Shopify connection settings, scopes, and webhook subscriptions moved into TOML files. See the [Gadget v1.7 migration guide](https://docs.gadget.dev/guides/gadget-framework/v1-7-migration) and Shopify's [app configuration docs](https://shopify.dev/docs/apps/build/cli-for-apps/app-configuration).
+Shopify connection settings, scopes, webhook subscriptions, and related app settings should stay aligned with Shopify's [app configuration docs](https://shopify.dev/docs/apps/build/cli-for-apps/app-configuration).
 
 ### Without Shopify TOML
 

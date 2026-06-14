@@ -240,7 +240,15 @@ openssl rand -hex 32
 ```
 
 Use versioned Drizzle migrations for production schema changes. `openshop dev` still uses `drizzle-kit push --force` for local development only.
-Run `openshop migrate` before production deploys, or let `openshop start` / `openshop worker` apply OpenShop framework migrations on boot.
+OpenShop projects own their migrations in `./drizzle`, including framework tables and app models:
+
+```bash
+pnpm exec openshop migrate generate
+pnpm exec openshop migrate check
+pnpm exec openshop migrate
+```
+
+Run `generate` and `check` in development or CI where Drizzle Kit is installed. Review and commit generated migration files before deploying. In production/deploy jobs, `openshop migrate` only applies already committed SQL from `./drizzle`; it does not load `drizzle.config.ts` or run generation tooling. `openshop start` and `openshop worker` never generate or apply migrations.
 
 ### Production processes
 
@@ -295,18 +303,16 @@ Use `node_modules/openshop/bin/cli.js` rather than `node_modules/.bin/openshop` 
 
 `openshop start` and `openshop worker` load the compiled server app from `dist/openshop/server`; run `openshop build` before starting production.
 
-### App database tables
+### Database migrations
 
-OpenShop boot migrations only manage OpenShop framework tables such as runs, steps, logs, providers, installations, and cron overrides.
-They do not create your app-specific model tables.
+OpenShop does not ship prebuilt framework migration SQL. A generated project creates its first migration in `./drizzle` from the OpenShop framework schema. Later schema changes, including app-specific Drizzle models, should be generated manually:
 
-If your app defines additional Drizzle models, run your app migrations before starting the web and worker processes. For example:
-
-```dockerfile
-CMD ["sh", "-c", "pnpm run migrate:app && pnpm exec pm2-runtime start ecosystem.config.cjs"]
+```bash
+pnpm exec openshop migrate generate
+pnpm exec openshop migrate
 ```
 
-Without a worker process, runs can stay `pending` forever. Without app migrations, a worker can start and then fail when a flow reads or writes missing app tables.
+Run `openshop migrate generate` before deploy, review and commit the SQL, then run `openshop migrate` during deploy. Without a worker process, runs can stay `pending` forever. Without running migrations manually before deploy, web and worker processes can start and then fail when they read or write missing tables.
 
 ## License
 

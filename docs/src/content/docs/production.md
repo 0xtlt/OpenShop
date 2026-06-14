@@ -64,7 +64,27 @@ pnpm exec openshop worker --concurrency=5
 
 ## Migrations
 
-OpenShop applies framework migrations on boot. Your app-specific migrations must run before web and worker processes start.
+OpenShop does not apply migrations on boot. `openshop start` and `openshop worker` assume the database is already migrated.
+
+Generate migrations explicitly when the OpenShop framework schema or your app models change. Do this in development or CI, where Drizzle Kit is installed:
+
+```bash
+pnpm exec openshop migrate generate
+```
+
+Review and commit the generated SQL in `./drizzle`, then apply migrations manually before starting production processes:
+
+```bash
+pnpm exec openshop migrate
+```
+
+The production `openshop migrate` command only applies already committed SQL from `./drizzle`; it does not load `drizzle.config.ts` or run generation tooling.
+
+You can also check migration history consistency in development or CI:
+
+```bash
+pnpm exec openshop migrate check
+```
 
 ## Shopify TOML deploys
 

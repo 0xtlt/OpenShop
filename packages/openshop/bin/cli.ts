@@ -27,31 +27,22 @@ switch (command) {
   }
   case 'migrate': {
     const {
-      baselineProjectMigrations,
-      migrateFrameworkSchema,
-      migrateProjectSchema,
+      checkClientMigrations,
+      generateClientMigrations,
       migrateSchema,
     } = await import('../src/cli/schema.ts')
     const { printMigrationStatus } = await import('../src/cli/schema-status.ts')
     const { closeDb } = await import('../src/db/client.ts')
     try {
       const subcommand = process.argv[3]
-      const baselineArg = process.argv.find((arg) => arg === '--baseline' || arg.startsWith('--baseline='))
-      const toArg = process.argv.find((arg) => arg.startsWith('--to='))
+      process.env.DATABASE_URL ??= 'postgresql://openshop:openshop@localhost:5432/openshop'
 
-      if (subcommand === 'project') {
-        if (baselineArg || toArg) {
-          const baselineTo = baselineArg?.startsWith('--baseline=')
-            ? baselineArg.slice('--baseline='.length)
-            : toArg?.slice('--to='.length)
-          await baselineProjectMigrations(process.cwd(), { to: baselineTo })
-        } else {
-          await migrateProjectSchema(process.cwd())
-        }
+      if (subcommand === 'generate') {
+        generateClientMigrations(process.cwd(), process.argv.slice(4))
+      } else if (subcommand === 'check') {
+        checkClientMigrations(process.cwd())
       } else if (subcommand === 'status') {
         await printMigrationStatus(process.cwd())
-      } else if (subcommand === 'framework') {
-        await migrateFrameworkSchema(process.cwd())
       } else if (!subcommand) {
         await migrateSchema(process.cwd())
       } else {
@@ -96,10 +87,10 @@ switch (command) {
     init <dir>                  Scaffold a new OpenShop project
     dev                         Start dev server (API + UI + worker + hot-reload)
     worker [--concurrency=N]    Start worker only (production, scalable)
-    migrate                     Apply OpenShop framework and project migrations
-    migrate framework           Apply OpenShop framework migrations only
-    migrate project             Apply project migrations from ./drizzle
-    migrate status              Show framework and project migration status
+    migrate                     Apply client-owned migrations from ./drizzle
+    migrate generate            Generate a new client-owned migration
+    migrate check               Check generated migration history
+    migrate status              Show client migration status
     build                       Build for production
     start                       Start production server (API + UI, no worker)
     codegen                     Generate TypeScript types from GraphQL queries
@@ -109,9 +100,9 @@ switch (command) {
     openshop init my-app
     openshop dev
     openshop worker --concurrency=10
+    openshop migrate generate
     openshop migrate
-    openshop migrate framework
-    openshop migrate project
+    openshop migrate check
     openshop migrate status
     openshop test [suite]          Run tests (suites: unit, flows, api, proxy)
     openshop build && openshop start

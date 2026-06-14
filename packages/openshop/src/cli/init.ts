@@ -1,6 +1,8 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { frameworkSchemaPath } from '../db/drizzle-config.ts'
+import { generateClientMigrations } from './schema.ts'
 
 const PLACEHOLDER_EXTENSIONS = new Set(['.json', '.ts', '.js', '.cjs', '.toml', '.md', '.gitignore', '.dockerignore'])
 
@@ -57,6 +59,32 @@ function replacePlaceholders(path: string, replacements: Record<string, string>)
   writeFileSync(path, content)
 }
 
+function generateInitialMigration(targetDir: string) {
+  const configPath = resolve(targetDir, '.openshop.init.drizzle.config.mjs')
+
+  writeFileSync(configPath, [
+    'export default {',
+    "  dialect: 'postgresql',",
+    `  schema: [${JSON.stringify(frameworkSchemaPath)}],`,
+    "  out: './drizzle',",
+    '  dbCredentials: {',
+    "    url: process.env.DATABASE_URL ?? 'postgresql://openshop:openshop@localhost:5432/openshop',",
+    '  },',
+    '  migrations: {',
+    "    schema: 'drizzle',",
+    "    table: '__drizzle_migrations',",
+    '  },',
+    '}',
+    '',
+  ].join('\n'))
+
+  try {
+    generateClientMigrations(targetDir, [`--config=${configPath}`, '--name=init'], { allowBundled: true })
+  } finally {
+    rmSync(configPath, { force: true })
+  }
+}
+
 export async function runInit(target?: string): Promise<InitResult> {
   if (!target) {
     console.error('Usage: openshop init <dir>')
@@ -87,6 +115,8 @@ export async function runInit(target?: string): Promise<InitResult> {
     __APP_NAME__: appName,
     __PACKAGE_NAME__: packageName,
   })
+
+  generateInitialMigration(targetDir)
 
   console.log(`[openshop] Created ${appName} in ${targetDir}`)
   console.log('')

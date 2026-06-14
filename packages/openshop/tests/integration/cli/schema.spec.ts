@@ -5,10 +5,8 @@ import { sql } from 'drizzle-orm'
 import { test } from '@japa/runner'
 import { getDb } from '#db/client'
 import {
-  getProjectMigrationStatus,
-  migrateFrameworkSchema,
+  getClientMigrationStatus,
   migrateSchema,
-  migrateProjectSchema,
 } from '../../../src/cli/schema.ts'
 
 function createProjectWithMigrations(options?: { invalidFirstMigration?: boolean }): string {
@@ -36,35 +34,32 @@ ALTER TABLE openshop_project_migration_test ADD COLUMN IF NOT EXISTS name text;
   return dir
 }
 
-test.group('schema migrations', (group) => {
+test.group('client-owned schema migrations', (group) => {
   group.each.setup(async () => {
-    await getDb().execute(sql`DROP TABLE IF EXISTS drizzle.__openshop_project_migrations`)
+    await getDb().execute(sql`DROP TABLE IF EXISTS drizzle.__drizzle_migrations`)
     await getDb().execute(sql`DROP TABLE IF EXISTS openshop_project_migration_test`)
   })
 
-  test('framework migration does not apply project migrations', async ({ assert }) => {
-    const dir = createProjectWithMigrations()
+  test('migrate fails when client migrations are missing', async ({ assert }) => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'openshop-migrations-empty-'))
 
     try {
-      await migrateFrameworkSchema(dir, { silent: true })
-
-      const table = await getDb().execute(sql<{ to_regclass: string | null }>`
-        SELECT to_regclass('public.openshop_project_migration_test')
-      `)
-
-      assert.isNull(table.rows[0]?.to_regclass ?? null)
+      await assert.rejects(
+        () => migrateSchema(dir, { silent: true }),
+        /No client migrations found/,
+      )
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  test('migrate applies framework and project migrations on a fresh database', async ({ assert }) => {
+  test('migrate applies client migrations from ./drizzle', async ({ assert }) => {
     const dir = createProjectWithMigrations()
 
     try {
       await migrateSchema(dir, { silent: true })
 
-      const status = await getProjectMigrationStatus(dir)
+      const status = await getClientMigrationStatus(dir)
       assert.deepEqual(status.applied, ['0000_project_init', '0001_project_next'])
       assert.deepEqual(status.pending, [])
 
@@ -82,37 +77,34 @@ test.group('schema migrations', (group) => {
     }
   })
 
-  test('migrate adopts an existing first project migration and continues', async ({ assert }) => {
+  test('migrate does not load drizzle config or require generation tooling', async ({ assert }) => {
     const dir = createProjectWithMigrations()
+    writeFileSync(resolve(dir, 'drizzle.config.ts'), 'throw new Error("migrate must not load drizzle.config.ts")\n')
 
     try {
-      await getDb().execute(sql`
-        CREATE TABLE openshop_project_migration_test (
-          id integer PRIMARY KEY
-        )
-      `)
-
       await migrateSchema(dir, { silent: true })
 
-      const status = await getProjectMigrationStatus(dir)
+      const status = await getClientMigrationStatus(dir)
       assert.deepEqual(status.applied, ['0000_project_init', '0001_project_next'])
       assert.deepEqual(status.pending, [])
-
-      const columns = await getDb().execute(sql<{ column_name: string }>`
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = 'openshop_project_migration_test'
-        ORDER BY column_name
-      `)
-
-      assert.deepEqual(columns.rows.map((row) => row.column_name), ['id', 'name'])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  test('migrate fails on real project migration errors', async ({ assert }) => {
+  test('status reports pending client migrations before migrate', async ({ assert }) => {
+    const dir = createProjectWithMigrations()
+
+    try {
+      const status = await getClientMigrationStatus(dir)
+      assert.deepEqual(status.applied, [])
+      assert.deepEqual(status.pending, ['0000_project_init', '0001_project_next'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('migrate fails on real migration errors', async ({ assert }) => {
     const dir = createProjectWithMigrations({ invalidFirstMigration: true })
 
     try {

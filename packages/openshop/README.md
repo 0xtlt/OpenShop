@@ -59,12 +59,29 @@ export default app.defineConfig({
 
 ## Production
 
+Generate, review, and commit client-owned Drizzle migrations in development or CI:
+
+```bash
+pnpm exec openshop migrate generate
+pnpm exec openshop migrate check
+```
+
+Apply committed migrations before starting production processes:
+
+```bash
+pnpm exec openshop migrate
+```
+
+`openshop migrate` only applies SQL from `./drizzle`; it does not run generation tooling.
+
 Run the web server and worker separately:
 
 ```bash
 pnpm exec openshop start
 pnpm exec openshop worker --concurrency=5
 ```
+
+`openshop start` and `openshop worker` do not run migrations.
 
 Set `ENCRYPTION_KEY` in production to encrypt provider credentials and Shopify access tokens:
 

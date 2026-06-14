@@ -24,6 +24,7 @@ models/
 shopify.app.toml
 shopify.web.toml
 drizzle.config.ts
+drizzle/
 ```
 
 ## Development server
@@ -48,4 +49,9 @@ OpenShop uses PostgreSQL. The repository template expects:
 DATABASE_URL=postgresql://openshop:openshop@localhost:5432/openshop
 ```
 
-In local development, `openshop dev` can push the schema with `drizzle-kit push --force`. In production, use versioned migrations.
+`openshop init` generates the first migration in `./drizzle` from the OpenShop framework schema. In local development, `openshop dev` can push the schema with `drizzle-kit push --force`. In production, use versioned migrations:
+
+```bash
+pnpm exec openshop migrate generate
+pnpm exec openshop migrate
+```

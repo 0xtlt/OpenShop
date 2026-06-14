@@ -8,6 +8,10 @@
   "scripts": {
     "dev": "openshop dev",
     "build": "openshop build",
+    "db:generate": "openshop migrate generate",
+    "db:migrate": "openshop migrate",
+    "db:check": "openshop migrate check",
+    "db:status": "openshop migrate status",
     "codegen": "openshop codegen",
     "codegen:watch": "openshop codegen:watch",
     "shopify": "shopify app dev --config shopify.app.openshop-demo.toml --skip-dependencies-installation",

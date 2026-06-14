@@ -1,15 +1,15 @@
-import { dirname, resolve } from 'node:path'
-import { existsSync, readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { spawnSync } from 'node:child_process'
 import { sql } from 'drizzle-orm'
-import { readMigrationFiles, type MigrationMeta } from 'drizzle-orm/migrator'
+import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { getDb } from '#db/client'
 
 const MIGRATIONS_SCHEMA = 'drizzle'
-const FRAMEWORK_MIGRATIONS_TABLE = '__openshop_migrations'
-const PROJECT_MIGRATIONS_TABLE = '__openshop_project_migrations'
+const MIGRATIONS_TABLE = '__drizzle_migrations'
 
 type DrizzleJournal = {
   entries: Array<{
@@ -26,44 +26,27 @@ export type MigrationStatus = {
   pending: string[]
 }
 
-type MigrationRunMode = 'strict' | 'adopt-existing-first'
+type DrizzleKitCommand = 'generate' | 'check'
 
 function hasDrizzleJournal(folder: string): boolean {
   return existsSync(resolve(folder, 'meta', '_journal.json'))
 }
 
-export function resolveFrameworkMigrationsFolder(cwd: string): string {
-  const here = dirname(fileURLToPath(import.meta.url))
-  const candidates = [
-    resolve(here, '..', 'drizzle'),
-    resolve(here, '..', '..', 'drizzle'),
-  ]
-
-  try {
-    const requireFromCwd = createRequire(resolve(cwd, 'package.json'))
-    const drizzleEntry = requireFromCwd.resolve('openshop/drizzle')
-    candidates.push(resolve(dirname(drizzleEntry), '..', '..', 'drizzle'))
-  } catch { /* package may be running from source */ }
-
-  const folder = candidates.find(hasDrizzleJournal)
-  if (!folder) {
-    throw new Error('[openshop] Framework migrations not found. Reinstall openshop or run from the package root.')
-  }
-
-  return folder
-}
-
-export function resolveProjectMigrationsFolder(cwd: string): string | null {
+export function resolveClientMigrationsFolder(cwd: string): string | null {
   const folder = resolve(cwd, 'drizzle')
   return hasDrizzleJournal(folder) ? folder : null
+}
+
+export function resolveClientDrizzleConfig(cwd: string): string {
+  return resolve(cwd, 'drizzle.config.ts')
 }
 
 function readJournal(folder: string): DrizzleJournal {
   return JSON.parse(readFileSync(resolve(folder, 'meta', '_journal.json'), 'utf8')) as DrizzleJournal
 }
 
-function migrationNameByCreatedAt(folder: string): Map<number, string> {
-  return new Map(readJournal(folder).entries.map((entry) => [entry.when, entry.tag]))
+function journalEntryCount(folder: string): number {
+  return readJournal(folder).entries.length
 }
 
 function rowsFromResult<T>(result: unknown): T[] {
@@ -74,11 +57,11 @@ function rowsFromResult<T>(result: unknown): T[] {
   return []
 }
 
-async function ensureMigrationsTable(table: string) {
+async function ensureMigrationsTable() {
   const db = getDb()
   await db.execute(sql`CREATE SCHEMA IF NOT EXISTS ${sql.identifier(MIGRATIONS_SCHEMA)}`)
   await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS ${sql.identifier(MIGRATIONS_SCHEMA)}.${sql.identifier(table)} (
+    CREATE TABLE IF NOT EXISTS ${sql.identifier(MIGRATIONS_SCHEMA)}.${sql.identifier(MIGRATIONS_TABLE)} (
       id SERIAL PRIMARY KEY,
       hash text NOT NULL,
       created_at bigint
@@ -86,12 +69,12 @@ async function ensureMigrationsTable(table: string) {
   `)
 }
 
-async function lastAppliedCreatedAt(table: string): Promise<number | null> {
+async function lastAppliedCreatedAt(): Promise<number | null> {
   const db = getDb()
-  await ensureMigrationsTable(table)
+  await ensureMigrationsTable()
   const result = await db.execute(sql<{ created_at: string | number | null }>`
     SELECT created_at
-    FROM ${sql.identifier(MIGRATIONS_SCHEMA)}.${sql.identifier(table)}
+    FROM ${sql.identifier(MIGRATIONS_SCHEMA)}.${sql.identifier(MIGRATIONS_TABLE)}
     ORDER BY created_at DESC
     LIMIT 1
   `)
@@ -100,10 +83,11 @@ async function lastAppliedCreatedAt(table: string): Promise<number | null> {
   return Number(row.created_at)
 }
 
-async function getMigrationStatus(folder: string | null, table: string): Promise<MigrationStatus> {
+export async function getClientMigrationStatus(cwd: string): Promise<MigrationStatus> {
+  const folder = resolveClientMigrationsFolder(cwd)
   if (!folder) return { folder: null, applied: [], pending: [] }
 
-  const lastApplied = await lastAppliedCreatedAt(table)
+  const lastApplied = await lastAppliedCreatedAt()
   const entries = readJournal(folder).entries
   const applied = entries.filter((entry) => lastApplied != null && entry.when <= lastApplied).map((entry) => entry.tag)
   const pending = entries.filter((entry) => lastApplied == null || entry.when > lastApplied).map((entry) => entry.tag)
@@ -111,165 +95,127 @@ async function getMigrationStatus(folder: string | null, table: string): Promise
   return { folder, applied, pending }
 }
 
-export async function getFrameworkMigrationStatus(cwd: string): Promise<MigrationStatus> {
-  return getMigrationStatus(resolveFrameworkMigrationsFolder(cwd), FRAMEWORK_MIGRATIONS_TABLE)
+function drizzleKitBinName(): string {
+  return process.platform === 'win32' ? 'drizzle-kit.cmd' : 'drizzle-kit'
 }
 
-export async function getProjectMigrationStatus(cwd: string): Promise<MigrationStatus> {
-  return getMigrationStatus(resolveProjectMigrationsFolder(cwd), PROJECT_MIGRATIONS_TABLE)
+function resolveDrizzleKitBin(cwd: string, options?: { allowBundled?: boolean }): string {
+  const binName = drizzleKitBinName()
+  const local = resolve(cwd, 'node_modules', '.bin', binName)
+  if (existsSync(local)) return local
+
+  if (options?.allowBundled) {
+    const here = import.meta.dirname
+    const candidates = [
+      resolve(here, '..', 'node_modules', '.bin', binName),
+      resolve(here, '..', '..', 'node_modules', '.bin', binName),
+      resolve(here, '..', '..', '..', 'node_modules', '.bin', binName),
+    ]
+    const bundled = candidates.find((candidate) => existsSync(candidate))
+    if (bundled) return bundled
+  }
+
+  throw new Error('[openshop] drizzle-kit not found. Run `pnpm install` in your OpenShop project before running migration commands.')
 }
 
-export async function warnAboutPendingProjectMigrations(cwd: string): Promise<void> {
-  const status = await getProjectMigrationStatus(cwd)
-  if (status.pending.length === 0) return
-
-  console.warn(`[openshop] ${status.pending.length} project migration(s) pending: ${status.pending.join(', ')}`)
-  console.warn('[openshop] Run `openshop migrate project` to apply project migrations.')
-}
-
-export async function migrateFrameworkSchema(cwd: string, options?: { silent?: boolean }) {
-  await migrate(getDb(), {
-    migrationsFolder: resolveFrameworkMigrationsFolder(cwd),
-    migrationsSchema: MIGRATIONS_SCHEMA,
-    migrationsTable: FRAMEWORK_MIGRATIONS_TABLE,
+export function runDrizzleKit(
+  cwd: string,
+  command: DrizzleKitCommand,
+  args: string[] = [],
+  options?: { allowBundled?: boolean; silent?: boolean },
+) {
+  const bin = resolveDrizzleKitBin(cwd, { allowBundled: options?.allowBundled })
+  const result = spawnSync(bin, [command, ...args], {
+    cwd,
+    env: process.env,
+    encoding: 'utf8',
+    stdio: options?.silent ? 'pipe' : 'inherit',
   })
 
-  if (!options?.silent) {
-    console.log('[openshop] Framework migrations applied')
+  if (result.status !== 0) {
+    const detail = options?.silent
+      ? `\n${result.stdout ?? ''}${result.stderr ?? ''}`.trimEnd()
+      : ''
+    throw new Error(`[openshop] drizzle-kit ${command} failed with exit code ${result.status}${detail ? `\n${detail}` : ''}`)
   }
 }
 
-export async function migrateProjectSchema(cwd: string, options?: { silent?: boolean; adoptExistingFirst?: boolean }) {
-  const projectMigrationsFolder = resolveProjectMigrationsFolder(cwd)
-  if (!projectMigrationsFolder) {
-    if (!options?.silent) console.log('[openshop] No project migrations found')
-    return
+export function generateClientMigrations(cwd: string, args: string[] = [], options?: { allowBundled?: boolean }) {
+  const allowProduction = args.includes('--allow-generate-in-production')
+  const filteredArgs = args.filter((arg) => arg !== '--allow-generate-in-production')
+
+  if (process.env.NODE_ENV === 'production' && !allowProduction) {
+    throw new Error('[openshop] Refusing to generate migrations in production. Generate migrations locally, commit them, then run `openshop migrate` during deploy.')
   }
 
-  await migrateProjectMigrations(projectMigrationsFolder, {
-    mode: options?.adoptExistingFirst ? 'adopt-existing-first' : 'strict',
-    silent: options?.silent,
+  const configPath = resolveClientDrizzleConfig(cwd)
+  const hasConfigArg = filteredArgs.some((arg) => arg === '--config' || arg.startsWith('--config='))
+  if (!hasConfigArg && !existsSync(configPath)) {
+    throw new Error('[openshop] drizzle.config.ts not found. Create one before generating migrations.')
+  }
+
+  runDrizzleKit(cwd, 'generate', [...(hasConfigArg ? [] : [`--config=${configPath}`]), ...filteredArgs], {
+    allowBundled: options?.allowBundled,
   })
-
-  if (!options?.silent) {
-    console.log('[openshop] Project migrations applied')
-  }
 }
 
-export async function baselineProjectMigrations(cwd: string, options?: { to?: string; silent?: boolean }) {
-  const projectMigrationsFolder = resolveProjectMigrationsFolder(cwd)
-  if (!projectMigrationsFolder) {
-    if (!options?.silent) console.log('[openshop] No project migrations found')
-    return
+export function checkClientMigrations(cwd: string) {
+  const configPath = resolveClientDrizzleConfig(cwd)
+  if (!existsSync(configPath)) {
+    throw new Error('[openshop] drizzle.config.ts not found. Create one before checking migrations.')
   }
 
-  const migrations = readMigrationFiles({ migrationsFolder: projectMigrationsFolder })
-  if (migrations.length === 0) {
-    if (!options?.silent) console.log('[openshop] No project migrations found')
-    return
-  }
+  runDrizzleKit(cwd, 'check', [`--config=${configPath}`])
 
-  const namesByCreatedAt = migrationNameByCreatedAt(projectMigrationsFolder)
-  const baselineTo = options?.to ?? namesByCreatedAt.get(migrations[0]!.folderMillis)
-  const baselineIndex = migrations.findIndex((migration) => namesByCreatedAt.get(migration.folderMillis) === baselineTo)
-  if (baselineIndex === -1) {
-    throw new Error(`[openshop] Project migration not found: ${baselineTo}`)
-  }
-
-  await ensureMigrationsTable(PROJECT_MIGRATIONS_TABLE)
-  const lastApplied = await lastAppliedCreatedAt(PROJECT_MIGRATIONS_TABLE)
-  const migrationsToAdopt = migrations.slice(0, baselineIndex + 1)
-    .filter((migration) => lastApplied == null || migration.folderMillis > lastApplied)
-
-  for (const migration of migrationsToAdopt) {
-    await insertMigration(PROJECT_MIGRATIONS_TABLE, migration)
-  }
-
-  if (!options?.silent) {
-    const adopted = migrationsToAdopt.map((migration) => namesByCreatedAt.get(migration.folderMillis) ?? String(migration.folderMillis))
-    console.log(adopted.length > 0
-      ? `[openshop] Project migrations baselined: ${adopted.join(', ')}`
-      : '[openshop] Project migrations already baselined')
-  }
+  const folder = resolveClientMigrationsFolder(cwd)
+  if (folder) assertClientMigrationsCoverCurrentSchema(cwd, folder)
 }
 
-async function insertMigration(table: string, migration: MigrationMeta): Promise<void> {
-  await getDb().execute(sql`
-    INSERT INTO ${sql.identifier(MIGRATIONS_SCHEMA)}.${sql.identifier(table)} ("hash", "created_at")
-    VALUES (${migration.hash}, ${migration.folderMillis})
-  `)
-}
+function assertClientMigrationsCoverCurrentSchema(cwd: string, folder: string) {
+  const configPath = resolveClientDrizzleConfig(cwd)
+  if (!existsSync(configPath)) return
 
-async function migrateProjectMigrations(folder: string, options: { mode: MigrationRunMode; silent?: boolean }): Promise<void> {
-  await ensureMigrationsTable(PROJECT_MIGRATIONS_TABLE)
-  const lastApplied = await lastAppliedCreatedAt(PROJECT_MIGRATIONS_TABLE)
-  const migrations = readMigrationFiles({ migrationsFolder: folder })
-    .filter((migration) => lastApplied == null || migration.folderMillis > lastApplied)
+  const tmp = mkdtempSync(resolve(tmpdir(), 'openshop-migration-check-'))
+  const tmpMigrations = resolve(tmp, 'drizzle')
+  const tmpConfig = resolve(tmp, 'drizzle.config.mjs')
+  const before = journalEntryCount(folder)
 
-  for (const [index, migration] of migrations.entries()) {
-    try {
-      await runMigrationStatements(migration)
-      await insertMigration(PROJECT_MIGRATIONS_TABLE, migration)
-    } catch (error) {
-      if (options.mode === 'adopt-existing-first' && index === 0 && isAlreadyExistsError(error)) {
-        await insertMigration(PROJECT_MIGRATIONS_TABLE, migration)
-        if (!options.silent) {
-          const tag = migrationNameByCreatedAt(folder).get(migration.folderMillis) ?? String(migration.folderMillis)
-          console.warn(`[openshop] Project migration already reflected in database, marking as applied: ${tag}`)
-        }
-        continue
-      }
-      throw error
+  try {
+    cpSync(folder, tmpMigrations, { recursive: true })
+    writeFileSync(tmpConfig, [
+      `import config from ${JSON.stringify(pathToFileURL(configPath).href)}`,
+      `export default { ...config, out: ${JSON.stringify(tmpMigrations)} }`,
+      '',
+    ].join('\n'))
+    runDrizzleKit(cwd, 'generate', [`--config=${tmpConfig}`], { allowBundled: true, silent: true })
+
+    const after = journalEntryCount(tmpMigrations)
+    if (after > before) {
+      throw new Error('[openshop] The current Drizzle schema is not covered by ./drizzle migrations. Run `openshop migrate generate`, review and commit the generated SQL, then run `openshop migrate`.')
     }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
   }
-}
-
-async function runMigrationStatements(migration: MigrationMeta): Promise<void> {
-  const db = getDb()
-  await db.transaction(async (tx) => {
-    for (const statement of migration.sql) {
-      if (!statement.trim()) continue
-      await tx.execute(sql.raw(statement))
-    }
-  })
-}
-
-function isAlreadyExistsError(error: unknown): boolean {
-  const code = sqlErrorCode(error)
-  if (code && ['42P06', '42P07', '42701', '42710'].includes(code)) return true
-
-  const message = errorMessage(error).toLowerCase()
-  return /\balready exists\b/.test(message)
-}
-
-function sqlErrorCode(error: unknown): string | undefined {
-  if (!error || typeof error !== 'object') return undefined
-  const code = (error as { code?: unknown }).code
-  if (typeof code === 'string') return code
-  const cause = (error as { cause?: unknown }).cause
-  if (!cause || typeof cause !== 'object') return undefined
-  const causeCode = (cause as { code?: unknown }).code
-  return typeof causeCode === 'string' ? causeCode : undefined
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return `${error.message}\n${error.cause instanceof Error ? error.cause.message : ''}`
-  return String(error)
 }
 
 export async function migrateSchema(cwd: string, options?: { silent?: boolean }) {
-  const projectMigrationsFolder = resolveProjectMigrationsFolder(cwd)
-
-  if (projectMigrationsFolder) {
-    await migrateProjectMigrations(projectMigrationsFolder, {
-      mode: 'adopt-existing-first',
-      silent: options?.silent,
-    })
+  const folder = resolveClientMigrationsFolder(cwd)
+  if (!folder) {
+    throw new Error('[openshop] No client migrations found in ./drizzle. Run `openshop migrate generate`, review the generated SQL, then run `openshop migrate`.')
   }
 
-  await migrateFrameworkSchema(cwd, options)
+  const migrations = readMigrationFiles({ migrationsFolder: folder })
+  if (migrations.length === 0) {
+    throw new Error('[openshop] No migration files found in ./drizzle. Run `openshop migrate generate`, review the generated SQL, then run `openshop migrate`.')
+  }
 
-  if (!options?.silent && projectMigrationsFolder) {
-    console.log('[openshop] Framework and project migrations applied')
+  await migrate(getDb(), {
+    migrationsFolder: folder,
+    migrationsSchema: MIGRATIONS_SCHEMA,
+    migrationsTable: MIGRATIONS_TABLE,
+  })
+
+  if (!options?.silent) {
+    console.log('[openshop] Client migrations applied')
   }
 }

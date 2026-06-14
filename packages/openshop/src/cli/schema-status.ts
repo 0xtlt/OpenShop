@@ -1,17 +1,11 @@
 import {
-  getFrameworkMigrationStatus,
-  getProjectMigrationStatus,
+  getClientMigrationStatus,
   type MigrationStatus,
 } from './schema.ts'
 
 export async function printMigrationStatus(cwd: string): Promise<void> {
-  const [framework, project] = await Promise.all([
-    getFrameworkMigrationStatus(cwd),
-    getProjectMigrationStatus(cwd),
-  ])
-
-  printStatusGroup('Framework', framework)
-  printStatusGroup('Project', project)
+  const client = await getClientMigrationStatus(cwd)
+  printStatusGroup('Client', client)
 }
 
 function printStatusGroup(label: string, status: MigrationStatus): void {

@@ -18,7 +18,6 @@
   },
   "files": [
     "bin",
-    "drizzle",
     "dist",
     "src",
     "templates",
@@ -90,6 +89,7 @@
     "@types/pg": "^8.18.0",
     "arktype": "^2.2.0",
     "croner": "^10.0.0",
+    "drizzle-kit": "^0.31.10",
     "drizzle-orm": "0.45.2",
     "esbuild": "0.28.1",
     "hono": "4.12.25",
@@ -110,7 +110,6 @@
     "@japa/runner": "5",
     "@shopify/polaris-types": "^1.0.1",
     "@types/node": "25.9.3",
-    "drizzle-kit": "^0.31.10",
     "eslint": "10.3.0",
     "typescript": "^5.9.0"
   }

@@ -15,6 +15,11 @@ try {
   execFileSync('pnpm', ['pack', '--pack-destination', tarballDir], { cwd: root, stdio: 'inherit' })
   const [tarball] = readdirSync(tarballDir)
   const tarballPath = resolve(tarballDir, tarball)
+  const tarballEntries = execFileSync('tar', ['-tf', tarballPath], { encoding: 'utf8' }).split('\n')
+  if (tarballEntries.some((entry) => entry.startsWith('package/drizzle/'))) {
+    throw new Error('Package tarball must not include prebuilt framework migrations under package/drizzle/')
+  }
+
   const publicExports = ['openshop', 'openshop/vite', 'openshop/test', 'openshop/schema', 'openshop/drizzle', 'openshop/eslint', 'openshop/graphql']
 
   writeFileSync(resolve(consumerDir, 'package.json'), JSON.stringify({

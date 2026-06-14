@@ -25,9 +25,9 @@ By default, models include:
 - `createdAt`
 - `updatedAt`
 
-## Framework migrations
+## Client-owned migrations
 
-OpenShop framework migrations manage framework-owned tables:
+OpenShop projects own their Drizzle migrations in `./drizzle`. The initial migration is generated when you run `openshop init`; it includes framework-owned tables:
 
 - installations
 - flow runs
@@ -36,12 +36,24 @@ OpenShop framework migrations manage framework-owned tables:
 - provider configs
 - cron overrides
 
-## Project migrations
+The same migration folder also owns app model tables created with `defineModel()`.
 
-Your app tables are managed by your project migrations. Run them before starting production web and worker processes.
+Generate a new migration after changing framework version or app models. This is a development or CI command and requires Drizzle Kit:
 
 ```bash
-pnpm exec openshop migrate project
+pnpm exec openshop migrate generate
 ```
 
-For local development, `openshop dev` can use schema push. Production should use versioned migrations.
+Check the generated migration history in development or CI:
+
+```bash
+pnpm exec openshop migrate check
+```
+
+Apply already committed migrations manually before starting production web and worker processes:
+
+```bash
+pnpm exec openshop migrate
+```
+
+For local development, `openshop dev` can use schema push. Production should use generated, reviewed, committed migrations. `openshop migrate` only applies SQL from `./drizzle`; it does not load `drizzle.config.ts` or run generation tooling. `openshop start` and `openshop worker` never generate or apply migrations.

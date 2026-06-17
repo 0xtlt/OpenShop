@@ -39,6 +39,7 @@ function resolveCorsOrigin(origin: string): string | undefined {
   if (!origin) return undefined
   if (localOrigin.test(origin)) return origin
   if (origin === 'https://admin.shopify.com') return origin
+  if (origin === 'https://shopify.com') return origin
   if (origin === shopifyExtensionOrigin) return origin
   if (/^https:\/\/[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(origin)) return origin
   if (configuredOrigins().includes(origin)) return origin
@@ -46,6 +47,7 @@ function resolveCorsOrigin(origin: string): string | undefined {
 }
 
 const restrictedCors = cors({ origin: resolveCorsOrigin })
+const extensionCors = cors({ origin: '*' })
 const robotsHeader = 'noindex, nofollow, noarchive, nosnippet'
 const robotsTxt = `User-agent: *
 Disallow: /
@@ -101,14 +103,14 @@ export async function createServer(getConfig: ConfigGetter, options?: ServerOpti
   // Proxy routes (auto-discovered from proxy/ directory, HMAC-verified by Shopify)
   const proxyDir = options?.proxyDir ?? resolve(process.cwd(), 'proxy')
   if (existsSync(proxyDir)) {
-    app.use('/proxy/*', restrictedCors)
+    app.use('/proxy/*', extensionCors)
     const proxyRoutes = await createProxyRoutes(proxyDir, getConfig, { authModes: ['appProxyHmac', 'customerAccountJwt'] })
     app.route('/proxy', proxyRoutes)
 
     // Extension-direct routes: same handlers, CORS enabled, JWT required
     // Mounted on /ext/* so Shopify CLI proxy doesn't intercept
     const extRoutes = await createProxyRoutes(proxyDir, getConfig, { authModes: ['customerAccountJwt'] })
-    app.use('/ext/*', restrictedCors)
+    app.use('/ext/*', extensionCors)
     app.route('/ext', extRoutes)
   }
 

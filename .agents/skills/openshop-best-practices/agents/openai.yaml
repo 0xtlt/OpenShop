@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenShop Best Practices"
+  short_description: "OpenShop repo conventions and checks"
+  default_prompt: "Use $openshop-best-practices to modify OpenShop code while following project conventions."

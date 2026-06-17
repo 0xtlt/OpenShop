@@ -37,6 +37,8 @@ function scanProxyDir(dir: string): Array<{ filePath: string; routePath: string 
 
   function walk(current: string) {
     for (const entry of readdirSync(current)) {
+      if (entry.startsWith('_')) continue
+
       const full = resolve(current, entry)
       const stat = statSync(full)
 

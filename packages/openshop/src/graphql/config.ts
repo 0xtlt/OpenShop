@@ -1,7 +1,14 @@
 import { createRequire } from 'node:module'
 
 const DEFAULT_API_VERSION = '2026-04'
-const DEFAULT_DOCUMENTS = ['./flows/**/*.{ts,tsx}', './webhooks/**/*.{ts,tsx}', './queries/**/*.{ts,tsx}']
+const DEFAULT_DOCUMENTS = [
+  './flows/**/*.{ts,tsx}',
+  './webhooks/**/*.{ts,tsx}',
+  './proxy/**/*.{ts,tsx}',
+  './server/**/*.{ts,tsx}',
+  './queries/**/*.{ts,tsx}',
+  './lib/server/**/*.{ts,tsx}',
+]
 const DEFAULT_OUTPUT_DIR = './types/generated'
 
 type GqlTemplateNode = {
@@ -45,6 +52,15 @@ interface GraphqlConfigOptions {
   documents?: string[]
   /** Output directory for generated types */
   outputDir?: string
+}
+
+/**
+ * Preserve a GraphQL operation as a string literal when extracting it into a
+ * shared constant. This lets the generated OpenShop operation bridge infer
+ * `shopify.graphql()` variables and return types without a type assertion.
+ */
+export function graphqlOperation<const TOperation extends string>(operation: TOperation): TOperation {
+  return operation
 }
 
 /**

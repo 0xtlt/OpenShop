@@ -28,6 +28,7 @@ export default defineConfig({
           label: 'Integrations',
           items: [
             { label: 'Proxy Routes', slug: 'proxy-routes' },
+            { label: 'Customer Account Extensions', slug: 'customer-account-extensions' },
             { label: 'Webhooks', slug: 'webhooks' },
             { label: 'Shopify Functions', slug: 'shopify-functions' },
           ],

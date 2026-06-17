@@ -1,6 +1,6 @@
 import { test } from '@japa/runner'
 import { createHmac } from 'node:crypto'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createServer } from '#server/index'
@@ -78,6 +78,9 @@ test.group('Proxy routes (createProxyRoutes)', (group) => {
   group.setup(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'openshop-proxy-test-'))
     writeFileSync(join(tmpDir, 'ping.ts'), proxyHandlerFile.trimStart(), 'utf8')
+    writeFileSync(join(tmpDir, '_private.ts'), proxyHandlerFile.trimStart(), 'utf8')
+    mkdirSync(join(tmpDir, '_shared'))
+    writeFileSync(join(tmpDir, '_shared', 'ping.ts'), proxyHandlerFile.trimStart(), 'utf8')
   })
 
   group.teardown(() => {
@@ -112,6 +115,17 @@ test.group('Proxy routes (createProxyRoutes)', (group) => {
     assert.equal(data.shopifyApp, 'default')
     assert.equal(data.queryShop, 'test.myshopify.com')
     assert.equal(data.queryCustomerId, '42')
+  })
+
+  test('ignores underscore-prefixed proxy files and directories', async ({ assert }) => {
+    const app = await createProxyRoutes(tmpDir)
+    const q = signProxyQuery({ shop: 'test.myshopify.com', logged_in_customer_id: '42' })
+
+    const privateFile = await app.request(`http://localhost/_private?${queryString(q)}`)
+    const privateDir = await app.request(`http://localhost/_shared/ping?${queryString(q)}`)
+
+    assert.equal(privateFile.status, 404)
+    assert.equal(privateDir.status, 404)
   })
 
   test('GET with app proxy signature resolves the matching Shopify app', async ({ assert }) => {

@@ -37,3 +37,40 @@ const data = await shopify.graphql(`#graphql
 
 OpenShop generates a bridge file that augments global query and mutation interfaces, allowing `shopify.graphql()` to infer variables and return types.
 The generated `types/generated/` directory and `types/openshop-operations.d.ts` bridge are ignored by the template gitignore.
+
+By default, OpenShop scans GraphQL operations in:
+
+```txt
+flows/
+webhooks/
+proxy/
+server/
+queries/
+lib/server/
+```
+
+Override `documents` in `graphqlConfig()` only when an app uses a different layout.
+
+## Shared operations
+
+When a query or mutation is reused across files, keep the operation as a string literal with `graphqlOperation()`:
+
+```ts
+import { graphqlOperation } from 'openshop/graphql'
+
+export const customerGarageQuery = graphqlOperation(`#graphql
+  query CustomerGarage($id: ID!) {
+    customer(id: $id) { id displayName }
+  }
+`)
+```
+
+Then pass the shared constant directly to `shopify.graphql()`:
+
+```ts
+const data = await shopify.graphql(customerGarageQuery, {
+  variables: { id: customerId },
+})
+```
+
+Do not cast the result with `as CustomerGarageQuery`. If inference is missing, run `pnpm run codegen` and fix the GraphQL document, codegen config, or generated bridge instead of silencing the type error.

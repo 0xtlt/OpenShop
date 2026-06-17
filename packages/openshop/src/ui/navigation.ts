@@ -43,6 +43,7 @@ function isAllowedUiPath(pathname: string): boolean {
       return segments.length === 2 && uuidPattern.test(second!)
     case 'crons':
     case 'providers':
+    case 'mcp':
       return segments.length === 1
     case 'functions':
       return segments.length === 1

@@ -15,6 +15,7 @@ OpenShop is currently in beta. APIs, configuration shape, generated files, and d
 - Provider definitions with typed config, generated admin forms, validation, health checks, and encrypted secrets.
 - Shopify Admin GraphQL access with generated operation types.
 - Embedded admin pages for flow runs, logs, crons, providers, and function instances.
+- MCP tokens for scoped access to OpenShop tools and documentation resources.
 - File-based app proxy routes and webhook handlers.
 - Drizzle/PostgreSQL helpers for app models and framework tables.
 - Test helpers for signed proxy requests, session tokens, connector fakes, and factories.

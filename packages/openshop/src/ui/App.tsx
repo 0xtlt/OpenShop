@@ -7,6 +7,7 @@ import FlowRun from './pages/FlowRun'
 import Providers from './pages/Providers'
 import Functions from './pages/Functions'
 import Crons from './pages/Crons'
+import Mcp from './pages/Mcp'
 import { addShopifyNavigateListener } from './navigation'
 
 function NavMenu() {
@@ -22,6 +23,9 @@ function NavMenu() {
       </a>
       <a href="/providers" aria-current={url === '/providers' ? 'page' : undefined}>
         Providers
+      </a>
+      <a href="/mcp" aria-current={url === '/mcp' ? 'page' : undefined}>
+        MCP
       </a>
       <a href="/crons" aria-current={url === '/crons' ? 'page' : undefined}>
         Crons
@@ -94,6 +98,7 @@ export default function App() {
           <Route path="/runs/:id" component={FlowRun} />
           <Route path="/crons" component={Crons} />
           <Route path="/providers" component={Providers} />
+          <Route path="/mcp" component={Mcp} />
           <Route path="/functions" component={Functions} />
           <Route path="/functions/:handle" component={Functions} />
           <Route path="/functions/:handle/:action" component={Functions} />

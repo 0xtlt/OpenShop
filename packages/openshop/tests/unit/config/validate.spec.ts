@@ -65,4 +65,117 @@ test.group('defineOpenShop config validation', () => {
       worker: { concurrency: 0 },
     }), /worker\.concurrency must be a positive integer/)
   })
+
+  test('accepts MCP custom permissions, tools and resources', ({ assert }) => {
+    const config = emptyApp.defineConfig({
+      flows: { sync: flow },
+      mcp: {
+        permissions: {
+          custom: {
+            'warehouse:read_inventory': { label: 'Read inventory' },
+          },
+        },
+        tools: {
+          'warehouse.inventory.list': {
+            description: 'List inventory',
+            requiredPermissions: ['warehouse:read_inventory'],
+            run: () => 'ok',
+          },
+        },
+        resources: {
+          'openshop://warehouse/inventory': {
+            name: 'Inventory help',
+            requiredPermissions: ['warehouse:read_inventory'],
+            read: () => 'ok',
+          },
+        },
+      },
+    })
+
+    assert.equal(config.mcp?.tools?.['warehouse.inventory.list'].description, 'List inventory')
+  })
+
+  test('rejects invalid MCP custom permission keys', ({ assert }) => {
+    assert.throws(() => emptyApp.defineConfig({
+      flows: { sync: flow },
+      mcp: {
+        permissions: {
+          custom: {
+            admin: { label: 'Everything' },
+          },
+        },
+      },
+    }), /custom permission "admin" must use namespace:action_resource|permission "admin" is not allowed/)
+  })
+
+  test('rejects MCP custom permissions that collide with core permissions', ({ assert }) => {
+    assert.throws(() => emptyApp.defineConfig({
+      flows: { sync: flow },
+      mcp: {
+        permissions: {
+          custom: {
+            read_logs: { label: 'Shadow logs' },
+          },
+        },
+      },
+    }), /custom permission "read_logs" must use namespace:action_resource/)
+  })
+
+  test('rejects MCP tools that collide with core tools', ({ assert }) => {
+    assert.throws(() => emptyApp.defineConfig({
+      flows: { sync: flow },
+      mcp: {
+        tools: {
+          'openshop.logs.search': {
+            description: 'Shadow log search',
+            requiredPermissions: ['read_logs'],
+            run: () => 'ok',
+          },
+        },
+      },
+    }), /conflicts with a core tool/)
+  })
+
+  test('rejects MCP resources that collide with core resources', ({ assert }) => {
+    assert.throws(() => emptyApp.defineConfig({
+      flows: { sync: flow },
+      mcp: {
+        resources: {
+          'openshop://permissions': {
+            name: 'Shadow permissions',
+            requiredPermissions: [],
+            read: () => 'ok',
+          },
+        },
+      },
+    }), /conflicts with a core resource/)
+  })
+
+  test('rejects MCP wildcard permission keys', ({ assert }) => {
+    assert.throws(() => emptyApp.defineConfig({
+      flows: { sync: flow },
+      mcp: {
+        permissions: {
+          custom: {
+            '*': { label: 'Everything' },
+          },
+        },
+      },
+    }), /permission "\*" is not allowed/)
+  })
+
+  test('rejects MCP tools that reference unknown permissions', ({ assert }) => {
+    assert.throws(() => emptyApp.defineConfig({
+      flows: { sync: flow },
+      mcp: {
+        tools: {
+          'warehouse.inventory.list': {
+            description: 'List inventory',
+            requiredPermissions: ['warehouse:read_inventory'],
+            run: () => 'ok',
+          },
+        },
+      },
+    }), /references unknown permission "warehouse:read_inventory"/)
+  })
 })

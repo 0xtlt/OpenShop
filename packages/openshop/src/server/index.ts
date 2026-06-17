@@ -8,6 +8,7 @@ import { and, eq, isNull, isNotNull } from 'drizzle-orm'
 import { createApiRoutes } from '#server/api'
 import { createAuthRoutes } from '#server/auth'
 import { createFunctionRoutes } from '#server/functions'
+import { createMcpRoutes } from '#server/mcp'
 import { createProxyRoutes } from '#server/proxy'
 import { createWebhookRoutes } from '#server/webhooks'
 import { createShopMiddleware } from '#server/shop'
@@ -47,7 +48,7 @@ function resolveCorsOrigin(origin: string): string | undefined {
 }
 
 const restrictedCors = cors({ origin: resolveCorsOrigin })
-const extensionCors = cors({ origin: '*' })
+const extensionCors = cors({ origin: resolveCorsOrigin })
 const robotsHeader = 'noindex, nofollow, noarchive, nosnippet'
 const robotsTxt = `User-agent: *
 Disallow: /
@@ -99,6 +100,9 @@ export async function createServer(getConfig: ConfigGetter, options?: ServerOpti
 
   // Webhook routes (no shop middleware — Shopify sends HMAC, not JWT)
   app.route('/webhooks', createWebhookRoutes(getConfig))
+
+  // MCP routes use OpenShop-issued Bearer tokens, separate from Shopify admin auth.
+  app.route('/mcp', createMcpRoutes(getConfig))
 
   // Proxy routes (auto-discovered from proxy/ directory, HMAC-verified by Shopify)
   const proxyDir = options?.proxyDir ?? resolve(process.cwd(), 'proxy')

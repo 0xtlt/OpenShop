@@ -1,6 +1,17 @@
 declare global {
   interface Window {
-    shopify?: { idToken(): Promise<string>; toast?: { show(message: string, opts?: { duration?: number }): void } }
+    shopify?: {
+      idToken(): Promise<string>
+      toast?: {
+        show(message: string, opts?: {
+          action?: string
+          duration?: number
+          isError?: boolean
+          onAction?: () => void
+          onDismiss?: () => void
+        }): string
+      }
+    }
   }
 }
 

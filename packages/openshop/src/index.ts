@@ -1,4 +1,4 @@
-import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ProviderFieldDefinitions, ProviderMethod, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, AnyFunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders } from './types.ts'
+import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ProviderFieldDefinitions, ProviderMethod, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, AnyFunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders, McpConfig } from './types.ts'
 import type { Type } from 'arktype'
 import type { StandardCRON } from 'ts-cron-validator'
 import { validateOpenShopConfig } from './config/validate.ts'
@@ -6,6 +6,7 @@ import { validateOpenShopConfig } from './config/validate.ts'
 interface OpenShopAppBase<TProviders extends Record<string, ProviderDefinition>> {
   shopify?: ShopifyConfig
   providers: TProviders
+  mcp?: McpConfig
   worker?: Partial<WorkerConfig>
   retryPolicy?: Partial<RetryPolicy>
   onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void
@@ -34,6 +35,7 @@ interface OpenShopConfigInput<
   shopify?: ShopifyConfig
   flows: TFlows
   functions?: TFunctions
+  mcp?: McpConfig
   webhooks?: Record<string, WebhookDefinition>
   crons?: CronEntryFor<TFlows>[]
   worker?: Partial<WorkerConfig>
@@ -101,6 +103,7 @@ export function defineOpenShop<const TProviders extends Record<string, ProviderD
         ...config,
         shopify: config.shopify ?? app.shopify,
         providers: app.providers,
+        mcp: config.mcp ?? app.mcp,
         worker: config.worker ?? app.worker,
         retryPolicy: config.retryPolicy ?? app.retryPolicy,
         onError: config.onError ?? app.onError,
@@ -164,6 +167,15 @@ export type {
   ConnectorOf,
   ProxyDefinition,
   ProxyContext,
+  McpConfig,
+  McpPermissionDefinition,
+  McpToolDefinition,
+  McpResourceDefinition,
+  McpExecutionContext,
+  McpToolResult,
+  McpRiskLevel,
+  McpTokenStatus,
+  McpAuditStatus,
 } from './types.ts'
 
 export type { ShopifyClient } from './shopify/client.ts'

@@ -43,6 +43,7 @@ test.group('hrefToInternalRoute', () => {
     assert.equal(hrefToInternalRoute('/flows', origin), '/flows')
     assert.equal(hrefToInternalRoute('/flows/syncPrescriptions?q=failed#latest', origin), '/flows/syncPrescriptions?q=failed#latest')
     assert.equal(hrefToInternalRoute(`/runs/${validRunId}`, origin), `/runs/${validRunId}`)
+    assert.equal(hrefToInternalRoute('/mcp', origin), '/mcp')
     assert.equal(hrefToInternalRoute('/functions/discounts/new', origin), '/functions/discounts/new')
     assert.equal(hrefToInternalRoute('/functions/discounts/gid%3A%2F%2Fshopify%2FDiscountNode%2F1', origin), '/functions/discounts/gid%3A%2F%2Fshopify%2FDiscountNode%2F1')
   })

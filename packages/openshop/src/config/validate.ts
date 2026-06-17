@@ -1,4 +1,6 @@
 import type { OpenShopConfig, ProviderFieldDef, RetryPolicy, WorkerConfig } from '../types.ts'
+import { createCoreMcpCapabilities } from '../server/mcp/core.ts'
+import { buildMcpRegistry } from '../server/mcp/registry.ts'
 
 const fieldTypes = new Set<ProviderFieldDef['type']>(['text', 'password', 'number', 'select', 'checkbox'])
 const functionTypes = new Set(['discount', 'cart-transform', 'delivery-customization', 'payment-customization', 'checkout-validation', 'fulfillment-constraints'])
@@ -154,4 +156,5 @@ export function validateOpenShopConfig(config: OpenShopConfig): void {
 
   validateWorkerConfig(config.worker)
   validateRetryPolicy(config.retryPolicy, 'retryPolicy')
+  buildMcpRegistry(config, createCoreMcpCapabilities(() => config))
 }

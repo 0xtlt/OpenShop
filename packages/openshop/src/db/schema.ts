@@ -1,6 +1,6 @@
 import { pgTable, text, boolean, integer, timestamp, json, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core'
 import type { PgColumnBuilderBase, PgTableExtraConfigValue } from 'drizzle-orm/pg-core'
-import type { FlowRunStatus, LogLevel, StepStatus } from '../types.ts'
+import type { FlowRunStatus, LogLevel, McpAuditStatus, McpCapabilityType, McpTokenStatus, StepStatus } from '../types.ts'
 
 // ─── defineModel helper ─────────────────────────────────────────────
 
@@ -128,6 +128,58 @@ export const logs = pgTable('logs', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   index('logs_flow_run_created_idx').on(table.flowRunId, table.createdAt),
+])
+
+export const mcpTokens = pgTable('mcp_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  appHandle: text('app_handle').default('default').notNull(),
+  shop: text('shop').notNull(),
+  name: text('name').notNull(),
+  tokenId: text('token_id').notNull(),
+  tokenHash: text('token_hash').notNull(),
+  tokenFingerprint: text('token_fingerprint').notNull(),
+  status: text('status').$type<McpTokenStatus>().default('active').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('mcp_tokens_token_id_unique').on(table.tokenId),
+  index('mcp_tokens_app_shop_idx').on(table.appHandle, table.shop),
+])
+
+export const mcpPermissionGrants = pgTable('mcp_permission_grants', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  appHandle: text('app_handle').default('default').notNull(),
+  shop: text('shop').notNull(),
+  tokenId: text('token_id').notNull(),
+  permissionKey: text('permission_key').notNull(),
+  granted: boolean('granted').default(true).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('mcp_permission_grants_token_permission_unique').on(table.appHandle, table.shop, table.tokenId, table.permissionKey),
+  index('mcp_permission_grants_app_shop_token_idx').on(table.appHandle, table.shop, table.tokenId),
+])
+
+export const mcpAuditLogs = pgTable('mcp_audit_logs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  appHandle: text('app_handle').default('default').notNull(),
+  shop: text('shop').notNull(),
+  tokenId: text('token_id'),
+  capabilityType: text('capability_type').$type<McpCapabilityType>(),
+  capabilityName: text('capability_name'),
+  permissionKeys: json('permission_keys').$type<string[]>(),
+  targetShop: text('target_shop'),
+  status: text('status').$type<McpAuditStatus>().notNull(),
+  error: text('error'),
+  durationMs: integer('duration_ms'),
+  requestId: text('request_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('mcp_audit_logs_app_shop_created_idx').on(table.appHandle, table.shop, table.createdAt),
+  index('mcp_audit_logs_token_created_idx').on(table.tokenId, table.createdAt),
 ])
 
 // Re-export drizzle column builders for devs using defineModel

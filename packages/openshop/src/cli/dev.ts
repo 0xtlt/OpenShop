@@ -191,6 +191,12 @@ export async function startDev() {
           '/ext': `http://localhost:${apiPort}`,
           '/auth': `http://localhost:${apiPort}`,
           '/webhooks': `http://localhost:${apiPort}`,
+          '/mcp': {
+            target: `http://localhost:${apiPort}`,
+            bypass(req) {
+              if (req.method === 'GET' || req.method === 'HEAD') return req.url
+            },
+          },
           '/health': `http://localhost:${apiPort}`,
         },
         headers: {
@@ -212,6 +218,7 @@ export async function startDev() {
           configureServer(server) {
             server.middlewares.use((req, res, next) => {
               const url = req.url ?? ''
+              const isMcpRpcRequest = url.startsWith('/mcp') && req.method !== 'GET' && req.method !== 'HEAD'
               if (
                 url.startsWith('/@') ||
                 url.startsWith('/api') ||
@@ -219,6 +226,7 @@ export async function startDev() {
                 url.startsWith('/ext') ||
                 url.startsWith('/auth') ||
                 url.startsWith('/webhooks') ||
+                isMcpRpcRequest ||
                 url.startsWith('/health') ||
                 url.startsWith('/node_modules') ||
                 url.includes('.') ||

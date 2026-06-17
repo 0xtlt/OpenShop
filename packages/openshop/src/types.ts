@@ -163,6 +163,7 @@ export interface OpenShopConfig<
   providers: TProviders
   flows: TFlows
   functions?: TFunctions
+  mcp?: McpConfig
   webhooks?: Record<string, WebhookDefinition>
   crons?: CronEntryFor<TFlows>[]
   worker?: Partial<WorkerConfig>
@@ -268,6 +269,66 @@ export interface ProxyDefinition {
   PUT?: ProxyHandler
   DELETE?: ProxyHandler
   PATCH?: ProxyHandler
+}
+
+// ─── MCP ────────────────────────────────────────────────────────────
+
+export type McpCapabilityType = 'tool' | 'resource'
+export type McpRiskLevel = 'low' | 'medium' | 'high'
+export type McpTokenStatus = 'active' | 'disabled' | 'revoked'
+export type McpAuditStatus = 'success' | 'denied' | 'error'
+
+export interface McpPermissionDefinition {
+  label: string
+  description?: string
+  group?: string
+  riskLevel?: McpRiskLevel
+}
+
+export interface McpExecutionContext {
+  appHandle: string
+  shop: string
+  tokenId: string
+  permissions: string[]
+  signal: AbortSignal
+  db: import('drizzle-orm/node-postgres').NodePgDatabase<Record<string, unknown>>
+}
+
+export interface McpTextContent {
+  type: 'text'
+  text: string
+}
+
+export interface McpToolResult {
+  content?: McpTextContent[]
+  structuredContent?: unknown
+}
+
+export interface McpToolDefinition {
+  description: string
+  inputSchema?: Record<string, unknown>
+  requiredPermissions: string[]
+  riskLevel?: McpRiskLevel
+  confirmationHint?: string
+  run: (ctx: McpExecutionContext, input: Record<string, unknown>) => Promise<McpToolResult | string | unknown> | McpToolResult | string | unknown
+}
+
+export interface McpResourceDefinition {
+  name: string
+  description?: string
+  mimeType?: string
+  requiredPermissions: string[]
+  riskLevel?: McpRiskLevel
+  read: (ctx: McpExecutionContext) => Promise<string | { text: string; mimeType?: string }> | string | { text: string; mimeType?: string }
+}
+
+export interface McpConfig {
+  enabled?: boolean
+  permissions?: {
+    custom?: Record<string, McpPermissionDefinition>
+  }
+  tools?: Record<string, McpToolDefinition>
+  resources?: Record<string, McpResourceDefinition>
 }
 
 // ─── Retry & Worker ─────────────────────────────────────────────────

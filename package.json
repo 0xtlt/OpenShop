@@ -63,6 +63,6 @@
     "@shopify/polaris-types": "^1.0.1",
     "c8": "11.0.0",
     "openshop": "workspace:*",
-    "typescript": "^5.9.0"
+    "typescript": "^6.0.3"
   }
 }

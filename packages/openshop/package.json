@@ -84,16 +84,16 @@
     }
   },
   "dependencies": {
-    "@hono/node-server": "2.0.4",
+    "@hono/node-server": "2.0.5",
     "@preact/preset-vite": "2.10.5",
     "@types/pg": "^8.18.0",
-    "arktype": "^2.2.0",
+    "arktype": "^2.2.1",
     "croner": "^10.0.0",
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "0.45.2",
     "esbuild": "0.28.1",
     "hono": "4.12.25",
-    "pg": "^8.20.0",
+    "pg": "^8.21.0",
     "preact": "10.29.2",
     "preact-iso": "2.12.0",
     "ts-cron-validator": "^1.1.5",
@@ -110,7 +110,7 @@
     "@japa/runner": "5",
     "@shopify/polaris-types": "^1.0.1",
     "@types/node": "25.9.3",
-    "eslint": "10.3.0",
-    "typescript": "^5.9.0"
+    "eslint": "10.5.0",
+    "typescript": "^6.0.3"
   }
 }

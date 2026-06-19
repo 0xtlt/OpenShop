@@ -2,6 +2,14 @@
   "name": "openshop-workspace",
   "private": true,
   "license": "Elastic-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xtlt/OpenShop.git"
+  },
+  "bugs": {
+    "url": "https://github.com/0xtlt/OpenShop/issues"
+  },
+  "homepage": "https://github.com/0xtlt/OpenShop#readme",
   "packageManager": "pnpm@11.1.0",
   "engines": {
     "node": ">=26 <27",

@@ -2,6 +2,25 @@
   "name": "openshop",
   "version": "0.1.1",
   "license": "Elastic-2.0",
+  "description": "Shopify integration framework with flows, providers, an embedded admin UI, and background workers.",
+  "keywords": [
+    "shopify",
+    "framework",
+    "hono",
+    "drizzle",
+    "postgres",
+    "workflow",
+    "background-jobs"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xtlt/OpenShop.git",
+    "directory": "packages/openshop"
+  },
+  "bugs": {
+    "url": "https://github.com/0xtlt/OpenShop/issues"
+  },
+  "homepage": "https://github.com/0xtlt/OpenShop/tree/main/packages/openshop#readme",
   "type": "module",
   "engines": {
     "node": ">=26 <27"

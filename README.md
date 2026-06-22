@@ -320,4 +320,4 @@ OpenShop is source-available under the Elastic License 2.0.
 
 You may use, modify, and redistribute OpenShop, including for internal production use and client projects. You may not provide OpenShop to third parties as a hosted or managed service where users get access to a substantial set of OpenShop's features.
 
-For commercial platform integrations, hosted offerings, or managed services based on OpenShop, contact Thomas Tastet for a separate commercial license.
+Read the LICENSE file for the full terms.

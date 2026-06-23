@@ -6,6 +6,7 @@ export default defineConfig({
     starlight({
       title: 'OpenShop',
       description: 'Shopify integration framework documentation.',
+      customCss: ['./src/styles/home.css'],
       sidebar: [
         {
           label: 'Start Here',

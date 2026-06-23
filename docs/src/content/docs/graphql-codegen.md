@@ -58,8 +58,8 @@ When a query or mutation is reused across files, keep the operation as a string 
 ```ts
 import { graphqlOperation } from 'openshop/graphql'
 
-export const customerGarageQuery = graphqlOperation(`#graphql
-  query CustomerGarage($id: ID!) {
+export const customerProfileQuery = graphqlOperation(`#graphql
+  query CustomerProfile($id: ID!) {
     customer(id: $id) { id displayName }
   }
 `)
@@ -68,9 +68,9 @@ export const customerGarageQuery = graphqlOperation(`#graphql
 Then pass the shared constant directly to `shopify.graphql()`:
 
 ```ts
-const data = await shopify.graphql(customerGarageQuery, {
+const data = await shopify.graphql(customerProfileQuery, {
   variables: { id: customerId },
 })
 ```
 
-Do not cast the result with `as CustomerGarageQuery`. If inference is missing, run `pnpm run codegen` and fix the GraphQL document, codegen config, or generated bridge instead of silencing the type error.
+Do not cast the result with `as CustomerProfileQuery`. If inference is missing, run `pnpm run codegen` and fix the GraphQL document, codegen config, or generated bridge instead of silencing the type error.

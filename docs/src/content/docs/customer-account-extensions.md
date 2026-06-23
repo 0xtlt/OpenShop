@@ -24,7 +24,7 @@ From the extension, read a session token and send it as a Bearer token:
 ```ts
 const token = await shopify.sessionToken.get()
 
-const response = await fetch(`${apiOrigin}/ext/garage`, {
+const response = await fetch(`${apiOrigin}/ext/loyalty`, {
   headers: {
     Authorization: `Bearer ${token}`,
   },
@@ -68,7 +68,7 @@ if (!ctx.customerId) {
 }
 
 const shopify = await createShopifyClient(ctx.shop, ctx.shopifyApp)
-const data = await shopify.graphql(customerGarageQuery, {
+const data = await shopify.graphql(customerProfileQuery, {
   variables: { id: customerGid(ctx.customerId) },
 })
 ```

@@ -1,6 +1,6 @@
 {
   "name": "openshop",
-  "version": "0.0.1",
+  "version": "0.0.2-beta.0",
   "license": "Elastic-2.0",
   "description": "Shopify integration framework with flows, providers, an embedded admin UI, and background workers.",
   "keywords": [
@@ -20,7 +20,7 @@
   "bugs": {
     "url": "https://github.com/0xtlt/OpenShop/issues"
   },
-  "homepage": "https://github.com/0xtlt/OpenShop/tree/main/packages/openshop#readme",
+  "homepage": "https://openshop.run/",
   "type": "module",
   "engines": {
     "node": ">=26 <27"
@@ -33,7 +33,7 @@
     "test:integration": "node tests/bootstrap-integration.ts"
   },
   "bin": {
-    "openshop": "./bin/cli.js"
+    "openshop": "bin/cli.js"
   },
   "files": [
     "bin",

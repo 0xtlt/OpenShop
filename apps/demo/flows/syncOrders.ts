@@ -1,5 +1,5 @@
 import { type } from 'arktype'
-import { app } from '../openshop.app.ts'
+import { app } from '#app'
 
 type RecentOrder = {
   node: {

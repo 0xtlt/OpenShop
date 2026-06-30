@@ -1,4 +1,4 @@
-import { app } from '../openshop.app.ts'
+import { app } from '#app'
 
 export default app.defineProxy({
   type: 'liquid',

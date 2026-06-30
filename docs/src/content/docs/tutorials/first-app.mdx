@@ -1,0 +1,84 @@
+---
+title: Build your first OpenShop app
+description: Create a new OpenShop app, run it locally, and verify the generated flow and provider setup.
+---
+
+import { FileTree } from '@astrojs/starlight/components';
+
+This tutorial creates a new OpenShop app from the minimal template and runs it through Shopify CLI for embedded app development.
+
+## Prerequisites
+
+- Node.js `>=26 <27`
+- pnpm `>=11 <12`
+- PostgreSQL
+- Shopify CLI configured for the Shopify app you are developing
+
+The generated app expects a PostgreSQL connection string like this during local development:
+
+```bash
+DATABASE_URL=postgresql://openshop:openshop@localhost:5432/openshop
+```
+
+## Create the app
+
+```bash
+pnpm dlx openshop init my-app
+cd my-app
+pnpm install
+```
+
+The generated project contains the OpenShop app definition, config, sample provider, sample flow, Shopify TOML files, Drizzle config, and package scripts.
+
+<FileTree>
+
+- providers/
+- flows/
+- proxy/
+- drizzle/
+- openshop.app.ts
+- openshop.config.ts
+- drizzle.config.ts
+- shopify.app.toml
+- shopify.web.toml
+
+</FileTree>
+
+The template also defines `package.json#imports` aliases so app code can use package-private imports such as `#app`, `#flows/syncOrders`, and `#providers/warehouse` instead of `../` paths.
+
+## Start Shopify development
+
+```bash
+pnpm run shopify
+```
+
+This runs Shopify CLI for embedded app development. Use it when you need a Shopify tunnel, OAuth install flow, and embedded admin context.
+
+## Start the OpenShop dev server
+
+For local framework development without Shopify CLI, use:
+
+```bash
+pnpm run dev
+```
+
+`openshop dev` runs codegen once before the first server start, starts the OpenShop server, and can push the local database schema during development.
+
+## Verify it worked
+
+Open the Shopify app admin URL printed by Shopify CLI. The embedded OpenShop admin should load and show framework pages for flows, providers, cron runs, functions, and MCP when configured.
+
+Run the project checks:
+
+```bash
+pnpm run lint
+```
+
+The generated template runs GraphQL codegen before TypeScript and ESLint checks.
+
+## Next steps
+
+- Add provider credentials in the embedded admin UI.
+- Edit the sample provider in `providers/warehouse.ts`.
+- Edit the sample flow in `flows/syncOrders.ts`.
+- Read [Define a provider](/guides/define-provider/) and [Define a flow](/guides/define-flow/).

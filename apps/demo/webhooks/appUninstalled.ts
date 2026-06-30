@@ -1,4 +1,4 @@
-import { app } from '../openshop.app.ts'
+import { app } from '#app'
 
 export const appUninstalled = app.defineWebhook({
   async run({ shop }) {

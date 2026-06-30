@@ -1,5 +1,5 @@
 import { type } from 'arktype'
-import { app } from '../openshop.app.ts'
+import { app } from '#app'
 
 export const volumeDiscount = app.defineFunction({
   type: 'discount',

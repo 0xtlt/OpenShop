@@ -1,0 +1,80 @@
+---
+title: Add proxy routes
+description: Create app proxy and Customer Account extension endpoints with OpenShop.
+---
+
+import { FileTree } from '@astrojs/starlight/components';
+
+Proxy routes are file-based route handlers in the `proxy/` directory. OpenShop mounts them for Shopify app proxy traffic and Customer Account extension traffic.
+
+## Create a route
+
+Create `proxy/reviews.ts`:
+
+```ts
+import { app } from '#app'
+
+export default app.defineProxy({
+  type: 'json',
+  async GET({ shop, customerId, query }) {
+    return { shop, customerId, query }
+  },
+  async POST({ body }) {
+    return { ok: true, body }
+  },
+})
+```
+
+## Understand route paths
+
+```txt
+proxy/reviews.ts       -> /proxy/reviews
+proxy/api/reviews.ts   -> /proxy/api/reviews
+proxy/products/[id].ts -> /proxy/products/:id
+```
+
+Files and directories prefixed with `_` are private and do not create routes:
+
+<FileTree>
+
+- proxy/
+  - loyalty/
+    - _service.ts
+    - _queries.ts
+    - _shared/
+      - index.ts
+
+</FileTree>
+
+Use private files for helpers that are only useful near the route.
+
+## Call the route from a Customer Account extension
+
+OpenShop also mounts proxy handlers under `/ext/*` for Customer Account session JWT requests.
+
+Enable network access in the extension TOML:
+
+```toml
+[extensions.capabilities]
+network_access = true
+```
+
+Then send a session token:
+
+```ts
+const token = await shopify.sessionToken.get()
+
+const response = await fetch(`${apiOrigin}/ext/reviews`, {
+  headers: {
+    Authorization: `Bearer ${token}`,
+  },
+})
+```
+
+## Verify it worked
+
+For app proxy traffic, Shopify signs the request and OpenShop verifies the HMAC before calling the handler.
+
+For Customer Account traffic, OpenShop verifies the session JWT and sets `ctx.shop`, `ctx.shopifyApp`, and `ctx.customerId` from trusted token claims.
+
+In route code, trust `ctx.customerId`; do not accept customer IDs from query parameters.

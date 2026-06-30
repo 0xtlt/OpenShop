@@ -1,5 +1,5 @@
-import { app } from './openshop.app.ts'
-import { syncOrders } from './flows/syncOrders.ts'
+import { app } from '#app'
+import { syncOrders } from '#flows/syncOrders'
 
 export default app.defineConfig({
   flows: { syncOrders },

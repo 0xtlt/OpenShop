@@ -1,0 +1,88 @@
+---
+title: OpenShop
+description: Build Shopify integrations with typed flows, provider configuration, background workers, and an embedded admin UI.
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+OpenShop is a Shopify integration framework for building apps that need background jobs, provider credentials, scheduled work, app proxy endpoints, Shopify Admin GraphQL calls, and an embedded admin UI.
+
+Use OpenShop when you want the application code to own the integration logic while the framework handles the repetitive operational surface: OAuth installs, stored shop access, provider configuration, flow runs, step checkpoints, logs, migrations, and workers.
+
+:::caution[Beta]
+OpenShop is currently in beta. APIs, configuration shape, generated files, and documented workflows can change before a stable `1.0` release.
+:::
+
+## What you build
+
+An OpenShop app usually contains:
+
+- providers for external systems such as warehouses, ERPs, CRMs, or analytics tools;
+- flows for background work such as syncing orders or reconciling inventory;
+- proxy routes for storefront app proxy and Customer Account extension requests;
+- webhooks for Shopify event handlers;
+- optional Shopify Function management UI definitions;
+- migrations and app models for PostgreSQL-backed state.
+
+## First read
+
+<CardGrid>
+	<Card title="Build your first app" icon="rocket" href="/tutorials/first-app/">
+		Create a new OpenShop project, run it locally, and verify the generated app works.
+	</Card>
+	<Card title="Define a provider" icon="setting" href="/guides/define-provider/">
+		Add a typed connector with config fields, validation, and a health check.
+	</Card>
+	<Card title="Define a flow" icon="code-branch" href="/guides/define-flow/">
+		Create a checkpointed background job that calls Shopify and a provider.
+	</Card>
+	<Card title="Deploy to production" icon="server" href="/guides/deploy-production/">
+		Build the app, apply committed migrations, and run web and worker processes.
+	</Card>
+</CardGrid>
+
+## Core example
+
+```ts
+import { defineOpenShop, defineProvider } from 'openshop'
+
+const warehouse = defineProvider({
+  name: 'warehouse',
+  ui: {
+    fields: {
+      apiUrl: { type: 'text', label: 'API URL' },
+      apiKey: { type: 'password', label: 'API key' },
+    },
+  },
+  methods: {
+    async push(config, rows: unknown[]) {
+      await fetch(`${config.apiUrl}/orders`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${config.apiKey}` },
+        body: JSON.stringify(rows),
+      })
+    },
+  },
+})
+
+const app = defineOpenShop({
+  providers: { warehouse },
+})
+
+const syncOrders = app.defineFlow({
+  name: 'syncOrders',
+  async run({ step, connectors }) {
+    const orders = await step('fetch-orders', async () => [])
+    await step('push-orders', async () => connectors.warehouse.push(orders))
+  },
+})
+
+export default app.defineConfig({
+  flows: { syncOrders },
+  crons: [{ schedule: '*/5 * * * *', flow: 'syncOrders', shops: 'all' }],
+})
+```
+
+## How these docs are organized
+
+Tutorials teach a complete first success path. Guides solve one task. Reference pages list exact APIs, options, defaults, constraints, and failure modes.

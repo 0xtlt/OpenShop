@@ -2,6 +2,16 @@
   "name": "openshop-demo",
   "private": true,
   "type": "module",
+  "imports": {
+    "#app": "./openshop.app.ts",
+    "#flows/*": "./flows/*.ts",
+    "#functions/*": "./functions/*.ts",
+    "#models/*": "./models/*.ts",
+    "#providers/*": "./providers/*.ts",
+    "#queries/*": "./queries/*.ts",
+    "#server/*": "./server/*.ts",
+    "#webhooks/*": "./webhooks/*.ts"
+  },
   "engines": {
     "node": ">=26 <27"
   },

@@ -3,6 +3,16 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.1.0",
+  "imports": {
+    "#app": "./openshop.app.ts",
+    "#flows/*": "./flows/*.ts",
+    "#functions/*": "./functions/*.ts",
+    "#models/*": "./models/*.ts",
+    "#providers/*": "./providers/*.ts",
+    "#queries/*": "./queries/*.ts",
+    "#server/*": "./server/*.ts",
+    "#webhooks/*": "./webhooks/*.ts"
+  },
   "engines": {
     "node": ">=26 <27",
     "pnpm": ">=11 <12"

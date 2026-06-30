@@ -1,0 +1,7 @@
+<svg width="360" height="56" viewBox="0 0 360 56" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title">
+  <title id="title">OpenShop terminal prompt logo reverse</title>
+  <circle cx="21" cy="28" r="14" stroke="#FAFAF7" stroke-width="6"/>
+  <path d="M49 17L68 28L49 39" stroke="#2FA66A" stroke-width="6" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M82 40H104" stroke="#2FA66A" stroke-width="6" stroke-linecap="square"/>
+  <text x="128" y="41" fill="#FAFAF7" font-family="Geist Variable, Geist, ui-sans-serif, system-ui, sans-serif" font-size="34" font-weight="600" letter-spacing="-0.4">Open<tspan fill="#2FA66A">Shop</tspan></text>
+</svg>

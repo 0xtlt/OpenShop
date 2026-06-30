@@ -1,9 +1,9 @@
-import { app } from './openshop.app.ts'
-import { syncOrders } from './flows/syncOrders.ts'
-import { countVariants } from './flows/countVariants.ts'
-import { volumeDiscount } from './functions/volumeDiscount.ts'
-import { ordersCreate } from './webhooks/ordersCreate.ts'
-import { appUninstalled } from './webhooks/appUninstalled.ts'
+import { app } from '#app'
+import { syncOrders } from '#flows/syncOrders'
+import { countVariants } from '#flows/countVariants'
+import { volumeDiscount } from '#functions/volumeDiscount'
+import { ordersCreate } from '#webhooks/ordersCreate'
+import { appUninstalled } from '#webhooks/appUninstalled'
 
 export default app.defineConfig({
   flows: { syncOrders, countVariants },

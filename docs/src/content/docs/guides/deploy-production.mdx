@@ -1,0 +1,84 @@
+---
+title: Deploy to production
+description: Build an OpenShop app, apply migrations, and run web and worker processes.
+---
+
+import { FileTree } from '@astrojs/starlight/components';
+
+Production deployments should build the app, apply committed migrations, then run the web server and at least one worker.
+
+## Build
+
+```bash
+pnpm run build
+```
+
+The build creates:
+
+<FileTree>
+
+- dist/
+  - ui/
+  - openshop/
+    - server/
+
+</FileTree>
+
+## Configure environment
+
+Single-app deployments usually need:
+
+```bash
+DATABASE_URL=postgresql://...
+SHOPIFY_API_KEY=...
+SHOPIFY_API_SECRET=...
+HOST=https://your-app.example.com
+ENCRYPTION_KEY=<64 hex characters>
+```
+
+Generate an encryption key:
+
+```bash
+openssl rand -hex 32
+```
+
+`ENCRYPTION_KEY` protects provider credentials and Shopify access tokens. Treat it as required in production.
+
+## Apply migrations
+
+Generate and review migrations in development or CI:
+
+```bash
+pnpm exec openshop migrate generate
+pnpm exec openshop migrate check
+```
+
+Commit the generated SQL in `./drizzle`, then apply committed migrations before starting production processes:
+
+```bash
+pnpm exec openshop migrate
+```
+
+`openshop migrate` only applies SQL from `./drizzle`. It does not run generation tooling.
+
+## Start processes
+
+Run the web server and worker separately:
+
+```bash
+pnpm exec openshop start
+pnpm exec openshop worker --concurrency=5
+```
+
+`openshop start` serves HTTP traffic and dispatches cron runs. It does not execute queued flow runs. At least one worker must be running for queued runs to complete.
+
+## Verify it worked
+
+- The web process starts without migration errors.
+- The worker process starts and reports no database connectivity errors.
+- The embedded admin UI loads inside Shopify.
+- A test flow run moves from queued to completed or failed with logs.
+
+## Rollback notes
+
+OpenShop does not apply migrations on boot. If a deploy fails before migrations are applied, roll back the app process only. If committed SQL was already applied, use your normal database rollback or forward-fix process.

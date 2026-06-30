@@ -1,5 +1,5 @@
 import { defineOpenShop } from "openshop";
-import { warehouse } from "./providers/warehouse.ts";
+import { warehouse } from "#providers/warehouse";
 
 export const app = defineOpenShop({
   // Single-app projects can keep Shopify credentials in env/TOML.

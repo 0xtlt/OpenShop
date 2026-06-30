@@ -1,12 +1,15 @@
 # OpenShop
 
-Shopify integration framework. Define flows, connect providers, get an embedded admin UI, and run background jobs with checkpointed steps.
+OpenShop is a Shopify integration framework for apps that need typed flows, provider configuration, background workers, and an embedded admin UI.
 
-## Beta status
+- Website: https://openshop.run/
+- Documentation: https://docs.openshop.run/
 
-OpenShop is currently in beta. APIs, configuration shape, generated files, and documented workflows are subject to change before a stable `1.0` release.
+OpenShop is in beta. APIs, generated files, and documented workflows may change before a stable `1.0` release.
 
-## Install
+## Create an app
+
+Generate a new OpenShop app instead of cloning the framework repository:
 
 ```bash
 pnpm dlx openshop init my-app
@@ -15,17 +18,39 @@ pnpm install
 pnpm run shopify
 ```
 
-## Core API
+The generated app includes Shopify TOML files, Drizzle configuration, package scripts, a sample provider, and a sample flow.
+
+## Project structure
+
+```txt
+my-app/
+├─ flows/
+├─ providers/
+├─ proxy/
+├─ webhooks/
+├─ drizzle/
+├─ openshop.app.ts
+├─ openshop.config.ts
+├─ drizzle.config.ts
+├─ shopify.app.toml
+├─ shopify.web.toml
+├─ package.json
+```
+
+The generated `package.json` defines aliases such as `#app`, `#flows/*`, and `#providers/*`, so app code does not need `../` imports.
+
+## Define a provider
 
 ```ts
-import { defineOpenShop, defineProvider } from 'openshop'
+import { type } from 'arktype'
+import { defineProvider } from 'openshop'
 
-const warehouse = defineProvider({
+export const warehouse = defineProvider({
   name: 'warehouse',
   ui: {
     fields: {
-      apiUrl: { type: 'text', label: 'API URL' },
-      apiKey: { type: 'password', label: 'API key' },
+      apiUrl: { type: 'text', label: 'API URL', validate: type('string.url') },
+      apiKey: { type: 'password', label: 'API key', validate: type('string > 0') },
     },
   },
   methods: {
@@ -38,18 +63,27 @@ const warehouse = defineProvider({
     },
   },
 })
+```
 
-const app = defineOpenShop({
-  providers: { warehouse },
-})
+## Define a flow
 
-const syncOrders = app.defineFlow({
+```ts
+import { app } from '#app'
+
+export const syncOrders = app.defineFlow({
   name: 'syncOrders',
   async run({ step, connectors }) {
     const orders = await step('fetch-orders', async () => [])
     await step('push-orders', async () => connectors.warehouse.push(orders))
   },
 })
+```
+
+Register flows and crons in `openshop.config.ts`:
+
+```ts
+import { app } from '#app'
+import { syncOrders } from '#flows/syncOrders'
 
 export default app.defineConfig({
   flows: { syncOrders },
@@ -71,8 +105,6 @@ Apply committed migrations before starting production processes:
 ```bash
 pnpm exec openshop migrate
 ```
-
-`openshop migrate` only applies SQL from `./drizzle`; it does not run generation tooling.
 
 Run the web server and worker separately:
 
@@ -102,8 +134,15 @@ export default app.defineConfig({
   shopify: {
     scopes: 'read_products,write_products',
     apps: {
-      clientA: { toml: 'shopify.app.client-a.toml', apiSecret: process.env.SHOPIFY_CLIENT_A_API_SECRET! },
-      clientB: { apiKey: process.env.SHOPIFY_CLIENT_B_API_KEY!, apiSecret: process.env.SHOPIFY_CLIENT_B_API_SECRET!, appUrl: 'https://openshop.example.com' },
+      clientA: {
+        toml: 'shopify.app.client-a.toml',
+        apiSecret: process.env.SHOPIFY_CLIENT_A_API_SECRET!,
+      },
+      clientB: {
+        apiKey: process.env.SHOPIFY_CLIENT_B_API_KEY!,
+        apiSecret: process.env.SHOPIFY_CLIENT_B_API_SECRET!,
+        appUrl: 'https://openshop.example.com',
+      },
     },
   },
   flows: {},
@@ -111,10 +150,6 @@ export default app.defineConfig({
 ```
 
 Installations and shop-scoped data are isolated by `(appHandle, shop)`. If you use several Shopify TOML files, deploy each one with Shopify CLI, for example `shopify app deploy --config shopify.app.client-a.toml`.
-
-## Documentation
-
-The repository contains the full documentation in `docs/`.
 
 ## License
 

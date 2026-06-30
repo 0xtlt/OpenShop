@@ -1,20 +1,24 @@
 # OpenShop
 
-Shopify integration framework. Define flows, connect providers, get an admin UI — zero boilerplate.
+OpenShop is a Shopify integration framework for apps that need typed flows, provider configuration, background workers, and an embedded admin UI.
 
-## Beta status
+- Website: https://openshop.run/
+- Documentation: https://docs.openshop.run/
 
-OpenShop is currently in beta. APIs, configuration shape, generated files, and documented workflows are subject to change before a stable `1.0` release.
+OpenShop is in beta. APIs, generated files, and documented workflows may change before a stable `1.0` release.
 
-## What it does
+## What you get
 
-You write **flows** (jobs with checkpointed steps) and **providers** (external connectors), OpenShop handles the rest: scheduling, retries, logging, admin dashboard, and Shopify embedding.
-
-## Stack
-
-Node.js 26, pnpm, Hono, Drizzle + PostgreSQL, Preact, Vite 8, ArkType, Polaris Web Components
+- Shopify OAuth, embedded app routing, and stored shop access.
+- Checkpointed flows for jobs that need retries, logs, and resumable steps.
+- Provider definitions that generate typed configuration forms in the admin UI.
+- Cron schedules, manual flow runs, execution history, and log search.
+- PostgreSQL storage through Drizzle migrations owned by the generated app.
+- Proxy routes, webhooks, Shopify Functions helpers, and typed Admin GraphQL support.
 
 ## Quick start
+
+Do not clone this repo to start an app. Generate a new OpenShop app instead:
 
 ```bash
 pnpm dlx openshop init my-app
@@ -23,52 +27,66 @@ pnpm install
 pnpm run shopify
 ```
 
+`pnpm run shopify` runs Shopify CLI development for the generated app. Shopify CLI handles Partner app linking, the development tunnel, and launching the embedded app in a development store.
+
+## Prerequisites
+
+- Node.js 26
+- pnpm 11
+- Shopify CLI
+- A Shopify Partner app and development store
+- PostgreSQL for local and production storage
+
+The generated template defaults to:
+
+```bash
+DATABASE_URL=postgresql://openshop:openshop@localhost:5432/openshop
+```
+
 ## Project structure
 
-```
+A generated app contains the OpenShop app definition, config, sample provider, sample flow, Shopify TOML files, Drizzle config, and package scripts.
+
+```txt
 my-app/
-  openshop.app.ts                # OpenShop app builder + providers
-  openshop.config.ts    # Flows, providers, crons
-  flows/
-    syncOrders.ts       # Your flows
-  providers/
-    warehouse.ts        # Your connectors
-  shopify.app.toml      # Shopify app config
-  shopify.web.toml      # Dev server config
+├─ flows/
+├─ providers/
+├─ proxy/
+├─ webhooks/
+├─ drizzle/
+├─ openshop.app.ts
+├─ openshop.config.ts
+├─ drizzle.config.ts
+├─ shopify.app.toml
+├─ shopify.web.toml
+├─ package.json
 ```
 
-## Define a flow
+The generated `package.json` also defines Node.js import aliases, so app code can use `#app`, `#flows/*`, `#providers/*`, `#webhooks/*`, and related aliases instead of `../` imports.
+
+## Define your app
+
+Create providers in `providers/`, register them in `openshop.app.ts`, then register flows, crons, webhooks, and runtime options in `openshop.config.ts`.
 
 ```ts
-import { app } from '../openshop.app'
+import { defineOpenShop } from 'openshop'
+import { warehouse } from '#providers/warehouse'
 
-export const syncOrders = app.defineFlow({
-  name: 'syncOrders',
-
-  async run({ connectors, step, logger }) {
-    const orders = await step('fetch-orders', async () => {
-      // Fetch from Shopify API
-      return [{ id: 1, name: '#1001' }]
-    })
-
-    await step('send-to-warehouse', async () => {
-      await connectors.warehouse.push(orders)
-    })
-  },
+export const app = defineOpenShop({
+  providers: { warehouse },
 })
 ```
 
-Each `step()` is checkpointed. If the flow fails mid-way, only failed steps re-run on retry.
-
 ## Define a provider
 
+Providers describe external systems and the configuration fields a merchant can edit from the embedded admin UI.
+
 ```ts
-import { defineProvider } from 'openshop'
 import { type } from 'arktype'
+import { defineProvider } from 'openshop'
 
 export const warehouse = defineProvider({
   name: 'warehouse',
-
   ui: {
     fields: {
       apiUrl: {
@@ -78,241 +96,206 @@ export const warehouse = defineProvider({
       },
       apiKey: {
         type: 'password',
-        label: 'API Key',
+        label: 'API key',
         validate: type('string > 0'),
       },
     },
   },
-
-  // `config` is auto-typed from fields: { apiUrl: string, apiKey: string }
-  async checker({ config }) {
-    const res = await fetch(`${config.apiUrl}/health`)
-    return res.ok
-  },
-
   methods: {
-    async push(config, data: unknown[]) { /* ... */ },
+    async push(config, rows: unknown[]) {
+      await fetch(`${config.apiUrl}/orders`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${config.apiKey}` },
+        body: JSON.stringify(rows),
+      })
+    },
   },
 })
 ```
 
-The admin UI auto-generates a config form from `ui.fields` with validation.
+## Define a flow
 
-## Define an app
+Flows are background jobs. Each `step()` is checkpointed, so retries keep completed work and rerun only the failed part.
 
 ```ts
-import { defineOpenShop } from 'openshop'
-import { warehouse } from './providers/warehouse'
+import { app } from '#app'
 
-export const app = defineOpenShop({
-  providers: { warehouse },
+export const syncOrders = app.defineFlow({
+  name: 'syncOrders',
+
+  async run({ connectors, shopify, step }) {
+    const orders = await step('fetch-orders', async () => {
+      return shopify.graphql(`#graphql
+        query RecentOrders {
+          orders(first: 10) {
+            nodes { id name }
+          }
+        }
+      `)
+    })
+
+    await step('push-orders', async () => {
+      await connectors.warehouse.push(orders)
+    })
+  },
 })
 ```
 
-## Config
+Register the flow in `openshop.config.ts`:
 
 ```ts
-import { app } from './openshop.app'
-import { syncOrders } from './flows/syncOrders'
+import { app } from '#app'
+import { syncOrders } from '#flows/syncOrders'
 
 export default app.defineConfig({
   flows: { syncOrders },
   crons: [
-    { schedule: '*/5 * * * *', flow: 'syncOrders' },
+    { schedule: '*/5 * * * *', flow: 'syncOrders', shops: 'all' },
   ],
-  onError: async (error, ctx) => {
-    // Slack, Sentry, etc.
-  },
 })
 ```
 
-## Admin UI
-
-Auto-generated pages inside Shopify admin:
-
-- **Home** — Dashboard with flow/provider status
-- **Flows** — List flows, trigger runs, view execution history
-- **Flow Run** — Step-by-step execution detail with log viewer
-- **Providers** — Configure connectors with auto-generated forms
-
-### Log query syntax
-
-The log viewer supports Grafana-style queries:
-
-```
-|= "text"          Contains (case-insensitive)
-!= "text"          Excludes
-|~ "regex"         Regex match
-C:N                Context lines around matches
-B:N / A:N          Before / After context
-last:5m            Last 5 minutes (s/m/h/d)
-from:ISO to:ISO    Absolute date range
-```
-
-## Shopify integration
-
-Works with `shopify app dev`:
+## Local development
 
 ```bash
-shopify app config link           # Link to your Partner app
-shopify app dev --skip-dependencies-installation
+pnpm run shopify
 ```
 
-The framework handles App Bridge, Cloudflare tunnels, and embedded app setup.
-
-### Multiple Shopify apps
-
-One OpenShop instance can serve multiple Shopify apps when all apps use the same scopes. Declare them in `openshop.config.ts` with TOML files:
-
-```ts
-import { defineOpenShop } from 'openshop'
-
-const app = defineOpenShop({ providers: {} })
-
-export default app.defineConfig({
-  shopify: {
-    scopes: 'read_products,write_products',
-    apps: {
-      clientA: { toml: 'shopify.app.client-a.toml', apiSecret: process.env.SHOPIFY_CLIENT_A_API_SECRET! },
-      clientB: { toml: 'shopify.app.client-b.toml', apiSecret: process.env.SHOPIFY_CLIENT_B_API_SECRET! },
-    },
-  },
-  flows: {},
-})
-```
-
-Or without TOML:
-
-```ts
-import { defineOpenShop } from 'openshop'
-
-const app = defineOpenShop({ providers: {} })
-
-export default app.defineConfig({
-  shopify: {
-    scopes: 'read_products,write_products',
-    apps: {
-      clientA: { apiKey: process.env.SHOPIFY_CLIENT_A_API_KEY!, apiSecret: process.env.SHOPIFY_CLIENT_A_API_SECRET!, appUrl: 'https://openshop.example.com' },
-      clientB: { apiKey: process.env.SHOPIFY_CLIENT_B_API_KEY!, apiSecret: process.env.SHOPIFY_CLIENT_B_API_SECRET!, appUrl: 'https://openshop.example.com' },
-    },
-  },
-  flows: {},
-})
-```
-
-Data is isolated by `(appHandle, shop)`. For TOML-based setups, deploy every Shopify app config separately with Shopify CLI, for example `shopify app deploy --config shopify.app.client-a.toml`.
-
-## Development
+For direct OpenShop development without Shopify CLI:
 
 ```bash
-# Monorepo structure
-packages/openshop/    # The framework
-apps/demo/            # Demo app
-
-# Install
-pnpm install
-
-# Database
-docker compose up -d postgres
-# Creates both openshop and openshop_test
-
-# Checks
-pnpm run check
-pnpm run coverage:unit
-pnpm run coverage:integration
-pnpm run coverage:demo
-
-# Dev (standalone)
-cd apps/demo && pnpm run dev
-
-# Dev (with Shopify)
-cd apps/demo && pnpm run shopify
-
-# Production build
-cd apps/demo && pnpm run build
-# Generates dist/ui and dist/openshop/server
+pnpm run dev
 ```
 
-Production requires `ENCRYPTION_KEY` to be set. Generate one with:
+Common generated scripts:
+
+```bash
+pnpm run codegen
+pnpm run lint
+pnpm run test
+pnpm run build
+```
+
+## Production
+
+### Application storage
+
+OpenShop stores installations, provider configuration, flow runs, step checkpoints, logs, and cron state in PostgreSQL. Configure production storage with `DATABASE_URL`.
+
+Drizzle migrations live in `./drizzle` inside the generated app and should be committed with the app code.
+
+### Build
+
+Build the app, apply committed migrations, then run the web and worker processes separately.
+
+```bash
+pnpm run build
+pnpm exec openshop migrate
+pnpm exec openshop start
+pnpm exec openshop worker --concurrency=5
+```
+
+Generate and review Drizzle migrations during development or CI:
+
+```bash
+pnpm exec openshop migrate generate
+pnpm exec openshop migrate check
+```
+
+`openshop start` and `openshop worker` do not generate or apply migrations. Commit the generated SQL in `./drizzle`, then run `openshop migrate` during deployment.
+
+Set `ENCRYPTION_KEY` in production to encrypt provider credentials and Shopify access tokens:
 
 ```bash
 openssl rand -hex 32
 ```
 
-Use versioned Drizzle migrations for production schema changes. `openshop dev` still uses `drizzle-kit push --force` for local development only.
-OpenShop projects own their migrations in `./drizzle`, including framework tables and app models:
+## Multiple Shopify apps
+
+One OpenShop instance can serve multiple Shopify apps when all apps use the same scopes.
+
+```ts
+import { defineOpenShop } from 'openshop'
+
+const app = defineOpenShop({ providers: {} })
+
+export default app.defineConfig({
+  shopify: {
+    scopes: 'read_products,write_products',
+    apps: {
+      clientA: {
+        toml: 'shopify.app.client-a.toml',
+        apiSecret: process.env.SHOPIFY_CLIENT_A_API_SECRET!,
+      },
+      clientB: {
+        apiKey: process.env.SHOPIFY_CLIENT_B_API_KEY!,
+        apiSecret: process.env.SHOPIFY_CLIENT_B_API_SECRET!,
+        appUrl: 'https://openshop.example.com',
+      },
+    },
+  },
+  flows: {},
+})
+```
+
+Installations and shop-scoped data are isolated by `(appHandle, shop)`. If you use several Shopify TOML files, deploy each one with Shopify CLI:
 
 ```bash
-pnpm exec openshop migrate generate
-pnpm exec openshop migrate check
+shopify app deploy --config shopify.app.client-a.toml
+```
+
+## Troubleshooting
+
+### Missing database tables
+
+Run migrations before starting production processes:
+
+```bash
 pnpm exec openshop migrate
 ```
 
-Run `generate` and `check` in development or CI where Drizzle Kit is installed. Review and commit generated migration files before deploying. In production/deploy jobs, `openshop migrate` only applies already committed SQL from `./drizzle`; it does not load `drizzle.config.ts` or run generation tooling. `openshop start` and `openshop worker` never generate or apply migrations.
+### Invalid or missing encryption key
 
-### Production processes
-
-`openshop start` intentionally starts only the HTTP server: API, embedded admin UI, proxy routes, webhooks, and cron dispatch.
-It does **not** execute queued flow runs.
-
-Run at least one worker process separately:
+Production requires a 64-character hex `ENCRYPTION_KEY`. Generate one with:
 
 ```bash
-pnpm exec openshop start
-pnpm exec openshop worker --concurrency=5
+openssl rand -hex 32
 ```
 
-This separation is deliberate:
+### GraphQL types are stale
 
-- web and worker can be restarted independently;
-- worker concurrency is explicit;
-- production apps can scale workers without multiplying HTTP servers;
-- `openshop start` stays predictable for platforms that expect one web process.
-
-For a single-container deployment, use a process manager such as PM2:
-
-```js
-// ecosystem.config.cjs
-module.exports = {
-  apps: [
-    {
-      name: 'my-app-web',
-      script: 'node_modules/openshop/bin/cli.js',
-      args: 'start',
-      instances: 1,
-      exec_mode: 'fork',
-      env: { NODE_ENV: 'production' },
-    },
-    {
-      name: 'my-app-worker',
-      script: 'node_modules/openshop/bin/cli.js',
-      args: 'worker --concurrency=5',
-      instances: 1,
-      exec_mode: 'fork',
-      env: { NODE_ENV: 'production' },
-    },
-  ],
-}
-```
-
-```dockerfile
-CMD ["pnpm", "exec", "pm2-runtime", "start", "ecosystem.config.cjs"]
-```
-
-Use `node_modules/openshop/bin/cli.js` rather than `node_modules/.bin/openshop` in PM2 configs. The `.bin` file is a shell shim, and PM2 can try to execute it as JavaScript.
-
-`openshop start` and `openshop worker` load the compiled server app from `dist/openshop/server`; run `openshop build` before starting production.
-
-### Database migrations
-
-OpenShop does not ship prebuilt framework migration SQL. A generated project creates its first migration in `./drizzle` from the OpenShop framework schema. Later schema changes, including app-specific Drizzle models, should be generated manually:
+Run codegen again:
 
 ```bash
-pnpm exec openshop migrate generate
-pnpm exec openshop migrate
+pnpm run codegen
 ```
 
-Run `openshop migrate generate` before deploy, review and commit the SQL, then run `openshop migrate` during deploy. Without a worker process, runs can stay `pending` forever. Without running migrations manually before deploy, web and worker processes can start and then fail when they read or write missing tables.
+## Developing OpenShop itself
+
+This repository is the framework monorepo.
+
+```bash
+pnpm install
+pnpm run check
+pnpm run coverage:unit
+pnpm run coverage:integration
+pnpm run coverage:demo
+```
+
+Key workspaces:
+
+```txt
+apps/demo/
+packages/openshop/
+docs/
+```
+
+## Resources
+
+- Website: https://openshop.run/
+- Documentation: https://docs.openshop.run/
+- Shopify CLI: https://shopify.dev/docs/apps/tools/cli
+- Shopify app template for React Router: https://github.com/Shopify/shopify-app-template-react-router
 
 ## License
 

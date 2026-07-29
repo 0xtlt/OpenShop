@@ -103,7 +103,7 @@
     }
   },
   "dependencies": {
-    "@hono/node-server": "2.0.5",
+    "@hono/node-server": "2.0.12",
     "@preact/preset-vite": "2.10.5",
     "@types/pg": "^8.18.0",
     "arktype": "^2.2.1",
@@ -111,7 +111,7 @@
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "0.45.2",
     "esbuild": "0.28.1",
-    "hono": "4.12.25",
+    "hono": "4.12.32",
     "pg": "^8.21.0",
     "preact": "10.29.2",
     "preact-iso": "2.12.0",

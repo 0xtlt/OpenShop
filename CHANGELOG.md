@@ -24,6 +24,8 @@ All notable changes to OpenShop will be documented in this file.
   receive an HTTP downgrade location.
 - The first-app tutorial now covers PostgreSQL, environment configuration,
   Shopify CLI linking, migrations, and a complete smoke flow.
+- Updated Hono, Astro, Sharp, and vulnerable transitive dependencies to their
+  patched releases.
 
 ### Fixed
 

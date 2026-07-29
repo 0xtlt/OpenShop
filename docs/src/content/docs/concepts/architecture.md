@@ -7,29 +7,36 @@ An OpenShop deployment has two long-running processes backed by one PostgreSQL
 database:
 
 ```text
-Shopify admin / webhooks / proxies
-                 |
-                 v
-        web process (`openshop start`)
-        - OAuth and session authentication
-        - embedded admin UI and Admin API
-        - webhook, proxy, Function, and MCP routes
-        - cron scheduler
-                 |
-                 | inserts pending flow runs
-                 v
-              PostgreSQL
-        - installations and encrypted tokens
-        - provider configuration
-        - flow runs, checkpoints, and logs
-        - cron overrides and MCP audit data
-                 ^
-                 | leases and executes runs
-                 |
-       worker process (`openshop worker`)
-        - provider connectors
-        - Shopify Admin GraphQL
-        - checkpointed steps and retries
+┌──────────────────────────────────────────────────┐
+│  Shopify admin / webhooks / proxies              │
+└────────────────────────┬─────────────────────────┘
+                         │
+                         v
+┌──────────────────────────────────────────────────┐
+│  web process (`openshop start`)                  │
+│  - OAuth and session authentication              │
+│  - embedded admin UI and Admin API               │
+│  - webhook, proxy, Function, and MCP routes      │
+│  - cron scheduler                                │
+└────────────────────────┬─────────────────────────┘
+                         │ inserts pending flow runs
+                         v
+┌──────────────────────────────────────────────────┐
+│  PostgreSQL                                      │
+│  - installations and encrypted tokens            │
+│  - provider configuration                        │
+│  - flow runs, checkpoints, and logs              │
+│  - cron overrides and MCP audit data             │
+└──────────────────────────────────────────────────┘
+                         ^
+                         │ leases and executes runs
+                         │
+┌────────────────────────┴─────────────────────────┐
+│  worker process (`openshop worker`)              │
+│  - provider connectors                           │
+│  - Shopify Admin GraphQL                         │
+│  - checkpointed steps and retries                │
+└──────────────────────────────────────────────────┘
 ```
 
 The web and worker processes use the same built `openshop.config.ts` and

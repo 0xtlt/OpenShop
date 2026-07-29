@@ -1,11 +1,11 @@
 ---
 title: Define a provider
-description: Add a typed external connector with config fields, validation, and a health check.
+description: Add a typed connector with normalization, validation, and a health check.
 ---
 
-Providers describe external services that flows can call. A provider owns its admin configuration fields and its callable methods.
+Providers own the configuration and methods for an external service.
 
-## Create the provider file
+## 1. Create the provider
 
 Create `providers/warehouse.ts`:
 
@@ -17,12 +17,34 @@ export const warehouse = defineProvider({
   name: 'warehouse',
   ui: {
     fields: {
-      apiUrl: { type: 'text', label: 'API URL', validate: type('string.url') },
-      apiKey: { type: 'password', label: 'API key', validate: type('string > 0') },
+      apiUrl: {
+        type: 'text',
+        label: 'API URL',
+        validate: type('string.url'),
+      },
+      apiKey: {
+        type: 'password',
+        label: 'API key',
+        validate: type('string > 0'),
+      },
+      batchSize: {
+        type: 'number',
+        label: 'Batch size',
+        required: false,
+        validate: type('number.integer > 0'),
+      },
     },
   },
+  transformer({ data }) {
+    return {
+      ...data,
+      apiUrl: String(data.apiUrl).replace(/\/$/, ''),
+    }
+  },
   async checker({ config }) {
-    const res = await fetch(`${config.apiUrl}/health`)
+    const res = await fetch(`${config.apiUrl}/health`, {
+      headers: { Authorization: `Bearer ${config.apiKey}` },
+    })
     return res.ok
   },
   methods: {
@@ -36,15 +58,17 @@ export const warehouse = defineProvider({
         body: JSON.stringify(rows),
       })
 
-      if (!res.ok) {
-        throw new Error(`Warehouse push failed: ${res.status}`)
-      }
+      if (!res.ok) throw new Error(`Warehouse push failed: ${res.status}`)
     },
   },
 })
 ```
 
-## Register it in the app
+Save processing is ordered: password preservation, coercion, required checks,
+`transformer`, required checks again, then ArkType validation. A transformer
+must return an object.
+
+## 2. Register it
 
 ```ts
 // openshop.app.ts
@@ -56,28 +80,31 @@ export const app = defineOpenShop({
 })
 ```
 
-OpenShop carries provider method types into flows. If a method accepts `rows: unknown[]`, then `connectors.warehouse.push(rows)` is type-checked where the flow calls it.
+Provider registration carries method types into flow connectors.
 
-## Configure credentials
+## 3. Save and check credentials
 
-Open the embedded admin UI and save the provider config. Password fields are write-only in the admin API. Submitting an empty password value keeps the existing secret.
+Open the embedded provider page, save the config, then run its check. Password
+fields are write-only: the API returns `hasValue`, and submitting an empty
+password preserves the stored secret.
 
-## Verify it worked
+The checker is manual. OpenShop does not call it before every flow method.
+Returning `false` records an unsuccessful check; throwing returns HTTP 500.
 
-Run:
-
-```bash
-pnpm run lint
-```
-
-Then use the provider in a flow:
+## 4. Call the connector
 
 ```ts
 await connectors.warehouse.push([{ id: 'order-1' }])
 ```
 
-If TypeScript cannot find `connectors.warehouse`, check that the provider is registered in `defineOpenShop()`.
+The provider method receives saved config as its first argument, but the flow
+connector omits it. If `connectors.warehouse` is missing, check registration in
+`defineOpenShop()`.
 
-## Production notes
+## 5. Verify production secrets
 
-Set `ENCRYPTION_KEY` in production. Provider configs are encrypted when `ENCRYPTION_KEY` is present, and production deployments should treat it as required.
+Set a stable, 64-hex-character `ENCRYPTION_KEY` in production before saving
+credentials. Production throws when it is missing; development logs a warning
+and stores plaintext. Passwords are omitted from API reads, but storage
+encryption depends on that key. Rotating it without a data migration makes
+existing encrypted configs unreadable.

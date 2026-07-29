@@ -51,7 +51,10 @@ test.group('init cli', () => {
       assert.equal(packageJson.scripts['db:check'], 'openshop migrate check')
       assert.equal(packageJson.scripts.shopify, 'shopify app dev --skip-dependencies-installation')
       assert.equal(packageJson.scripts.lint, 'pnpm run codegen && tsc --noEmit && eslint .')
-      assert.equal(packageJson.dependencies.openshop, '^0.1.1')
+      const packageManifest = JSON.parse(
+        readFileSync(resolve(import.meta.dirname, '..', '..', '..', 'package.json'), 'utf8'),
+      ) as { version: string }
+      assert.equal(packageJson.dependencies.openshop, packageManifest.version)
       assert.property(packageJson.dependencies, 'pm2')
       assert.notProperty(packageJson.devDependencies, 'tsx')
       assert.notInclude(JSON.stringify(packageJson), 'workspace:*')

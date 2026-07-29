@@ -1,15 +1,36 @@
 ---
 title: GraphQL codegen
-description: Generate typed Shopify Admin GraphQL operations.
+description: Generate typed Shopify Admin GraphQL operations and understand runtime errors.
 ---
 
-OpenShop integrates with Shopify API codegen. The template includes `.graphqlrc.ts`:
+OpenShop integrates Shopify's Admin API codegen preset.
 
 ```ts
+// .graphqlrc.ts
 import { graphqlConfig } from 'openshop/graphql'
 
 export default graphqlConfig()
 ```
+
+## Configuration
+
+```ts
+graphqlConfig({
+  apiVersion: '2026-04',
+  documents: ['./flows/**/*.ts', './queries/**/*.ts'],
+  outputDir: './types/generated',
+})
+```
+
+| Option | Default |
+| --- | --- |
+| `apiVersion` | `2026-04` |
+| `outputDir` | `./types/generated` |
+| `documents` | `flows`, `webhooks`, `proxy`, `server`, `queries`, and `lib/server` TS/TSX globs |
+
+The schema URL is Shopify's direct Admin GraphQL proxy for the selected API
+version. `@shopify/api-codegen-preset` is resolved from the app's
+`node_modules`, so it must be installed by the consumer project.
 
 ## Commands
 
@@ -18,11 +39,12 @@ pnpm run codegen
 pnpm run codegen:watch
 ```
 
-`openshop dev` runs codegen once before the first server start, then starts a watcher through Vite. The template also runs codegen before TypeScript and ESLint checks in `pnpm run lint`.
+`openshop dev` runs codegen once before the first server start, then uses the
+Vite watcher. The generated bridge augments `OpenShopQueries` and
+`OpenShopMutations`, allowing literal operation strings to carry their variable
+and return types into `shopify.graphql()`.
 
-## Operation literals
-
-Use `#graphql` template literals in flows, webhooks, proxy routes, and server modules:
+## Inline operations
 
 ```ts
 const data = await shopify.graphql(`#graphql
@@ -33,11 +55,14 @@ const data = await shopify.graphql(`#graphql
     }
   }
 `, { variables: { id } })
+
+console.log(data.product?.title)
 ```
 
-## Shared operations
+The promise resolves to the contents of Shopify's `data` field, not the complete
+GraphQL response. Do not read `data.data`.
 
-When a query or mutation is reused across files, keep the operation as a string literal with `graphqlOperation()`:
+## Shared operations
 
 ```ts
 import { graphqlOperation } from 'openshop/graphql'
@@ -52,7 +77,7 @@ export const customerProfileQuery = graphqlOperation(`#graphql
 `)
 ```
 
-Then pass the shared constant directly to `shopify.graphql()`:
+Pass the constant directly:
 
 ```ts
 const data = await shopify.graphql(customerProfileQuery, {
@@ -60,4 +85,23 @@ const data = await shopify.graphql(customerProfileQuery, {
 })
 ```
 
-Do not cast the result with `as CustomerProfileQuery`. If inference is missing, run `pnpm run codegen` and fix the GraphQL document, codegen config, or generated bridge.
+`graphqlOperation()` preserves the string literal type. Do not cast the result.
+When inference is missing, run codegen and fix the document, config, or generated
+bridge.
+
+## Runtime behavior and errors
+
+`createShopifyClient(shop, shopifyApp?, apiVersion?)` defaults to API version
+`2026-04`. For backwards compatibility, a second argument matching `YYYY-MM` is
+treated as the API version for the default app.
+
+`shopify.graphql()`:
+
+- throws when no installation access token exists;
+- POSTs to the shop's Admin GraphQL endpoint;
+- throws on non-2xx HTTP responses and includes the status and response text;
+- throws when the top-level GraphQL `errors` array is non-empty;
+- returns `json.data` otherwise.
+
+Mutation-specific `userErrors` live inside `data` and are not thrown
+automatically. Inspect them in application code.

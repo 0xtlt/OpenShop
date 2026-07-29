@@ -16,3 +16,4 @@ RUN pnpm --filter docs run build
 FROM nginx:1.29-alpine
 
 COPY --from=build /app/docs/dist /usr/share/nginx/html
+COPY docs/nginx.conf /etc/nginx/conf.d/default.conf

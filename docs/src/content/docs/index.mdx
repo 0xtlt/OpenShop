@@ -39,6 +39,12 @@ An OpenShop app usually contains:
 	<Card title="Deploy to production" icon="server" href="/guides/deploy-production/">
 		Build the app, apply committed migrations, and run web and worker processes.
 	</Card>
+	<Card title="Understand the architecture" icon="diagram-project" href="/concepts/architecture/">
+		See how Shopify, the web process, workers, PostgreSQL, and providers interact.
+	</Card>
+	<Card title="Operate and troubleshoot" icon="wrench" href="/guides/operate-app/">
+		Monitor runs, search logs, recover failures, and keep production healthy.
+	</Card>
 </CardGrid>
 
 ## Core example
@@ -85,4 +91,8 @@ export default app.defineConfig({
 
 ## How these docs are organized
 
-Tutorials teach a complete first success path. Guides solve one task. Reference pages list exact APIs, options, defaults, constraints, and failure modes.
+Tutorials teach a complete first success path. Guides solve one task. Reference
+pages list exact APIs, options, defaults, constraints, and failure modes. Start
+with [Architecture](/concepts/architecture/) for the runtime model, then use the
+[Admin API](/reference/admin-api/) and [Public SDK](/reference/sdk/) references
+when integrating OpenShop into application code.

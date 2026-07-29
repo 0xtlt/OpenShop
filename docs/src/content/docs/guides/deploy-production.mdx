@@ -63,14 +63,23 @@ pnpm exec openshop migrate
 
 ## Start processes
 
-Run the web server and worker separately:
+Configure two independently supervised services from the same build:
 
-```bash
-pnpm exec openshop start
-pnpm exec openshop worker --concurrency=5
-```
+| Service | Command | Replicas |
+| --- | --- | --- |
+| Web | `pnpm exec openshop start` | One or more behind your router |
+| Worker | `pnpm exec openshop worker --concurrency=5` | One or more |
+
+Do not place the commands one after the other in a deploy script. Both are long-running processes, so `openshop start` would prevent the shell from ever starting the worker. Use separate platform process types, containers, system services, or the template's `ecosystem.config.cjs`.
 
 `openshop start` serves HTTP traffic and dispatches cron runs. It does not execute queued flow runs. At least one worker must be running for queued runs to complete.
+
+Each web replica starts a scheduler. OpenShop does not currently elect one
+scheduler leader, so prefer one web replica when using `crons`, or accept and
+handle duplicate dispatch attempts. Flow concurrency can reject overlapping
+runs, but it is not a cron de-duplication guarantee.
+
+Every web and worker replica needs the same `DATABASE_URL`, Shopify configuration, and `ENCRYPTION_KEY`. Each process creates its own PostgreSQL pool; tune `PGPOOL_MAX` with the total replica count and database connection limit in mind.
 
 ## Verify it worked
 

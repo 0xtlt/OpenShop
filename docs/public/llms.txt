@@ -1,0 +1,44 @@
+# OpenShop documentation
+
+OpenShop is a Shopify integration framework for typed providers, checkpointed
+background flows, Shopify Admin GraphQL, proxy routes, webhooks, Functions,
+PostgreSQL state, an embedded admin UI, and MCP capabilities.
+
+## Start here
+
+- [Overview](https://docs.openshop.run/)
+- [Build your first app](https://docs.openshop.run/tutorials/first-app/)
+- [Architecture](https://docs.openshop.run/concepts/architecture/)
+
+## Guides
+
+- [Configure Shopify apps](https://docs.openshop.run/guides/configure-shopify-apps/)
+- [Define a provider](https://docs.openshop.run/guides/define-provider/)
+- [Define a flow](https://docs.openshop.run/guides/define-flow/)
+- [Add proxy routes](https://docs.openshop.run/guides/add-proxy-routes/)
+- [Test an app](https://docs.openshop.run/guides/test-app/)
+- [Operate an app](https://docs.openshop.run/guides/operate-app/)
+- [Deploy to production](https://docs.openshop.run/guides/deploy-production/)
+- [Troubleshooting](https://docs.openshop.run/guides/troubleshooting/)
+- [Upgrade OpenShop](https://docs.openshop.run/guides/upgrade/)
+
+## Reference
+
+- [Configuration](https://docs.openshop.run/reference/configuration/)
+- [Environment variables](https://docs.openshop.run/reference/environment-variables/)
+- [Authentication](https://docs.openshop.run/reference/authentication/)
+- [Public SDK](https://docs.openshop.run/reference/sdk/)
+- [Admin API](https://docs.openshop.run/reference/admin-api/)
+- [Flows](https://docs.openshop.run/reference/flows/)
+- [Providers](https://docs.openshop.run/reference/providers/)
+- [Database and migrations](https://docs.openshop.run/reference/database/)
+- [GraphQL codegen](https://docs.openshop.run/reference/graphql-codegen/)
+- [Proxy routes](https://docs.openshop.run/reference/proxy-routes/)
+- [Webhooks](https://docs.openshop.run/reference/webhooks/)
+- [Shopify Functions](https://docs.openshop.run/reference/shopify-functions/)
+- [MCP](https://docs.openshop.run/reference/mcp/)
+- [CLI commands](https://docs.openshop.run/reference/cli/)
+- [Logging](https://docs.openshop.run/reference/logging/)
+- [Errors](https://docs.openshop.run/reference/errors/)
+- [Security](https://docs.openshop.run/reference/security/)
+- [Versioning](https://docs.openshop.run/reference/versioning/)

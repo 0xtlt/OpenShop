@@ -1,39 +1,46 @@
 ---
 title: Add proxy routes
-description: Create app proxy and Customer Account extension endpoints with OpenShop.
+description: Create authenticated app proxy and Customer Account extension endpoints.
 ---
 
 import { FileTree } from '@astrojs/starlight/components';
 
-Proxy routes are file-based route handlers in the `proxy/` directory. OpenShop mounts them for Shopify app proxy traffic and Customer Account extension traffic.
+OpenShop discovers route handlers in `proxy/` and mounts each one under both
+`/proxy/*` and `/ext/*`.
 
-## Create a route
+## 1. Create a route
 
-Create `proxy/reviews.ts`:
+Create `proxy/api/reviews.ts`:
 
 ```ts
 import { app } from '#app'
 
 export default app.defineProxy({
   type: 'json',
+
   async GET({ shop, customerId, query }) {
-    return { shop, customerId, query }
+    return { shop, customerId, page: Number(query.page) || 1 }
   },
-  async POST({ body }) {
-    return { ok: true, body }
+
+  async POST({ shop, customerId, body }) {
+    if (!customerId) return { ok: false, error: 'Customer login required' }
+    return { ok: true, shop, customerId, review: body }
   },
 })
 ```
 
-## Understand route paths
+Supported handlers are `GET`, `POST`, `PUT`, `DELETE`, and `PATCH`. Non-GET
+bodies are parsed as JSON; invalid JSON becomes `undefined`.
+
+## 2. Check the generated paths
 
 ```txt
-proxy/reviews.ts       -> /proxy/reviews
-proxy/api/reviews.ts   -> /proxy/api/reviews
-proxy/products/[id].ts -> /proxy/products/:id
+proxy/index.ts         -> /proxy and /ext
+proxy/reviews.ts       -> /proxy/reviews and /ext/reviews
+proxy/products/[id].ts -> /proxy/products/:id and /ext/products/:id
 ```
 
-Files and directories prefixed with `_` are private and do not create routes:
+Prefix helper files or directories with `_`:
 
 <FileTree>
 
@@ -46,35 +53,59 @@ Files and directories prefixed with `_` are private and do not create routes:
 
 </FileTree>
 
-Use private files for helpers that are only useful near the route.
+Only `.ts` and `.js` route files are loaded.
 
-## Call the route from a Customer Account extension
+## 3. Configure the Shopify app proxy
 
-OpenShop also mounts proxy handlers under `/ext/*` for Customer Account session JWT requests.
+In the Shopify app configuration, point the app proxy destination at the public
+OpenShop `/proxy/...` route. Shopify owns the storefront prefix, subpath, and
+TOML schema; use the fields supported by your Shopify CLI version.
 
-Enable network access in the extension TOML:
+Deploy the configuration:
+
+```bash
+shopify app deploy --config shopify.app.toml
+```
+
+Adding a file under `proxy/` does not register the app proxy in Shopify.
+
+## 4. Call from a Customer Account extension
+
+Enable direct network access in the extension TOML:
 
 ```toml
 [extensions.capabilities]
 network_access = true
 ```
 
-Then send a session token:
+Call the `/ext` mount on your app origin:
 
 ```ts
 const token = await shopify.sessionToken.get()
 
-const response = await fetch(`${apiOrigin}/ext/reviews`, {
+const response = await fetch(`${apiOrigin}/ext/api/reviews`, {
   headers: {
     Authorization: `Bearer ${token}`,
   },
 })
 ```
 
-## Verify it worked
+`/ext/*` requires a valid Customer Account session JWT. `/proxy/*` accepts that
+JWT too, but `/ext` avoids Shopify CLI proxy interception.
 
-For app proxy traffic, Shopify signs the request and OpenShop verifies the HMAC before calling the handler.
+## 5. Verify authentication and CORS
 
-For Customer Account traffic, OpenShop verifies the session JWT and sets `ctx.shop`, `ctx.shopifyApp`, and `ctx.customerId` from trusted token claims.
+For storefront app proxy traffic, Shopify signs the query and OpenShop verifies
+it against exactly one configured app secret. For extension traffic, OpenShop
+verifies the JWT audience and signature.
 
-In route code, trust `ctx.customerId`; do not accept customer IDs from query parameters.
+Trust `ctx.shop`, `ctx.shopifyApp`, and `ctx.customerId`; do not accept identity
+from unsanitized client fields. A missing/invalid credential returns HTTP 401.
+
+Shopify extension, admin, storefront, local, `HOST`, and `SHOPIFY_APP_URL`
+origins receive CORS headers. Arbitrary origins do not.
+
+Handler exceptions are logged and return
+`{ "error": "Internal proxy error" }` with HTTP 500. A successful handler value
+is always HTTP 200; the current proxy API does not expose custom status or
+response headers.

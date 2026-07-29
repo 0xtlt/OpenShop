@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readdirSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -7,6 +7,7 @@ const root = resolve(import.meta.dirname, '..')
 const tmp = mkdtempSync(resolve(tmpdir(), 'openshop-pack-'))
 const tarballDir = resolve(tmp, 'tarball')
 const consumerDir = resolve(tmp, 'consumer')
+const scaffoldDir = resolve(tmp, 'scaffold')
 
 mkdirSync(tarballDir)
 mkdirSync(consumerDir)
@@ -109,6 +110,18 @@ void model
     `for (const specifier of ${JSON.stringify(publicExports)}) await import(specifier)`,
   ], { cwd: consumerDir, stdio: 'inherit' })
   execFileSync('pnpm', ['exec', 'openshop'], { cwd: consumerDir, stdio: 'pipe' })
+
+  execFileSync('pnpm', ['exec', 'openshop', 'init', scaffoldDir], {
+    cwd: consumerDir,
+    stdio: 'inherit',
+  })
+  const packageVersion = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version
+  const scaffoldPackage = JSON.parse(readFileSync(resolve(scaffoldDir, 'package.json'), 'utf8'))
+  if (scaffoldPackage.dependencies?.openshop !== packageVersion) {
+    throw new Error(
+      `Scaffold dependency must match package version ${packageVersion}, got ${scaffoldPackage.dependencies?.openshop}`,
+    )
+  }
 } finally {
   rmSync(tmp, { recursive: true, force: true })
 }

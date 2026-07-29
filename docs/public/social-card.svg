@@ -1,0 +1,8 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#FAFAF7"/>
+  <circle cx="178" cy="268" r="72" stroke="#171717" stroke-width="28"/>
+  <path d="M297 212L392 268L297 324" stroke="#2FA66A" stroke-width="28" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M330 376H430" stroke="#2FA66A" stroke-width="28" stroke-linecap="square"/>
+  <text x="500" y="305" fill="#171717" font-family="ui-sans-serif, system-ui, sans-serif" font-size="112" font-weight="700">Open<tspan fill="#2FA66A">Shop</tspan></text>
+  <text x="500" y="382" fill="#525252" font-family="ui-sans-serif, system-ui, sans-serif" font-size="38">Shopify integration framework documentation</text>
+</svg>

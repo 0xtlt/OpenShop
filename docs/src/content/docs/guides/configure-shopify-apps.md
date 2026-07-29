@@ -1,13 +1,13 @@
 ---
 title: Configure Shopify apps
-description: Configure one or many Shopify apps for an OpenShop deployment.
+description: Configure one or multiple Shopify apps and understand resolution rules.
 ---
 
-OpenShop can serve one Shopify app or several apps from the same production instance.
+One OpenShop instance can serve one Shopify app or multiple apps.
 
-## Single-app mode
+## Single-app environment mode
 
-For one Shopify app, omit `shopify.apps`. OpenShop reads the legacy Shopify credentials and TOML configuration when available:
+Omit `shopify.apps` and set:
 
 ```bash
 SHOPIFY_API_KEY=...
@@ -15,17 +15,13 @@ SHOPIFY_API_SECRET=...
 HOST=https://your-app.example.com
 ```
 
-This is the simplest mode for a normal app project.
+`SHOPIFY_APP_URL` is the fallback when `HOST` is absent. Scopes come from
+`shopify.scopes` or the first matching `shopify.app*.toml` file.
+The internal app handle is `default`.
 
-## Multi-app mode with TOML files
-
-Use this mode when each Shopify app has its own `shopify.app*.toml` file. OpenShop reads the API key, application URL, and scopes from TOML. Keep API secrets in environment-backed config.
+## Multi-app mode with TOML
 
 ```ts
-import { defineOpenShop } from 'openshop'
-
-const app = defineOpenShop({ providers: {} })
-
 export default app.defineConfig({
   shopify: {
     scopes: 'read_products,write_products',
@@ -37,6 +33,7 @@ export default app.defineConfig({
       clientB: {
         toml: 'shopify.app.client-b.toml',
         apiSecret: process.env.SHOPIFY_CLIENT_B_API_SECRET!,
+        appUrl: 'https://openshop.example.com',
       },
     },
   },
@@ -44,11 +41,15 @@ export default app.defineConfig({
 })
 ```
 
-All apps in one OpenShop instance must use the same scopes. Prefer setting `shopify.scopes` once. If it is omitted, OpenShop reads scopes from TOML files and rejects mismatches.
+For each TOML app, OpenShop reads `client_id`, `application_url`, and
+`access_scopes.scopes` using the corresponding keys in the file. `appUrl`
+overrides the TOML application URL. `apiSecret` always comes from config and
+should be environment-backed.
 
-## Multi-app mode without TOML files
+Missing TOML files and TOML files without `client_id` throw during app
+resolution.
 
-Use this mode for deployments where Shopify app configuration is not stored locally:
+## Multi-app mode without TOML
 
 ```ts
 export default app.defineConfig({
@@ -66,21 +67,48 @@ export default app.defineConfig({
 })
 ```
 
-## Verify it worked
+Each app requires either `toml` or `apiKey`, never both, plus a non-empty
+`apiSecret`. Handles may contain letters, numbers, `_`, and `-`.
 
-Start OAuth manually with an explicit app handle when several apps are configured:
+## Scope rules
+
+Apps in one instance must use identical OAuth scopes. Set `shopify.scopes` once
+to make that explicit. Per-app `scopes` are rejected. When the global value is
+omitted, TOML-derived non-empty scope strings must match exactly or resolution
+throws.
+
+Changing requested scopes may require Shopify OAuth approval or reinstallation;
+OpenShop supplies the configured scope string to the authorization request but
+does not grant scopes itself.
+
+## How OpenShop selects an app
+
+| Request | Resolution |
+| --- | --- |
+| Manual OAuth start | `?app=<handle>`; optional only when exactly one app exists. |
+| Signed admin launch/callback | HMAC must match exactly one app secret. |
+| App proxy | Proxy signature must match exactly one app secret. |
+| Webhook | Raw-body HMAC must match exactly one app secret. |
+| App Bridge / Customer Account JWT | JWT audience must match exactly one API key. |
+
+Zero or multiple matches fail closed. API keys therefore need to be unique
+within an instance, and secrets should not be shared between configured apps.
+
+Start multi-app OAuth explicitly:
 
 ```txt
 /auth?shop=shop.myshopify.com&app=clientA
 ```
 
-Signed Shopify launches, OAuth callbacks, app proxy requests, webhooks, and App Bridge JWTs are resolved automatically from their HMAC or JWT audience.
+## Deploy Shopify-side configuration
 
-## Deploy TOML changes
-
-Shopify does not apply production TOML changes just because the OpenShop server was deployed. Deploy each Shopify app configuration with Shopify CLI:
+Deploying OpenShop does not apply TOML changes to Shopify:
 
 ```bash
 shopify app deploy --config shopify.app.client-a.toml
 shopify app deploy --config shopify.app.client-b.toml
 ```
+
+Use Shopify CLI for callback URLs, webhook subscriptions, app proxy settings,
+and extension/function deployment. Then verify OAuth separately for every app
+handle and store.

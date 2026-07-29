@@ -2,6 +2,36 @@
 
 All notable changes to OpenShop will be documented in this file.
 
+## [0.0.3-beta.0] - 2026-07-29
+
+### Added
+
+- Added complete Admin API, public SDK, environment, authentication, operations,
+  architecture, security, logging, error, versioning, upgrade, and
+  troubleshooting documentation.
+- Added detailed contracts and end-to-end examples for flows, providers,
+  databases, GraphQL codegen, proxy routes, webhooks, Shopify Functions, MCP,
+  testing, and production deployment.
+- Added documentation sitemap, canonical URLs, `robots.txt`, `llms.txt`, social
+  metadata, structured data, and a branded no-index 404 page.
+- Added packaged-scaffold verification to CI.
+
+### Changed
+
+- The project generator now injects the package's own version into generated
+  applications instead of relying on a manually maintained template version.
+- Documentation nginx redirects are relative so HTTPS reverse proxies do not
+  receive an HTTP downgrade location.
+- The first-app tutorial now covers PostgreSQL, environment configuration,
+  Shopify CLI linking, migrations, and a complete smoke flow.
+
+### Fixed
+
+- Fixed the generated project's dependency on the unpublished `openshop@0.1.1`.
+- Fixed an incorrect Shopify GraphQL response example.
+- Fixed production instructions that placed the blocking web and worker
+  processes sequentially in one shell.
+
 ## [0.0.2-beta.0] - 2026-06-30
 
 ### Added

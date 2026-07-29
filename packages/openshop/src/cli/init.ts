@@ -27,6 +27,14 @@ function packageRoot() {
   throw new Error('OpenShop template directory not found.')
 }
 
+function packageVersion(root: string): string {
+  const manifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as { version?: unknown }
+  if (typeof manifest.version !== 'string' || !manifest.version) {
+    throw new Error('OpenShop package version not found.')
+  }
+  return manifest.version
+}
+
 export function toPackageName(name: string): string {
   const normalized = name
     .trim()
@@ -103,7 +111,8 @@ export async function runInit(target?: string): Promise<InitResult> {
 
   const appName = basename(targetDir)
   const packageName = toPackageName(appName)
-  const templateDir = resolve(packageRoot(), 'templates', 'minimal')
+  const root = packageRoot()
+  const templateDir = resolve(root, 'templates', 'minimal')
 
   cpSync(templateDir, targetDir, { recursive: true, errorOnExist: false })
   const gitignoreTemplate = resolve(targetDir, '_gitignore')
@@ -114,6 +123,7 @@ export async function runInit(target?: string): Promise<InitResult> {
   replacePlaceholders(targetDir, {
     __APP_NAME__: appName,
     __PACKAGE_NAME__: packageName,
+    __OPENSHOP_VERSION__: packageVersion(root),
   })
 
   generateInitialMigration(targetDir)

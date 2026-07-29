@@ -1,11 +1,12 @@
 ---
 title: Define a flow
-description: Add a checkpointed background job that calls Shopify and provider connectors.
+description: Add a validated, checkpointed background job with retries and cancellation.
 ---
 
-Flows are background jobs executed by OpenShop workers. Use them for integration work that should be retried, logged, scheduled, or triggered outside a single HTTP request.
+Flows run in workers. Use them for integration work that should be retried,
+logged, scheduled, or resumed after a delay.
 
-## Create the flow file
+## 1. Create the flow
 
 Create `flows/syncOrders.ts`:
 
@@ -38,13 +39,16 @@ export const syncOrders = app.defineFlow({
 
     await step('push-orders', async () => {
       if (signal.aborted) return
-      await connectors.warehouse.push(orders.data.orders.nodes)
+      await connectors.warehouse.push(orders.orders.nodes)
     })
   },
 })
 ```
 
-## Register the flow
+`shopify.graphql()` already returns the GraphQL `data` object. The correct path
+is `orders.orders.nodes`, not `orders.data.orders.nodes`.
+
+## 2. Register the flow
 
 ```ts
 // openshop.config.ts
@@ -56,19 +60,28 @@ export default app.defineConfig({
 })
 ```
 
-The generated template defines package-private import aliases in `package.json`, so flow files do not need `../` imports:
+The template defines package-private aliases such as `#app`, `#flows/*`, and
+`#providers/*` in `package.json`.
 
-```json
-{
-  "imports": {
-    "#app": "./openshop.app.ts",
-    "#flows/*": "./flows/*.ts",
-    "#providers/*": "./providers/*.ts"
-  }
-}
+## 3. Choose retry and concurrency behavior
+
+The default retry policy makes three total attempts with delays of 1 and 2
+seconds. Override only what this flow needs:
+
+```ts
+retryPolicy: {
+  maxAttempts: 5,
+  initialIntervalMs: 2_000,
+  backoffCoefficient: 2,
+  maxIntervalMs: 60_000,
+},
 ```
 
-## Add a schedule
+`concurrency: 'reject'` prevents another active run for the same app, shop, and
+flow. Dispatch throws `FlowConcurrencyError` and includes the active run ID.
+Choose `'allow'` only when overlapping side effects are safe.
+
+## 4. Add an optional schedule
 
 ```ts
 import { cron } from 'openshop'
@@ -76,24 +89,34 @@ import { cron } from 'openshop'
 export default app.defineConfig({
   flows: { syncOrders },
   crons: [
-    { name: 'Sync orders', schedule: cron('*/5 * * * *'), flow: 'syncOrders', shops: 'all' },
+    {
+      name: 'Sync orders',
+      schedule: cron('*/5 * * * *'),
+      flow: 'syncOrders',
+      input: { limit: 100 },
+      shops: 'all',
+    },
   ],
 })
 ```
 
-## Verify it worked
+An unknown flow name fails config validation. `shops` defaults to `global`,
+which dispatches once with the synthetic shop `__global__` and default app
+handle. Shopify/provider flows should usually target `all`, one installed shop
+domain, or an installed-shop array.
 
-Run:
+## 5. Verify
 
 ```bash
 pnpm run codegen
 pnpm run lint
+pnpm exec openshop worker
 ```
 
-Open the embedded admin UI. The flow should appear in the flows page. When it runs, each `step()` should produce a checkpointed step result and logs should include the messages emitted through `logger`.
+Trigger the flow from the embedded admin UI and confirm both steps appear.
+Completed step output is cached, so a retry skips `fetch-orders` and reuses its
+stored JSON result.
 
-## Failure modes
-
-- Completed step outputs must be JSON serializable because OpenShop stores them for retry.
-- Flow and step timeouts mark the run as failed, but JavaScript cannot cancel arbitrary user code. Pass `ctx.signal` to abortable APIs such as `fetch`.
-- If a cron entry references an unknown flow, `app.defineConfig()` fails validation early.
+For delayed continuation, use `await step.sleep(name, milliseconds)`. It releases
+the worker slot. For cancellation, pass `signal` to `fetch` and other abortable
+APIs; OpenShop cannot forcibly stop code that ignores it.

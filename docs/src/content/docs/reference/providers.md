@@ -1,11 +1,9 @@
 ---
 title: Providers
-description: Provider fields, methods, checks, and secret behavior.
+description: Provider fields, transformation, validation, checks, and secrets.
 ---
 
 Providers describe external services used by flows.
-
-## Definition
 
 ```ts
 export const warehouse = defineProvider({
@@ -22,38 +20,92 @@ export const warehouse = defineProvider({
   },
   methods: {
     async push(config, rows: unknown[]) {
-      // ...
+      const res = await fetch(`${config.apiUrl}/orders`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(rows),
+      })
+      if (!res.ok) throw new Error(`Warehouse returned ${res.status}`)
+      return res.json()
     },
   },
 })
 ```
 
-## Field types
+## Field definitions
 
-| Type | Use |
-| --- | --- |
-| `text` | Plain text values. |
-| `password` | Secrets. Values are not returned through the admin API. |
-| `number` | Numeric values. |
-| `select` | One value from an option list. |
-| `checkbox` | Boolean values. |
+All fields require `type` and a non-empty `label`.
 
-Fields support `label`, `placeholder`, `options`, `required`, and `validate`.
+| Type | Saved value | Notes |
+| --- | --- | --- |
+| `text` | String-like input | Supports `placeholder`. |
+| `password` | Secret input | Omitted from read responses; an empty update preserves the stored value. |
+| `number` | Number | A non-empty string is converted with `Number()`. |
+| `select` | Selected string | Requires non-empty, uniquely valued `options`. |
+| `checkbox` | Boolean | The string `"true"` is true; other strings are false. |
 
-## Methods
+`required` defaults to `true`. Set `required: false` to make a field optional.
+`validate` accepts an ArkType schema. Its transformed value becomes the saved
+value.
 
-Provider methods receive the saved provider config as their first argument. OpenShop removes that first argument from the connector type exposed to flows.
+## Save pipeline
+
+When a provider configuration is saved, OpenShop:
+
+1. keeps an existing password when the submitted value is missing or empty;
+2. coerces number and checkbox inputs;
+3. checks required fields;
+4. calls `transformer({ data })`, when defined;
+5. requires the transformer result to be an object;
+6. checks required fields again and runs each ArkType validator;
+7. encrypts and upserts the resulting object for the current app and shop.
+
+`transformer` can normalize fields or add provider-specific values:
 
 ```ts
-// provider method
-async push(config, rows: unknown[]) {}
+transformer({ data }) {
+  return {
+    ...data,
+    apiUrl: String(data.apiUrl).replace(/\/$/, ''),
+  }
+}
+```
 
-// flow connector
+Errors are explicit: missing values report `Field "name" is required`,
+validation errors report `Field "name": ...`, and non-object transformer
+results report `Provider transformer must return an object`.
+
+## Methods and connectors
+
+The saved config is the first argument of each provider method:
+
+```ts
+async push(config, rows: unknown[]) {}
+```
+
+Flows receive the method without that argument:
+
+```ts
 await connectors.warehouse.push(rows)
 ```
 
-## Secrets
+OpenShop loads the app/shop-specific config before building connectors. It does
+not automatically run `checker` before a method call.
 
-Password fields are never returned through the admin API. Existing password values can be kept by submitting an empty value.
+## Checker
 
-Provider configs are encrypted when `ENCRYPTION_KEY` is set. In production, set `ENCRYPTION_KEY`.
+`checker({ config })` returns `Promise<boolean>`. The admin check endpoint saves
+`lastCheckedAt` and `lastCheckOk` only when a config row already exists. A
+thrown checker error produces `{ ok: false, error }` with HTTP 500; returning
+`false` produces `{ ok: false }` with HTTP 200.
+
+## Secret behavior
+
+Password values are excluded from provider read responses. Their field metadata
+contains `hasValue` instead. The whole stored config is encrypted when
+`ENCRYPTION_KEY` is set. Development without a key logs a warning and stores
+plaintext; production without a key throws. The key must contain exactly 64 hex
+characters (32 bytes). Preserve it across deployments.

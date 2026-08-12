@@ -3,6 +3,8 @@ packages:
   - apps/*
   - docs
 
+minimumReleaseAge: 1440
+
 overrides:
   brace-expansion: 5.0.9
   esbuild: 0.28.2

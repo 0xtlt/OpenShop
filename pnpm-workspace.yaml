@@ -3,20 +3,22 @@ packages:
   - apps/*
   - docs
 
+minimumReleaseAge: 1440
+
 overrides:
-  brace-expansion: 5.0.8
-  esbuild: 0.28.1
-  '@esbuild-kit/core-utils>esbuild': 0.28.1
+  brace-expansion: 5.0.9
+  esbuild: 0.28.2
+  '@esbuild-kit/core-utils>esbuild': 0.28.2
   immutable: 5.1.9
-  js-yaml: 4.3.0
-  postcss: 8.5.24
+  js-yaml: 4.3.1
+  postcss: 8.5.26
   shell-quote: 1.10.0
-  ws: 8.21.0
-  qs: 6.15.2
+  ws: 8.21.3
+  qs: 6.15.3
   lodash: 4.18.1
   '@graphql-codegen/plugin-helpers>lodash': 4.18.1
-  picomatch: 4.0.4
-  yaml: 2.8.4
+  picomatch: 4.0.5
+  yaml: 2.9.0
 
 allowBuilds:
   '@parcel/watcher': true
@@ -25,5 +27,5 @@ allowBuilds:
 
 minimumReleaseAgeExclude:
   - form-data@4.0.6
-  - js-yaml@4.1.2
+  - js-yaml@4.3.1
   - '@babel/core@7.29.1'

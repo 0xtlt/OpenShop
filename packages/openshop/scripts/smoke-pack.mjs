@@ -32,11 +32,11 @@ try {
     },
     dependencies: {
       openshop: tarballPath,
-      arktype: '^2.2.0',
-      pg: '^8.20.0',
+      arktype: '^2.2.3',
+      pg: '^8.23.0',
     },
     devDependencies: {
-      typescript: '^5.9.0',
+      typescript: '^6.0.3',
       '@types/node': 'latest',
       '@graphql-eslint/eslint-plugin': 'latest',
       eslint: 'latest',

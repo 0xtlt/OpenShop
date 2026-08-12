@@ -2,6 +2,24 @@
 
 All notable changes to OpenShop will be documented in this file.
 
+## [0.0.4-beta.0] - 2026-08-12
+
+### Changed
+
+- Updated framework, demo, documentation, generated-template, build, and test
+  dependencies to their latest compatible releases.
+- Updated pnpm to 11.21.0 across local development, CI, documentation builds,
+  and generated application containers.
+- Added a 24-hour dependency release-age safeguard to keep newly published
+  packages quarantined until they pass the repository's supply-chain policy.
+
+### Fixed
+
+- Resolved all known dependency vulnerabilities, including advisories in Hono,
+  `brace-expansion`, `js-yaml`, and `nanoid`.
+- Aligned dependency overrides with patched releases and regenerated the
+  lockfile with a clean peer-dependency graph.
+
 ## [0.0.3-beta.0] - 2026-07-29
 
 ### Added

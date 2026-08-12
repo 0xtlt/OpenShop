@@ -1,6 +1,6 @@
 {
   "name": "openshop",
-  "version": "0.0.3-beta.0",
+  "version": "0.0.4-beta.0",
   "license": "Elastic-2.0",
   "description": "Shopify integration framework with flows, providers, an embedded admin UI, and background workers.",
   "keywords": [

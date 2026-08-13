@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { closeDb, getDb } from '#db/client'
-import type { OpenShopConfig, FlowDefinition, WebhookDefinition, FunctionDefinition, McpConfig, ShopifyConfig } from '#types'
+import type { OpenShopConfig, FlowDefinition, WebhookDefinition, FunctionDefinition, McpConfig, ShopifyConfig, AdminPagesConfig } from '#types'
 
 export const TEST_SHOP = 'test-integration.myshopify.com'
 
@@ -20,6 +20,7 @@ export function createConfig(
     webhooks?: Record<string, WebhookDefinition>
     functions?: Record<string, FunctionDefinition<any>>
     mcp?: McpConfig
+    pages?: AdminPagesConfig
   },
 ): OpenShopConfig {
   return {
@@ -30,5 +31,6 @@ export function createConfig(
     ...(options?.webhooks ? { webhooks: options.webhooks } : {}),
     ...(options?.functions ? { functions: options.functions } : {}),
     ...(options?.mcp ? { mcp: options.mcp } : {}),
+    ...(options?.pages ? { pages: options.pages } : {}),
   }
 }

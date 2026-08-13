@@ -37,7 +37,9 @@ an empty body.
 
 ## Tokens
 
-Create and manage tokens from the embedded `/mcp` page.
+Create and manage tokens from the embedded `/mcp` page. Set `pages.mcp` to
+`hidden` or `disabled` to remove that screen from the admin UI; `mcp.enabled:
+false` disables the JSON-RPC endpoint instead.
 
 - The plaintext token is returned only on create or rotate.
 - OpenShop stores a hash, stable token ID, and display fingerprint.

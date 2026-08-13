@@ -45,6 +45,24 @@ The authenticated app handle and shop scope every database query.
 A missing or invalid token returns `401`. Do not use a Shopify Admin API access
 token or an OpenShop MCP token here.
 
+## Admin pages
+
+| Method and path | Request | Response |
+| --- | --- | --- |
+| `GET /api/pages` | — | Resolved visibility for `flows`, `providers`, `crons`, `functions`, and `mcp`. |
+
+Each value is `visible`, `hidden`, or `disabled`. Omitted config keys resolve to `visible`. This endpoint stays available even when every page is `disabled`.
+
+When a page is `disabled`, its admin API group returns `404` with `{ "error": "Not found" }`:
+
+- `flows` also covers `/api/runs`
+- `providers` covers `/api/providers`
+- `crons` covers `/api/crons`
+- `functions` covers `/api/functions`
+- `mcp` covers `/api/mcp`
+
+`hidden` only removes the Shopify sidebar link; the URL and admin API still work. Runtime endpoints such as `POST /mcp`, webhooks, and the worker are not gated by `pages`.
+
 ## Flows and runs
 
 | Method and path | Request | Response |
@@ -164,7 +182,7 @@ its ID and fingerprint.
 | `202` | Flow accepted for asynchronous execution. |
 | `400` | Invalid request, provider config, function config, or MCP permission. |
 | `401` | Missing, expired, malformed, or invalid Shopify session token. |
-| `404` | Resource not found within the authenticated app and shop. |
+| `404` | Resource not found within the authenticated app and shop, or the admin page is `disabled`. |
 | `409` | Lifecycle or concurrency conflict. |
 | `500` | Provider checker or unexpected server failure. |
 

@@ -9,36 +9,55 @@ import Functions from './pages/Functions'
 import Crons from './pages/Crons'
 import Mcp from './pages/Mcp'
 import { addShopifyNavigateListener } from './navigation'
+import { apiJson } from './fetch'
+import { AdminPagesContext, gateAdminPage, useAdminPages } from './admin-pages'
+import { sameAdminPages } from '../config/pages.ts'
+import type { ResolvedAdminPages } from '../types.ts'
+
+const pagesRefreshMs = 10_000
 
 function NavMenu() {
   const { url } = useLocation()
+  const pages = useAdminPages()
 
   return (
     <ui-nav-menu>
       <a href="/" rel="home" aria-current={url === '/' ? 'page' : undefined}>
         Home
       </a>
-      <a href="/flows" aria-current={url.startsWith('/flows') ? 'page' : undefined}>
-        Flows
-      </a>
-      <a href="/providers" aria-current={url === '/providers' ? 'page' : undefined}>
-        Providers
-      </a>
-      <a href="/mcp" aria-current={url === '/mcp' ? 'page' : undefined}>
-        MCP
-      </a>
-      <a href="/crons" aria-current={url === '/crons' ? 'page' : undefined}>
-        Crons
-      </a>
-      <a href="/functions" aria-current={url.startsWith('/functions') ? 'page' : undefined}>
-        Functions
-      </a>
+      {pages.flows === 'visible' && (
+        <a href="/flows" aria-current={url.startsWith('/flows') ? 'page' : undefined}>
+          Flows
+        </a>
+      )}
+      {pages.providers === 'visible' && (
+        <a href="/providers" aria-current={url === '/providers' ? 'page' : undefined}>
+          Providers
+        </a>
+      )}
+      {pages.mcp === 'visible' && (
+        <a href="/mcp" aria-current={url === '/mcp' ? 'page' : undefined}>
+          MCP
+        </a>
+      )}
+      {pages.crons === 'visible' && (
+        <a href="/crons" aria-current={url === '/crons' ? 'page' : undefined}>
+          Crons
+        </a>
+      )}
+      {pages.functions === 'visible' && (
+        <a href="/functions" aria-current={url.startsWith('/functions') ? 'page' : undefined}>
+          Functions
+        </a>
+      )}
     </ui-nav-menu>
   )
 }
 
 function AuthGate({ children }: { children: ComponentChildren }) {
+  const { url } = useLocation()
   const [status, setStatus] = useState<'checking' | 'ready' | 'blocked'>('checking')
+  const [pages, setPages] = useState<ResolvedAdminPages | null>(null)
 
   useEffect(() => {
     let active = true
@@ -51,7 +70,16 @@ function AuthGate({ children }: { children: ComponentChildren }) {
         }
 
         const token = await window.shopify?.idToken?.()
-        if (active) setStatus(token ? 'ready' : 'blocked')
+        if (!token) {
+          if (active) setStatus('blocked')
+          return
+        }
+
+        const data = await apiJson<ResolvedAdminPages>('/api/pages')
+        if (active) {
+          setPages(data)
+          setStatus('ready')
+        }
       } catch {
         if (active) setStatus('blocked')
       }
@@ -61,7 +89,40 @@ function AuthGate({ children }: { children: ComponentChildren }) {
     return () => { active = false }
   }, [])
 
-  if (status === 'ready') return <>{children}</>
+  useEffect(() => {
+    if (status !== 'ready') return
+    let active = true
+
+    const refresh = () => {
+      void apiJson<ResolvedAdminPages>('/api/pages')
+        .then((data) => {
+          if (!active) return
+          setPages((current) => current && sameAdminPages(current, data) ? current : data)
+        })
+        .catch(() => {})
+    }
+
+    refresh()
+    const iv = setInterval(refresh, pagesRefreshMs)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      active = false
+      clearInterval(iv)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [status, url])
+
+  if (status === 'ready' && pages) {
+    return (
+      <AdminPagesContext.Provider value={pages}>
+        {children}
+      </AdminPagesContext.Provider>
+    )
+  }
 
   return (
     <main style={{ maxWidth: '560px', margin: '80px auto', padding: '0 24px', fontFamily: 'system-ui, sans-serif' }}>
@@ -85,6 +146,13 @@ function ShopifyNavigateBridge() {
   return null
 }
 
+const FlowsPage = gateAdminPage('flows', Flows)
+const FlowRunPage = gateAdminPage('flows', FlowRun)
+const CronsPage = gateAdminPage('crons', Crons)
+const ProvidersPage = gateAdminPage('providers', Providers)
+const McpPage = gateAdminPage('mcp', Mcp)
+const FunctionsPage = gateAdminPage('functions', Functions)
+
 export default function App() {
   return (
     <LocationProvider>
@@ -93,15 +161,15 @@ export default function App() {
         <NavMenu />
         <Router>
           <Route path="/" component={Home} />
-          <Route path="/flows" component={Flows} />
-          <Route path="/flows/:name" component={Flows} />
-          <Route path="/runs/:id" component={FlowRun} />
-          <Route path="/crons" component={Crons} />
-          <Route path="/providers" component={Providers} />
-          <Route path="/mcp" component={Mcp} />
-          <Route path="/functions" component={Functions} />
-          <Route path="/functions/:handle" component={Functions} />
-          <Route path="/functions/:handle/:action" component={Functions} />
+          <Route path="/flows" component={FlowsPage} />
+          <Route path="/flows/:name" component={FlowsPage} />
+          <Route path="/runs/:id" component={FlowRunPage} />
+          <Route path="/crons" component={CronsPage} />
+          <Route path="/providers" component={ProvidersPage} />
+          <Route path="/mcp" component={McpPage} />
+          <Route path="/functions" component={FunctionsPage} />
+          <Route path="/functions/:handle" component={FunctionsPage} />
+          <Route path="/functions/:handle/:action" component={FunctionsPage} />
         </Router>
       </AuthGate>
     </LocationProvider>

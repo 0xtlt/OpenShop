@@ -178,4 +178,48 @@ test.group('defineOpenShop config validation', () => {
       },
     }), /references unknown permission "warehouse:read_inventory"/)
   })
+
+  test('accepts admin page visibility modes', ({ assert }) => {
+    const config = emptyApp.defineConfig({
+      flows: { sync: flow },
+      pages: {
+        functions: 'hidden',
+        mcp: 'disabled',
+      },
+    })
+
+    assert.equal(config.pages?.functions, 'hidden')
+    assert.equal(config.pages?.mcp, 'disabled')
+  })
+
+  test('merges pages from defineOpenShop and defineConfig', ({ assert }) => {
+    const appWithPages = defineOpenShop({
+      providers: {},
+      pages: { flows: 'hidden', mcp: 'disabled' },
+    })
+    const config = appWithPages.defineConfig({
+      flows: { sync: flow },
+      pages: { mcp: 'hidden', functions: 'disabled' },
+    })
+
+    assert.deepEqual(config.pages, {
+      flows: 'hidden',
+      mcp: 'hidden',
+      functions: 'disabled',
+    })
+  })
+
+  test('rejects unknown admin pages', ({ assert }) => {
+    assert.throws(() => emptyApp.defineConfig({
+      flows: { sync: flow },
+      pages: { home: 'hidden' } as never,
+    }), /pages.home is not a supported admin page/)
+  })
+
+  test('rejects invalid admin page modes', ({ assert }) => {
+    assert.throws(() => emptyApp.defineConfig({
+      flows: { sync: flow },
+      pages: { flows: 'off' } as never,
+    }), /pages.flows must be "visible", "hidden", "disabled"/)
+  })
 })

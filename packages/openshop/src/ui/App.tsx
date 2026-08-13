@@ -11,7 +11,10 @@ import Mcp from './pages/Mcp'
 import { addShopifyNavigateListener } from './navigation'
 import { apiJson } from './fetch'
 import { AdminPagesContext, gateAdminPage, useAdminPages } from './admin-pages'
+import { sameAdminPages } from '../config/pages.ts'
 import type { ResolvedAdminPages } from '../types.ts'
+
+const pagesRefreshMs = 10_000
 
 function NavMenu() {
   const { url } = useLocation()
@@ -52,6 +55,7 @@ function NavMenu() {
 }
 
 function AuthGate({ children }: { children: ComponentChildren }) {
+  const { url } = useLocation()
   const [status, setStatus] = useState<'checking' | 'ready' | 'blocked'>('checking')
   const [pages, setPages] = useState<ResolvedAdminPages | null>(null)
 
@@ -84,6 +88,33 @@ function AuthGate({ children }: { children: ComponentChildren }) {
     void check()
     return () => { active = false }
   }, [])
+
+  useEffect(() => {
+    if (status !== 'ready') return
+    let active = true
+
+    const refresh = () => {
+      void apiJson<ResolvedAdminPages>('/api/pages')
+        .then((data) => {
+          if (!active) return
+          setPages((current) => current && sameAdminPages(current, data) ? current : data)
+        })
+        .catch(() => {})
+    }
+
+    refresh()
+    const iv = setInterval(refresh, pagesRefreshMs)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      active = false
+      clearInterval(iv)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [status, url])
 
   if (status === 'ready' && pages) {
     return (

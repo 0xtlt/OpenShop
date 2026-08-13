@@ -28,6 +28,10 @@ export function resolveAdminPagesFromConfig(config: Pick<OpenShopConfig, 'pages'
   return resolveAdminPages(config.pages)
 }
 
+export function sameAdminPages(left: ResolvedAdminPages, right: ResolvedAdminPages): boolean {
+  return ADMIN_PAGE_IDS.every((id) => left[id] === right[id])
+}
+
 function pageFromSection(section: string | undefined): AdminPageId | null {
   switch (section) {
     case 'flows':

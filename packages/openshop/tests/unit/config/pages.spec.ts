@@ -3,6 +3,7 @@ import {
   adminPageFromApiPath,
   adminPageFromUiPath,
   resolveAdminPages,
+  sameAdminPages,
 } from '../../../src/config/pages.ts'
 
 test.group('resolveAdminPages', () => {
@@ -24,6 +25,14 @@ test.group('resolveAdminPages', () => {
       functions: 'hidden',
       mcp: 'disabled',
     })
+  })
+})
+
+test.group('sameAdminPages', () => {
+  test('compares resolved page modes', ({ assert }) => {
+    const visible = resolveAdminPages()
+    assert.isTrue(sameAdminPages(visible, resolveAdminPages()))
+    assert.isFalse(sameAdminPages(visible, resolveAdminPages({ flows: 'hidden' })))
   })
 })
 

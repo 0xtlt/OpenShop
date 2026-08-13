@@ -32,6 +32,7 @@ jobs:
           node-version: 26
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: node --test .github/scripts/*.test.mjs
       - run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - run: createdb -h localhost -U openshop openshop_test
         env:

@@ -1,7 +1,7 @@
 import type { AdminPageId, AdminPageMode, AdminPagesConfig, OpenShopConfig, ResolvedAdminPages } from '../types.ts'
 
-export const ADMIN_PAGE_IDS = ['flows', 'providers', 'crons', 'functions', 'mcp'] as const satisfies readonly AdminPageId[]
-export const ADMIN_PAGE_MODES = ['visible', 'hidden', 'disabled'] as const satisfies readonly AdminPageMode[]
+export const ADMIN_PAGE_IDS: readonly AdminPageId[] = ['flows', 'providers', 'crons', 'functions', 'mcp']
+export const ADMIN_PAGE_MODES: readonly AdminPageMode[] = ['visible', 'hidden', 'disabled']
 
 const adminPageIds = new Set<string>(ADMIN_PAGE_IDS)
 const adminPageModes = new Set<string>(ADMIN_PAGE_MODES)
@@ -15,11 +15,13 @@ export function isAdminPageMode(value: string): value is AdminPageMode {
 }
 
 export function resolveAdminPages(pages?: AdminPagesConfig): ResolvedAdminPages {
-  const resolved = {} as ResolvedAdminPages
-  for (const id of ADMIN_PAGE_IDS) {
-    resolved[id] = pages?.[id] ?? 'visible'
+  return {
+    flows: pages?.flows ?? 'visible',
+    providers: pages?.providers ?? 'visible',
+    crons: pages?.crons ?? 'visible',
+    functions: pages?.functions ?? 'visible',
+    mcp: pages?.mcp ?? 'visible',
   }
-  return resolved
 }
 
 export function resolveAdminPagesFromConfig(config: Pick<OpenShopConfig, 'pages'>): ResolvedAdminPages {

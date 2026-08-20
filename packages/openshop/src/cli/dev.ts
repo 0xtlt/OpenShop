@@ -1,9 +1,11 @@
 import { resolve, dirname } from 'node:path'
 import { fork, type ChildProcess } from 'node:child_process'
-import { watch, existsSync } from 'node:fs'
+import { existsSync, watch, type FSWatcher } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { pushSchema } from './schema-push.ts'
 import { ApiProcessRestartCoordinator } from './dev-restart.ts'
+import { stripCorsResponseHeaders } from './dev-cors.ts'
+import { watchAppDirectories } from './dev-watch.ts'
 import { loadEnvFile } from './env.ts'
 import { runCodegenOnce } from '../vite/codegen-utils.ts'
 
@@ -126,11 +128,6 @@ export async function startDev() {
     },
   }, initialApiProcess.process)
 
-  // 3. Watch all user directories — restart API subprocess on changes
-  const watchDirs = ['flows', 'providers', 'functions', 'webhooks', 'proxy', 'routes']
-    .map((d) => resolve(cwd, d))
-    .filter(existsSync)
-
   let reloadTimer: ReturnType<typeof setTimeout> | null = null
 
   function scheduleReload(source: string) {
@@ -145,24 +142,25 @@ export async function startDev() {
     }, 500)
   }
 
-  for (const dir of watchDirs) {
-    try {
-      watch(dir, { recursive: true }, (_, filename) => {
-        if (filename && !filename.startsWith('.')) scheduleReload(filename)
-      })
-    } catch { /* dir might not exist */ }
-  }
+  // 3. Watch user directories, including directories created after startup.
+  const stopWatchingDirectories = watchAppDirectories(
+    cwd,
+    ['flows', 'providers', 'functions', 'webhooks', 'proxy', 'routes'],
+    scheduleReload,
+  )
 
-  // Watch config file itself
   const configPath = resolve(cwd, 'openshop.config.ts')
+  let configWatcher: FSWatcher | undefined
   try {
-    watch(configPath, () => scheduleReload('openshop.config.ts'))
-  } catch { /* */ }
+    configWatcher = watch(configPath, () => scheduleReload('openshop.config.ts'))
+  } catch { /* config is validated before the watcher starts */ }
 
   console.log('[openshop] Watching for changes (flows, providers, functions, webhooks, proxy, routes, config)')
 
   // Graceful shutdown
   const shutdown = () => {
+    stopWatchingDirectories()
+    configWatcher?.close()
     restartCoordinator.currentProcess?.kill('SIGTERM')
     process.exit(0)
   }
@@ -191,7 +189,12 @@ export async function startDev() {
           '/ext': `http://localhost:${apiPort}`,
           '/auth': `http://localhost:${apiPort}`,
           '/webhooks': `http://localhost:${apiPort}`,
-          '/routes': `http://localhost:${apiPort}`,
+          '/routes': {
+            target: `http://localhost:${apiPort}`,
+            bypass(_req, res) {
+              if (res) stripCorsResponseHeaders(res)
+            },
+          },
           '/mcp': {
             target: `http://localhost:${apiPort}`,
             bypass(req) {

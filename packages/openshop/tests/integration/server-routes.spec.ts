@@ -33,6 +33,13 @@ export default {
 }
 `
 
+const staticRoute = `
+export default {
+  auth: 'none',
+  GET: () => Response.json({ route: 'new' }),
+}
+`
+
 const providerRoute = `
 export default {
   auth: async ({ request, forShop }) => {
@@ -104,6 +111,7 @@ test.group('Public server routes', (group) => {
     writeFileSync(join(routesDir, '_shared', 'hidden.ts'), openRoute.trimStart(), 'utf8')
     mkdirSync(join(routesDir, 'orders'))
     writeFileSync(join(routesDir, 'orders', '[id].ts'), openRoute.trimStart(), 'utf8')
+    writeFileSync(join(routesDir, 'orders', 'new.ts'), staticRoute.trimStart(), 'utf8')
     writeFileSync(join(routesDir, 'forbidden.ts'), `
 export default {
   auth: () => new Response('Forbidden', { status: 403 }),
@@ -114,6 +122,12 @@ export default {
 export default {
   auth: 'none',
   GET: () => { throw new Error('route failure') },
+}
+`.trimStart(), 'utf8')
+    writeFileSync(join(routesDir, 'auth-throws.ts'), `
+export default {
+  auth: () => { throw new Error('authentication failure') },
+  POST: () => new Response('unreachable'),
 }
 `.trimStart(), 'utf8')
     writeFileSync(join(routesDir, 'invalid-response.ts'), `
@@ -143,6 +157,10 @@ export default {
     assert.equal(dynamic.status, 201)
     assert.deepEqual((await dynamic.json()).params, { id: '123' })
 
+    const staticRouteResponse = await app.request('http://localhost/routes/orders/new')
+    assert.equal(staticRouteResponse.status, 200)
+    assert.deepEqual(await staticRouteResponse.json(), { route: 'new' })
+
     assert.equal((await app.request('http://localhost/routes/_private')).status, 404)
     assert.equal((await app.request('http://localhost/routes/_shared/hidden')).status, 404)
   })
@@ -150,9 +168,11 @@ export default {
   test('returns 405 and Allow for a method without a handler', async ({ assert }) => {
     const app = await createServerRoutes(routesDir, config)
     const response = await app.request('http://localhost/', { method: 'POST' })
+    const headResponse = await app.request('http://localhost/', { method: 'HEAD' })
 
     assert.equal(response.status, 405)
     assert.equal(response.headers.get('allow'), 'GET')
+    assert.equal(headResponse.status, 405)
   })
 
   test('auth can read a cloned body and passes typed data to the handler', async ({ assert }) => {
@@ -184,11 +204,13 @@ export default {
     assert.equal(await forbidden.text(), 'Forbidden')
   })
 
-  test('handler exceptions and non-Response values fail with 500', async ({ assert }) => {
+  test('authentication and handler exceptions, and non-Response values, fail with 500', async ({ assert }) => {
     const app = await createServerRoutes(routesDir, config)
+    const authThrown = await app.request('http://localhost/auth-throws', { method: 'POST' })
     const thrown = await app.request('http://localhost/throws')
     const invalid = await app.request('http://localhost/invalid-response')
 
+    assert.equal(authThrown.status, 500)
     assert.equal(thrown.status, 500)
     assert.equal(invalid.status, 500)
     assert.deepEqual(await thrown.json(), { error: 'Internal server route error' })
@@ -225,7 +247,7 @@ export default {
     assert.equal(unknownApp.status, 401)
   })
 
-  test('fails startup for a missing auth declaration or handler', async ({ assert }) => {
+  test('fails startup for a missing auth declaration, handler, or invalid import', async ({ assert }) => {
     const invalidDir = mkdtempSync(join(tmpdir(), 'openshop-invalid-server-route-'))
     try {
       writeFileSync(join(invalidDir, 'missing-auth.ts'), 'export default { GET: () => new Response() }', 'utf8')
@@ -234,6 +256,10 @@ export default {
       rmSync(join(invalidDir, 'missing-auth.ts'))
       writeFileSync(join(invalidDir, 'missing-handler.ts'), "export default { auth: 'none' }", 'utf8')
       await assert.rejects(() => createServerRoutes(invalidDir, config), /define at least one HTTP method/)
+
+      rmSync(join(invalidDir, 'missing-handler.ts'))
+      writeFileSync(join(invalidDir, 'broken.ts'), 'export default {', 'utf8')
+      await assert.rejects(() => createServerRoutes(invalidDir, config), /Failed to load server route/)
     } finally {
       rmSync(invalidDir, { recursive: true, force: true })
     }

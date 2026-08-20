@@ -6,6 +6,19 @@ export interface ScannedRouteFile {
   routePath: string
 }
 
+function compareRouteSpecificity(a: ScannedRouteFile, b: ScannedRouteFile): number {
+  const aSegments = a.routePath.split('/').filter(Boolean)
+  const bSegments = b.routePath.split('/').filter(Boolean)
+
+  for (let index = 0; index < Math.min(aSegments.length, bSegments.length); index++) {
+    const aDynamic = aSegments[index]!.startsWith(':')
+    const bDynamic = bSegments[index]!.startsWith(':')
+    if (aDynamic !== bDynamic) return aDynamic ? 1 : -1
+  }
+
+  return bSegments.length - aSegments.length || a.routePath.localeCompare(b.routePath)
+}
+
 export function scanRouteDir(dir: string): ScannedRouteFile[] {
   const results: ScannedRouteFile[] = []
 
@@ -35,5 +48,5 @@ export function scanRouteDir(dir: string): ScannedRouteFile[] {
   }
 
   walk(dir)
-  return results
+  return results.sort(compareRouteSpecificity)
 }

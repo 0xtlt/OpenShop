@@ -19,10 +19,12 @@ test.group('public server route HTTP contract', (group) => {
     writeFileSync(join(routesDir, '_private.ts'), "export default { auth: 'none', GET: () => new Response() }", 'utf8')
     mkdirSync(join(routesDir, 'orders'))
     writeFileSync(join(routesDir, 'orders', '[id].ts'), "export default { auth: 'none', GET: ({ params }) => Response.json(params) }", 'utf8')
+    writeFileSync(join(routesDir, 'orders', 'new.ts'), "export default { auth: 'none', GET: () => Response.json({ route: 'new' }) }", 'utf8')
 
     const app = await createServerRoutes(routesDir, config)
     assert.deepEqual(await (await app.request('http://localhost/')).json(), { root: true })
     assert.deepEqual(await (await app.request('http://localhost/orders/42')).json(), { id: '42' })
+    assert.deepEqual(await (await app.request('http://localhost/orders/new')).json(), { route: 'new' })
     assert.equal((await app.request('http://localhost/_private')).status, 404)
   })
 

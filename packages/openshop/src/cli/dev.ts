@@ -127,7 +127,7 @@ export async function startDev() {
   }, initialApiProcess.process)
 
   // 3. Watch all user directories — restart API subprocess on changes
-  const watchDirs = ['flows', 'providers', 'functions', 'webhooks', 'proxy']
+  const watchDirs = ['flows', 'providers', 'functions', 'webhooks', 'proxy', 'routes']
     .map((d) => resolve(cwd, d))
     .filter(existsSync)
 
@@ -159,7 +159,7 @@ export async function startDev() {
     watch(configPath, () => scheduleReload('openshop.config.ts'))
   } catch { /* */ }
 
-  console.log('[openshop] Watching for changes (flows, providers, functions, webhooks, proxy, config)')
+  console.log('[openshop] Watching for changes (flows, providers, functions, webhooks, proxy, routes, config)')
 
   // Graceful shutdown
   const shutdown = () => {
@@ -191,6 +191,7 @@ export async function startDev() {
           '/ext': `http://localhost:${apiPort}`,
           '/auth': `http://localhost:${apiPort}`,
           '/webhooks': `http://localhost:${apiPort}`,
+          '/routes': `http://localhost:${apiPort}`,
           '/mcp': {
             target: `http://localhost:${apiPort}`,
             bypass(req) {
@@ -226,6 +227,7 @@ export async function startDev() {
                 url.startsWith('/ext') ||
                 url.startsWith('/auth') ||
                 url.startsWith('/webhooks') ||
+                url.startsWith('/routes') ||
                 isMcpRpcRequest ||
                 url.startsWith('/health') ||
                 url.startsWith('/node_modules') ||

@@ -1,4 +1,4 @@
-import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ProviderFieldDefinitions, ProviderMethod, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, AnyFunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders, McpConfig } from './types.ts'
+import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ProviderFieldDefinitions, ProviderMethod, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, AnyFunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders, McpConfig, AuthenticatedServerRouteDefinition, UnauthenticatedServerRouteDefinition } from './types.ts'
 import type { Type } from 'arktype'
 import type { StandardCRON } from 'ts-cron-validator'
 import { validateOpenShopConfig } from './config/validate.ts'
@@ -53,6 +53,8 @@ export interface OpenShopApp<TProviders extends Record<string, ProviderDefinitio
     config: TFields
   }): FunctionDefinition<TFields>
   defineProxy(proxy: ProxyDefinition): ProxyDefinition
+  defineRoute(route: UnauthenticatedServerRouteDefinition<ConnectorsFromProviders<TProviders>>): UnauthenticatedServerRouteDefinition<ConnectorsFromProviders<TProviders>>
+  defineRoute<TAuth>(route: AuthenticatedServerRouteDefinition<TAuth, ConnectorsFromProviders<TProviders>>): AuthenticatedServerRouteDefinition<TAuth, ConnectorsFromProviders<TProviders>>
   defineWebhook(webhook: WebhookDefinition): WebhookDefinition
   defineConfig<
     const TFlows extends Record<string, FlowDefinition<unknown>>,
@@ -75,6 +77,16 @@ function validateConfig<
 export function defineOpenShop<const TProviders extends Record<string, ProviderDefinition>>(
   app: OpenShopAppBase<TProviders>,
 ): OpenShopApp<TProviders> {
+  type AppConnectors = ConnectorsFromProviders<TProviders>
+
+  function defineRoute(route: UnauthenticatedServerRouteDefinition<AppConnectors>): UnauthenticatedServerRouteDefinition<AppConnectors>
+  function defineRoute<TAuth>(route: AuthenticatedServerRouteDefinition<TAuth, AppConnectors>): AuthenticatedServerRouteDefinition<TAuth, AppConnectors>
+  function defineRoute<TAuth>(
+    route: UnauthenticatedServerRouteDefinition<AppConnectors> | AuthenticatedServerRouteDefinition<TAuth, AppConnectors>,
+  ) {
+    return route
+  }
+
   return {
     defineFlow<TInput = Record<string, unknown>>(flow: FlowInput<TInput, TProviders>): FlowDefinition<TInput> {
       return flow as unknown as FlowDefinition<TInput>
@@ -91,6 +103,7 @@ export function defineOpenShop<const TProviders extends Record<string, ProviderD
     defineProxy(proxy: ProxyDefinition): ProxyDefinition {
       return proxy
     },
+    defineRoute,
     defineWebhook(webhook: WebhookDefinition): WebhookDefinition {
       return webhook
     },
@@ -167,6 +180,15 @@ export type {
   ConnectorOf,
   ProxyDefinition,
   ProxyContext,
+  ServerRouteDefinition,
+  ServerRouteContext,
+  ServerRouteRequestContext,
+  ServerRouteAuth,
+  ServerRouteHandler,
+  RouteShopContext,
+  RouteShopInput,
+  AuthenticatedServerRouteDefinition,
+  UnauthenticatedServerRouteDefinition,
   McpConfig,
   McpPermissionDefinition,
   McpToolDefinition,

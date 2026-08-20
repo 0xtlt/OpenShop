@@ -1,23 +1,16 @@
 import { type } from 'arktype'
 import { eq, and } from 'drizzle-orm'
 import { getDb } from '#db/client'
-import { flowRuns, logs, providerConfigs } from '#db/schema'
+import { flowRuns, logs } from '#db/schema'
 import { createStepExecutor } from '#engine/step'
 import { registerAbort, cleanupAbort } from '#engine/abort'
 import { computeNextRetryAt } from '#engine/backoff'
 import { FlowCanceledError, FlowTimeoutError, SleepSignal } from '#engine/errors'
-import { decryptConfig } from '#server/crypto'
+import { buildConnectors, type RuntimeConnectors } from '#server/connectors'
 import { createShopifyClient } from '../shopify/client.ts'
 import { getRuntimeLogger } from '../runtime/logger.ts'
 import { DEFAULT_SHOPIFY_APP_HANDLE } from '#server/shopify-apps'
 import type { OpenShopConfig, Logger, RetryPolicy } from '#types'
-
-type RuntimeConnectors = Record<string, Record<string, (...args: unknown[]) => unknown>>
-type RuntimeProviderMethod = (config: Record<string, unknown>, ...args: unknown[]) => unknown
-
-function isRuntimeProviderMethod(value: unknown): value is RuntimeProviderMethod {
-  return typeof value === 'function'
-}
 
 export interface RunFlowOptions {
   runId: string
@@ -188,26 +181,4 @@ function createLogger(db: ReturnType<typeof getDb>, flowRunId: string): Logger {
     }
   }
   return { info: log('info'), warn: log('warn'), error: log('error') }
-}
-
-async function buildConnectors(config: OpenShopConfig, shop: string, shopifyApp: string): Promise<RuntimeConnectors> {
-  const connectors: Record<string, Record<string, (...args: unknown[]) => unknown>> = {}
-  const db = getDb()
-
-  for (const [name, provider] of Object.entries(config.providers)) {
-    const [stored] = await db.select({ config: providerConfigs.config })
-      .from(providerConfigs)
-      .where(and(eq(providerConfigs.appHandle, shopifyApp), eq(providerConfigs.shop, shop), eq(providerConfigs.providerName, name)))
-      .limit(1)
-    const providerConfig = decryptConfig(stored?.config)
-
-    const connector: Record<string, (...args: unknown[]) => unknown> = {}
-    for (const methodName of Object.keys(provider.methods)) {
-      const methodFn = provider.methods[methodName]
-      if (!isRuntimeProviderMethod(methodFn)) continue
-      connector[methodName] = (...args: unknown[]) => methodFn(providerConfig, ...args)
-    }
-    connectors[name] = connector
-  }
-  return connectors
 }

@@ -1,8 +1,7 @@
 import { Hono } from 'hono'
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { readdirSync, statSync } from 'node:fs'
-import { resolve, relative } from 'node:path'
 import { customerIdFromJwtSub, verifySessionToken } from '#server/jwt'
+import { scanRouteDir } from '#server/file-routes'
 import { normalizeShopDomain } from '#server/shop-domain'
 import { hasConfiguredShopifyAppSecret, readJwtAudience, resolveShopifyAppByApiKey, resolveShopifyApps, type ResolvedShopifyApp } from '#server/shopify-apps'
 import type { OpenShopConfig, ProxyDefinition, ProxyContext } from '#types'
@@ -28,44 +27,6 @@ function verifyProxySignature(query: Record<string, string>, secret: string): bo
   } catch {
     return false
   }
-}
-
-// ─── File scanner ───────────────────────────────────────────────────
-
-function scanProxyDir(dir: string): Array<{ filePath: string; routePath: string }> {
-  const results: Array<{ filePath: string; routePath: string }> = []
-
-  function walk(current: string) {
-    for (const entry of readdirSync(current)) {
-      if (entry.startsWith('_')) continue
-
-      const full = resolve(current, entry)
-      const stat = statSync(full)
-
-      if (stat.isDirectory()) {
-        walk(full)
-        continue
-      }
-
-      if (!entry.endsWith('.ts') && !entry.endsWith('.js')) continue
-
-      // Convert file path to route path
-      let route = '/' + relative(dir, full)
-        .replace(/\.(ts|js)$/, '')
-        .replace(/\\/g, '/')
-
-      // index files → parent path
-      if (route.endsWith('/index')) route = route.slice(0, -6) || '/'
-
-      // [param] → :param
-      route = route.replace(/\[([^\]]+)\]/g, ':$1')
-
-      results.push({ filePath: full, routePath: route })
-    }
-  }
-
-  walk(dir)
-  return results
 }
 
 // ─── Route builder ──────────────────────────────────────────────────
@@ -207,7 +168,7 @@ export async function createProxyRoutes(
   const logger = getRuntimeLogger()
 
   // Scan and register routes
-  const files = scanProxyDir(proxyDir)
+  const files = scanRouteDir(proxyDir)
 
   for (const { filePath, routePath } of files) {
     let definition: ProxyDefinition

@@ -1,7 +1,7 @@
 const navigationSelector = 's-link[href], a[href], s-button[href]'
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const safeSegmentPattern = /^[A-Za-z0-9_-]+$/
-const reservedPrefixes = ['/api', '/auth', '/webhooks', '/proxy', '/ext', '/health']
+const reservedPrefixes = ['/api', '/auth', '/webhooks', '/proxy', '/ext', '/routes', '/health']
 
 type RouteFn = (path: string) => void
 type OriginGetter = () => string

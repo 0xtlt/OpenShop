@@ -5,6 +5,7 @@ const DEFAULT_DOCUMENTS = [
   './flows/**/*.{ts,tsx}',
   './webhooks/**/*.{ts,tsx}',
   './proxy/**/*.{ts,tsx}',
+  './routes/**/*.{ts,tsx}',
   './server/**/*.{ts,tsx}',
   './queries/**/*.{ts,tsx}',
   './lib/server/**/*.{ts,tsx}',

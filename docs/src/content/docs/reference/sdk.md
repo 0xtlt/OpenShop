@@ -54,6 +54,7 @@ The returned object exposes:
 - `defineFlow({ name, input?, timeout?, stepTimeout?, concurrency?, retryPolicy?, run })`
 - `defineFunction({ type, handle, modes?, owner?, config })`
 - `defineProxy({ type?, GET?, POST?, PUT?, DELETE?, PATCH? })`
+- `defineRoute({ auth, GET?, HEAD?, POST?, PUT?, PATCH?, DELETE?, OPTIONS? })`
 - `defineWebhook({ run })`
 - `defineConfig({ flows, functions?, webhooks?, crons?, ... })`
 

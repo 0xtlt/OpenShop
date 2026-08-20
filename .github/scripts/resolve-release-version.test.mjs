@@ -96,7 +96,7 @@ test("resolves auto and explicit release modes", () => {
 	);
 });
 
-test("resolves prerelease npm versions to the next stable release", () => {
+test("resolves prerelease npm versions", () => {
 	assert.deepEqual(
 		resolveRelease({
 			baseVersion: "0.0.4-beta.0",
@@ -105,6 +105,16 @@ test("resolves prerelease npm versions to the next stable release", () => {
 			mode: "auto",
 		}),
 		{ bump: "patch", commitCount: 1, shouldRelease: true, version: "0.0.5" },
+	);
+
+	assert.deepEqual(
+		resolveRelease({
+			baseVersion: "0.0.4-beta.0",
+			commits: [],
+			currentVersion: "0.0.5-beta.0",
+			mode: "current",
+		}),
+		{ bump: "current", commitCount: 0, shouldRelease: true, version: "0.0.5-beta.0" },
 	);
 
 	assert.deepEqual(

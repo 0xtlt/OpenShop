@@ -89,6 +89,18 @@ const flow = app.defineFlow({
   },
 })
 
+const route = app.defineRoute({
+  async auth({ request, forShop }) {
+    const url = new URL(request.url)
+    const shop = url.searchParams.get('shop')
+    if (!shop) return null
+    return { tenant: await forShop({ shop }) }
+  },
+  POST({ auth }) {
+    return Response.json({ shop: auth.tenant.shop })
+  },
+})
+
 app.defineConfig({
   flows: { sync: flow },
   crons: [{ schedule: cron('*/5 * * * *'), flow: 'sync' }],
@@ -100,6 +112,7 @@ void createTestContext
 void frameworkSchemaPath
 void eslintConfig
 void model
+void route
 `)
 
   execFileSync('pnpm', ['install', '--ignore-scripts=false'], { cwd: consumerDir, stdio: 'inherit' })

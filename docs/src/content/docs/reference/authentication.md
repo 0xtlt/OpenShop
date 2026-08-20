@@ -14,6 +14,7 @@ forward one surface's credential to another.
 | `/webhooks/*` | `X-Shopify-Hmac-Sha256` | HMAC over the raw request body | shop and app selected by the matching secret |
 | `/proxy/*` | Shopify App Proxy query signature, or Customer Account JWT | Query HMAC or JWT | shop, app, optional customer |
 | `/ext/*` | Customer Account session JWT | JWT signature and audience | shop, app, customer |
+| `/routes/*` | Route-defined | Explicit `auth` function, or intentionally public with `auth: 'none'` | Route-defined; optional `forShop()` context |
 | `/mcp` | OpenShop token in `Authorization: Bearer …` | Stored token hash, status, expiry, shop, and permissions | token, shop, app, grants |
 
 ## Embedded admin API

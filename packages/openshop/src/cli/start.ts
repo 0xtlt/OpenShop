@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { existsSync } from 'node:fs'
-import { loadBuiltConfig, resolveBuiltConfig, resolveBuiltProxyDir } from './app-build.ts'
+import { loadBuiltConfig, resolveBuiltConfig, resolveBuiltProxyDir, resolveBuiltRoutesDir } from './app-build.ts'
 import { closeHttpServer } from '#server/http'
 
 export async function startProd() {
@@ -33,7 +33,11 @@ export async function startProd() {
     process.exit(1)
   }
 
-  const server = await startApiServer(config, port, { staticDir, proxyDir: resolveBuiltProxyDir(cwd) })
+  const server = await startApiServer(config, port, {
+    staticDir,
+    proxyDir: resolveBuiltProxyDir(cwd),
+    routesDir: resolveBuiltRoutesDir(cwd),
+  })
   startScheduler(config)
 
   const shutdown = async () => {

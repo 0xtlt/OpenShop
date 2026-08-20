@@ -9,6 +9,7 @@
     "#models/*": "./models/*.ts",
     "#providers/*": "./providers/*.ts",
     "#queries/*": "./queries/*.ts",
+    "#routes/*": "./routes/*.ts",
     "#server/*": "./server/*.ts",
     "#webhooks/*": "./webhooks/*.ts"
   },

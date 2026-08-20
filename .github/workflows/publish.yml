@@ -3,6 +3,14 @@ name: Release npm
 on:
   workflow_dispatch:
     inputs:
+      channel:
+        description: npm dist-tag and published-version baseline
+        required: true
+        default: beta
+        type: choice
+        options:
+          - beta
+          - latest
       bump:
         description: Version increment; auto reads conventional commits since the published version
         required: true
@@ -44,12 +52,14 @@ jobs:
 
       - name: Find the published version
         id: base
+        env:
+          NPM_TAG: ${{ inputs.channel }}
         shell: bash
         run: |
           set -euo pipefail
 
           package_name="$(node --print "require('./packages/openshop/package.json').name")"
-          base_version="$(npm view "$package_name" version)"
+          base_version="$(npm view "$package_name@$NPM_TAG" version)"
           base_tag="v$base_version"
           target_sha="$(git rev-parse HEAD)"
 
@@ -253,15 +263,22 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "$TAG already has a GitHub release; skipping creation."
           else
+            release_args=()
+            if [[ "$VERSION" == *-* ]]; then
+              release_args+=(--prerelease)
+            fi
+
             gh release create "$TAG" \
               --title "openshop $VERSION" \
               --notes-file "$NOTES_FILE" \
-              --verify-tag
+              --verify-tag \
+              "${release_args[@]}"
           fi
 
       - name: Publish npm package
         working-directory: packages/openshop
         env:
+          NPM_TAG: ${{ inputs.channel }}
           TAG: ${{ needs.prepare.outputs.tag }}
           VERSION: ${{ needs.prepare.outputs.version }}
         shell: bash
@@ -270,9 +287,15 @@ jobs:
 
           package_name="$(node --print "require('./package.json').name")"
           if npm view "$package_name@$VERSION" version >/dev/null 2>&1; then
+            tagged_version="$(npm view "$package_name@$NPM_TAG" version 2>/dev/null || true)"
+            if [[ "$tagged_version" != "$VERSION" ]]; then
+              echo "$package_name@$VERSION exists, but dist-tag $NPM_TAG points to ${tagged_version:-nothing}." >&2
+              echo "Trusted publishing cannot repair dist-tags; update it explicitly before retrying." >&2
+              exit 1
+            fi
             echo "$package_name@$VERSION is already published; skipping npm publish."
           else
-            npm publish --access public
+            npm publish --access public --tag "$NPM_TAG"
           fi
 
-          echo "Published [$TAG](https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG) to GitHub and npm." >> "$GITHUB_STEP_SUMMARY"
+          echo "Published [$TAG](https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG) to GitHub and npm with dist-tag **$NPM_TAG**." >> "$GITHUB_STEP_SUMMARY"

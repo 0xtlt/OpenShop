@@ -52,6 +52,7 @@ my-app/
 ├─ flows/
 ├─ providers/
 ├─ proxy/
+├─ routes/
 ├─ webhooks/
 ├─ drizzle/
 ├─ openshop.app.ts
@@ -62,7 +63,7 @@ my-app/
 ├─ package.json
 ```
 
-The generated `package.json` also defines Node.js import aliases, so app code can use `#app`, `#flows/*`, `#providers/*`, `#webhooks/*`, and related aliases instead of `../` imports.
+The generated `package.json` also defines Node.js import aliases, so app code can use `#app`, `#flows/*`, `#providers/*`, `#routes/*`, `#webhooks/*`, and related aliases instead of `../` imports.
 
 ## Define your app
 

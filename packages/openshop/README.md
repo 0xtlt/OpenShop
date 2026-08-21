@@ -27,6 +27,7 @@ my-app/
 ├─ flows/
 ├─ providers/
 ├─ proxy/
+├─ routes/
 ├─ webhooks/
 ├─ drizzle/
 ├─ openshop.app.ts
@@ -37,7 +38,7 @@ my-app/
 ├─ package.json
 ```
 
-The generated `package.json` defines aliases such as `#app`, `#flows/*`, and `#providers/*`, so app code does not need `../` imports.
+The generated `package.json` defines aliases such as `#app`, `#flows/*`, `#providers/*`, and `#routes/*`, so app code does not need `../` imports.
 
 ## Define a provider
 

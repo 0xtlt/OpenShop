@@ -1,4 +1,7 @@
 import type { Type } from 'arktype'
+import type { AdminPagesConfig } from './config/pages.ts'
+
+export type { AdminPageId, AdminPageMode, AdminPagesConfig, ResolvedAdminPages } from './config/pages.ts'
 
 // ─── Global augmentable interfaces for GraphQL codegen ───────────────
 
@@ -153,7 +156,6 @@ export type CronEntryFor<TFlows extends Record<string, FlowDefinition<unknown>>>
   }
 }[keyof TFlows & string]
 
-
 export interface OpenShopConfig<
   TProviders extends Record<string, ProviderDefinition> = Record<string, ProviderDefinition>,
   TFlows extends Record<string, FlowDefinition<unknown>> = Record<string, FlowDefinition<unknown>>,
@@ -166,6 +168,7 @@ export interface OpenShopConfig<
   mcp?: McpConfig
   webhooks?: Record<string, WebhookDefinition>
   crons?: CronEntryFor<TFlows>[]
+  pages?: AdminPagesConfig
   worker?: Partial<WorkerConfig>
   retryPolicy?: Partial<RetryPolicy>
   onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void

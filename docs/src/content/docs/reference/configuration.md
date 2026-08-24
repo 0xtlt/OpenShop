@@ -41,6 +41,7 @@ export default app.defineConfig({
 | `mcp` | `McpConfig` | No | Core MCP capabilities enabled; no custom capabilities |
 | `webhooks` | `Record<string, WebhookDefinition>` | No | `{}` |
 | `crons` | `CronEntry[]` | No | `[]` |
+| `pages` | `AdminPagesConfig` | No | Every admin page `visible` |
 | `worker` | `Partial<WorkerConfig>` | No | See [Worker defaults](#worker-defaults) |
 | `retryPolicy` | `Partial<RetryPolicy>` | No | See [Retry defaults](#retry-defaults) |
 | `onError` | `(error, context?) => void \| Promise<void>` | No | No hook |
@@ -114,6 +115,44 @@ An individual `step(name, fn, { timeout })` can override `stepTimeout`.
 | `input` | the selected flow input | `{}` |
 | `shops` | `'global' \| 'all' \| string \| string[]` | `'global'` |
 
+## Admin pages
+
+`pages` controls which embedded admin screens appear in the Shopify sidebar and whether their admin API stays reachable. Home is always visible. Runtime behavior is unchanged: crons still fire, webhooks still run, Shopify Functions still execute, and `POST /mcp` still follows `mcp.enabled`.
+
+```ts
+export default app.defineConfig({
+  flows: { syncOrders },
+  pages: {
+    functions: 'hidden',
+    mcp: 'disabled',
+  },
+})
+```
+
+| Mode | Sidebar | Direct URL | Admin API `/api/*` |
+| --- | --- | --- | --- |
+| `visible` (default) | Shown | Works | 200 |
+| `hidden` | Hidden | Works | 200 |
+| `disabled` | Hidden | Shows “This page is disabled” | 404 |
+
+Supported keys: `flows`, `providers`, `crons`, `functions`, `mcp`. You can set defaults on `defineOpenShop({ pages })` and override individual pages in `defineConfig()`.
+
+`hidden` is navigation-only and must not be used as an access-control boundary. Use `disabled` when shop staff must not be able to open a page or call its admin API.
+
+The MCP dashboard and protocol are independent:
+
+```ts
+export default app.defineConfig({
+  flows: { syncOrders },
+  pages: { mcp: 'disabled' }, // Block the dashboard and /api/mcp/*.
+  mcp: { enabled: false },    // Block POST /mcp.
+})
+```
+
+- Set only `pages.mcp: 'disabled'` to block MCP administration while existing MCP tokens can continue using `POST /mcp`.
+- Set only `mcp.enabled: false` to stop the protocol while leaving the dashboard available for token administration.
+- Set both values to disable MCP completely.
+
 ## Runtime validation
 
 `app.defineConfig()` validates the runtime shape early:
@@ -122,7 +161,8 @@ An individual `step(name, fn, { timeout })` can override `stepTimeout`.
 - providers and functions must declare valid fields;
 - Shopify Function handles must be unique;
 - worker and retry numbers must be positive;
-- flow timeouts and step timeouts must be positive when set.
+- flow timeouts and step timeouts must be positive when set;
+- `pages` keys must be known admin screens and values must be `visible`, `hidden`, or `disabled`.
 
 ## Cron shop targeting
 

@@ -45,6 +45,7 @@ Parameters:
 - `providers`: provider definitions keyed by the connector name used in flows.
 - `shopify`: optional single-app or multi-app Shopify configuration.
 - `mcp`: optional MCP capabilities and permissions.
+- `pages`: optional admin page visibility (`visible`, `hidden`, or `disabled` per screen).
 - `worker`: partial worker defaults.
 - `retryPolicy`: partial flow retry defaults.
 - `onError`: application error hook.
@@ -56,7 +57,7 @@ The returned object exposes:
 - `defineProxy({ type?, GET?, POST?, PUT?, DELETE?, PATCH? })`
 - `defineRoute({ auth, GET?, HEAD?, POST?, PUT?, PATCH?, DELETE?, OPTIONS? })`
 - `defineWebhook({ run })`
-- `defineConfig({ flows, functions?, webhooks?, crons?, ... })`
+- `defineConfig({ flows, functions?, webhooks?, crons?, pages?, ... })`
 
 ## `defineProvider(provider)`
 

@@ -18,6 +18,7 @@ import { DEFAULT_SHOPIFY_APP_HANDLE, resolveShopifyAppBySignedQuery } from '#ser
 import { getDb } from '#db/client'
 import { installations } from '#db/schema'
 import type { OpenShopConfig } from '#types'
+import { adminPageFromApiPath, resolveAdminPages } from '../config/pages.ts'
 import { getRuntimeLogger } from '../runtime/logger.ts'
 
 export type ConfigGetter = () => OpenShopConfig
@@ -133,6 +134,14 @@ export async function createServer(getConfig: ConfigGetter, options?: ServerOpti
 
   // Extract shop from session token / query param
   app.use('/api/*', createShopMiddleware(getConfig))
+
+  app.use('/api/*', async (c, next) => {
+    const page = adminPageFromApiPath(c.req.path)
+    if (page && resolveAdminPages(getConfig().pages)[page] === 'disabled') {
+      return c.json({ error: 'Not found' }, 404)
+    }
+    await next()
+  })
 
   // Mount API
   app.route('/api', createApiRoutes(getConfig))

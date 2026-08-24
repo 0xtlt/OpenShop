@@ -1,6 +1,7 @@
 import type { OpenShopConfig, ProviderFieldDef, RetryPolicy, WorkerConfig } from '../types.ts'
 import { createCoreMcpCapabilities } from '../server/mcp/core.ts'
 import { buildMcpRegistry } from '../server/mcp/registry.ts'
+import { ADMIN_PAGE_IDS, ADMIN_PAGE_MODES, isAdminPageId, isAdminPageMode } from './pages.ts'
 
 const fieldTypes = new Set<ProviderFieldDef['type']>(['text', 'password', 'number', 'select', 'checkbox'])
 const functionTypes = new Set(['discount', 'cart-transform', 'delivery-customization', 'payment-customization', 'checkout-validation', 'fulfillment-constraints'])
@@ -154,7 +155,22 @@ export function validateOpenShopConfig(config: OpenShopConfig): void {
     }
   }
 
+  validatePagesConfig(config.pages)
   validateWorkerConfig(config.worker)
   validateRetryPolicy(config.retryPolicy, 'retryPolicy')
   buildMcpRegistry(config, createCoreMcpCapabilities(() => config))
+}
+
+export function validatePagesConfig(pages: OpenShopConfig['pages']): void {
+  if (pages === undefined) return
+  if (!isRecord(pages)) fail('pages must be an object')
+
+  for (const [key, value] of Object.entries(pages)) {
+    if (!isAdminPageId(key)) {
+      fail(`pages.${key} is not a supported admin page (expected ${ADMIN_PAGE_IDS.join(', ')})`)
+    }
+    if (typeof value !== 'string' || !isAdminPageMode(value)) {
+      fail(`pages.${key} must be ${ADMIN_PAGE_MODES.map((mode) => `"${mode}"`).join(', ')}`)
+    }
+  }
 }

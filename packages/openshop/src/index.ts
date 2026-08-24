@@ -1,12 +1,13 @@
-import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ProviderFieldDefinitions, ProviderMethod, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, AnyFunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders, McpConfig, AuthenticatedServerRouteDefinition, UnauthenticatedServerRouteDefinition } from './types.ts'
+import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ProviderFieldDefinitions, ProviderMethod, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, AnyFunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders, McpConfig, AdminPagesConfig, AuthenticatedServerRouteDefinition, UnauthenticatedServerRouteDefinition } from './types.ts'
 import type { Type } from 'arktype'
 import type { StandardCRON } from 'ts-cron-validator'
-import { validateOpenShopConfig } from './config/validate.ts'
+import { validateOpenShopConfig, validatePagesConfig } from './config/validate.ts'
 
 interface OpenShopAppBase<TProviders extends Record<string, ProviderDefinition>> {
   shopify?: ShopifyConfig
   providers: TProviders
   mcp?: McpConfig
+  pages?: AdminPagesConfig
   worker?: Partial<WorkerConfig>
   retryPolicy?: Partial<RetryPolicy>
   onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void
@@ -38,6 +39,7 @@ interface OpenShopConfigInput<
   mcp?: McpConfig
   webhooks?: Record<string, WebhookDefinition>
   crons?: CronEntryFor<TFlows>[]
+  pages?: AdminPagesConfig
   worker?: Partial<WorkerConfig>
   retryPolicy?: Partial<RetryPolicy>
   onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void
@@ -77,6 +79,7 @@ function validateConfig<
 export function defineOpenShop<const TProviders extends Record<string, ProviderDefinition>>(
   app: OpenShopAppBase<TProviders>,
 ): OpenShopApp<TProviders> {
+  validatePagesConfig(app.pages)
   type AppConnectors = ConnectorsFromProviders<TProviders>
 
   function defineRoute(route: UnauthenticatedServerRouteDefinition<AppConnectors>): UnauthenticatedServerRouteDefinition<AppConnectors>
@@ -111,12 +114,16 @@ export function defineOpenShop<const TProviders extends Record<string, ProviderD
       const TFlows extends Record<string, FlowDefinition<unknown>>,
       const TFunctions extends Record<string, AnyFunctionDefinition> = Record<string, AnyFunctionDefinition>,
     >(config: OpenShopConfigInput<TProviders, TFlows, TFunctions>): OpenShopConfig<TProviders, TFlows, TFunctions> {
+      validatePagesConfig(config.pages)
       return validateConfig({
         ...app,
         ...config,
         shopify: config.shopify ?? app.shopify,
         providers: app.providers,
         mcp: config.mcp ?? app.mcp,
+        pages: app.pages === undefined && config.pages === undefined
+          ? undefined
+          : { ...app.pages, ...config.pages },
         worker: config.worker ?? app.worker,
         retryPolicy: config.retryPolicy ?? app.retryPolicy,
         onError: config.onError ?? app.onError,
@@ -190,6 +197,10 @@ export type {
   AuthenticatedServerRouteDefinition,
   UnauthenticatedServerRouteDefinition,
   McpConfig,
+  AdminPageId,
+  AdminPageMode,
+  AdminPagesConfig,
+  ResolvedAdminPages,
   McpPermissionDefinition,
   McpToolDefinition,
   McpResourceDefinition,

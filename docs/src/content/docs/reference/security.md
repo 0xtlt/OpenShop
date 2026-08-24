@@ -30,6 +30,7 @@ a migration makes stored secrets unreadable.
 - `/webhooks/*` verifies the raw body with a matching Shopify app secret.
 - `/proxy/*` accepts App Proxy HMAC or a Customer Account JWT.
 - `/ext/*` accepts only a Customer Account JWT.
+- `/routes/*` uses the authentication contract declared by each route. OpenShop refuses to start when `auth` is omitted.
 - `/mcp` accepts only OpenShop-issued MCP tokens and applies explicit grants.
 
 See [Authentication](/reference/authentication/) for request formats.

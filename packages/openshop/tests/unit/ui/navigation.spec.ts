@@ -66,6 +66,7 @@ test.group('hrefToInternalRoute', () => {
     assert.isNull(hrefToInternalRoute('/webhooks/orders/create', origin))
     assert.isNull(hrefToInternalRoute('/proxy/dashboard', origin))
     assert.isNull(hrefToInternalRoute('/ext/dashboard', origin))
+    assert.isNull(hrefToInternalRoute('/routes/callback', origin))
     assert.isNull(hrefToInternalRoute('/health', origin))
     assert.isNull(hrefToInternalRoute('/admin', origin))
     assert.isNull(hrefToInternalRoute('/%2F%2Fevil.test', origin))

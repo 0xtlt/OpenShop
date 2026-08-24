@@ -280,6 +280,66 @@ export interface ProxyDefinition {
   PATCH?: ProxyHandler
 }
 
+// ─── Public server routes ──────────────────────────────────────────
+
+export interface RouteShopContext<
+  TConnectors = Record<string, Record<string, (...args: unknown[]) => unknown>>,
+> {
+  shop: string
+  shopifyApp: string
+  connectors: TConnectors
+}
+
+export interface RouteShopInput {
+  shop: string
+  shopifyApp?: string
+}
+
+export interface ServerRouteRequestContext<
+  TConnectors = Record<string, Record<string, (...args: unknown[]) => unknown>>,
+> {
+  request: Request
+  params: Record<string, string>
+  forShop: (input: RouteShopInput) => Promise<RouteShopContext<TConnectors>>
+}
+
+export interface ServerRouteContext<
+  TAuth = undefined,
+  TConnectors = Record<string, Record<string, (...args: unknown[]) => unknown>>,
+> extends ServerRouteRequestContext<TConnectors> {
+  auth: TAuth
+}
+
+export type ServerRouteHandler<TAuth, TConnectors> = (
+  ctx: ServerRouteContext<TAuth, TConnectors>,
+) => Response | Promise<Response>
+
+export type ServerRouteAuth<TAuth, TConnectors> = (
+  ctx: ServerRouteRequestContext<TConnectors>,
+) => TAuth | null | Response | Promise<TAuth | null | Response>
+
+interface ServerRouteHandlers<TAuth, TConnectors> {
+  GET?: ServerRouteHandler<TAuth, TConnectors>
+  HEAD?: ServerRouteHandler<TAuth, TConnectors>
+  POST?: ServerRouteHandler<TAuth, TConnectors>
+  PUT?: ServerRouteHandler<TAuth, TConnectors>
+  PATCH?: ServerRouteHandler<TAuth, TConnectors>
+  DELETE?: ServerRouteHandler<TAuth, TConnectors>
+  OPTIONS?: ServerRouteHandler<TAuth, TConnectors>
+}
+
+export type UnauthenticatedServerRouteDefinition<TConnectors = Record<string, Record<string, (...args: unknown[]) => unknown>>> =
+  { auth: 'none' } & ServerRouteHandlers<undefined, TConnectors>
+
+export type AuthenticatedServerRouteDefinition<
+  TAuth = unknown,
+  TConnectors = Record<string, Record<string, (...args: unknown[]) => unknown>>,
+> = { auth: ServerRouteAuth<TAuth, TConnectors> } & ServerRouteHandlers<TAuth, TConnectors>
+
+export type ServerRouteDefinition<TAuth = unknown, TConnectors = Record<string, Record<string, (...args: unknown[]) => unknown>>> =
+  | UnauthenticatedServerRouteDefinition<TConnectors>
+  | AuthenticatedServerRouteDefinition<TAuth, TConnectors>
+
 // ─── MCP ────────────────────────────────────────────────────────────
 
 export type McpCapabilityType = 'tool' | 'resource'

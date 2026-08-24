@@ -10,6 +10,7 @@ import { createAuthRoutes } from '#server/auth'
 import { createFunctionRoutes } from '#server/functions'
 import { createMcpRoutes } from '#server/mcp'
 import { createProxyRoutes } from '#server/proxy'
+import { createServerRoutes } from '#server/routes'
 import { createWebhookRoutes } from '#server/webhooks'
 import { createShopMiddleware } from '#server/shop'
 import { normalizeShopDomain } from '#server/shop-domain'
@@ -24,6 +25,7 @@ export type ConfigGetter = () => OpenShopConfig
 export interface ServerOptions {
   staticDir?: string
   proxyDir?: string
+  routesDir?: string
 }
 
 const localOrigin = /^https?:\/\/(?:(?:[^:]+\.)?localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/
@@ -55,7 +57,7 @@ const robotsTxt = `User-agent: *
 Disallow: /
 `
 
-const reservedPrefixes = ['/api', '/auth', '/webhooks', '/proxy', '/ext', '/health']
+const reservedPrefixes = ['/api', '/auth', '/webhooks', '/proxy', '/ext', '/routes', '/health']
 
 function isUiShellPath(pathname: string): boolean {
   if (reservedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) return false
@@ -101,6 +103,12 @@ export async function createServer(getConfig: ConfigGetter, options?: ServerOpti
 
   // Webhook routes (no shop middleware — Shopify sends HMAC, not JWT)
   app.route('/webhooks', createWebhookRoutes(getConfig))
+
+  // Public server routes define their own explicit authentication contract.
+  const routesDir = options?.routesDir ?? resolve(process.cwd(), 'routes')
+  if (existsSync(routesDir)) {
+    app.route('/routes', await createServerRoutes(routesDir, getConfig))
+  }
 
   // MCP routes use OpenShop-issued Bearer tokens, separate from Shopify admin auth.
   app.route('/mcp', createMcpRoutes(getConfig))

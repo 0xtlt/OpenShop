@@ -38,6 +38,10 @@ export function resolveBuiltProxyDir(cwd = process.cwd()) {
   return resolve(cwd, serverBuildDir, 'proxy')
 }
 
+export function resolveBuiltRoutesDir(cwd = process.cwd()) {
+  return resolve(cwd, serverBuildDir, 'routes')
+}
+
 export async function loadBuiltConfig(cwd = process.cwd()): Promise<import('#types').OpenShopConfig> {
   const configPath = resolveBuiltConfig(cwd)
   if (!existsSync(configPath)) {
@@ -75,27 +79,21 @@ export async function buildServerApp(cwd = process.cwd()) {
     outfile: resolve(outDir, serverConfigFile),
   })
 
-  const proxyDir = resolve(cwd, 'proxy')
-  if (!existsSync(proxyDir)) {
-    const relativeOut = relative(cwd, outDir)
-    console.log(`[openshop] Server build complete → ${relativeOut}`)
-    return
-  }
+  for (const directory of ['proxy', 'routes']) {
+    const sourceDir = resolve(cwd, directory)
+    if (!existsSync(sourceDir)) continue
 
-  const proxyEntries = findFiles(proxyDir, new Set(['.ts', '.js']))
-  if (proxyEntries.length === 0) {
-    const relativeOut = relative(cwd, outDir)
-    console.log(`[openshop] Server build complete → ${relativeOut}`)
-    return
-  }
+    const entries = findFiles(sourceDir, new Set(['.ts', '.js']))
+    if (entries.length === 0) continue
 
-  await build({
-    ...common,
-    entryPoints: proxyEntries,
-    outdir: resolve(outDir, 'proxy'),
-    outbase: proxyDir,
-    entryNames: '[dir]/[name]',
-  })
+    await build({
+      ...common,
+      entryPoints: entries,
+      outdir: resolve(outDir, directory),
+      outbase: sourceDir,
+      entryNames: '[dir]/[name]',
+    })
+  }
 
   const relativeOut = relative(cwd, outDir)
   console.log(`[openshop] Server build complete → ${relativeOut}`)

@@ -1,4 +1,7 @@
 import type { Type } from 'arktype'
+import type { AdminPagesConfig } from './config/pages.ts'
+
+export type { AdminPageId, AdminPageMode, AdminPagesConfig, ResolvedAdminPages } from './config/pages.ts'
 
 // ─── Global augmentable interfaces for GraphQL codegen ───────────────
 
@@ -152,15 +155,6 @@ export type CronEntryFor<TFlows extends Record<string, FlowDefinition<unknown>>>
     shops?: 'global' | 'all' | string | string[]
   }
 }[keyof TFlows & string]
-
-/** Admin screens that can be hidden from nav or disabled entirely. Home is always visible. */
-export type AdminPageId = 'flows' | 'providers' | 'crons' | 'functions' | 'mcp'
-
-/** `visible` shows the nav link; `hidden` keeps the URL; `disabled` blocks UI and admin API. */
-export type AdminPageMode = 'visible' | 'hidden' | 'disabled'
-
-export type AdminPagesConfig = Partial<Record<AdminPageId, AdminPageMode>>
-export type ResolvedAdminPages = Record<AdminPageId, AdminPageMode>
 
 export interface OpenShopConfig<
   TProviders extends Record<string, ProviderDefinition> = Record<string, ProviderDefinition>,

@@ -1,7 +1,7 @@
 import type { Hono } from 'hono'
-import { resolveAdminPagesFromConfig } from '../../config/pages.ts'
+import { resolveAdminPages } from '../../config/pages.ts'
 import type { OpenShopConfig } from '#types'
 
 export function registerPageRoutes(api: Hono, getConfig: () => OpenShopConfig) {
-  api.get('/pages', (c) => c.json(resolveAdminPagesFromConfig(getConfig())))
+  api.get('/pages', (c) => c.json(resolveAdminPages(getConfig().pages)))
 }

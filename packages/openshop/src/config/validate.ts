@@ -161,7 +161,7 @@ export function validateOpenShopConfig(config: OpenShopConfig): void {
   buildMcpRegistry(config, createCoreMcpCapabilities(() => config))
 }
 
-function validatePagesConfig(pages: OpenShopConfig['pages']): void {
+export function validatePagesConfig(pages: OpenShopConfig['pages']): void {
   if (pages === undefined) return
   if (!isRecord(pages)) fail('pages must be an object')
 

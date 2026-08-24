@@ -1,7 +1,7 @@
 import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ProviderFieldDefinitions, ProviderMethod, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, AnyFunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders, McpConfig, AdminPagesConfig, AuthenticatedServerRouteDefinition, UnauthenticatedServerRouteDefinition } from './types.ts'
 import type { Type } from 'arktype'
 import type { StandardCRON } from 'ts-cron-validator'
-import { validateOpenShopConfig } from './config/validate.ts'
+import { validateOpenShopConfig, validatePagesConfig } from './config/validate.ts'
 
 interface OpenShopAppBase<TProviders extends Record<string, ProviderDefinition>> {
   shopify?: ShopifyConfig
@@ -79,6 +79,7 @@ function validateConfig<
 export function defineOpenShop<const TProviders extends Record<string, ProviderDefinition>>(
   app: OpenShopAppBase<TProviders>,
 ): OpenShopApp<TProviders> {
+  validatePagesConfig(app.pages)
   type AppConnectors = ConnectorsFromProviders<TProviders>
 
   function defineRoute(route: UnauthenticatedServerRouteDefinition<AppConnectors>): UnauthenticatedServerRouteDefinition<AppConnectors>
@@ -113,13 +114,16 @@ export function defineOpenShop<const TProviders extends Record<string, ProviderD
       const TFlows extends Record<string, FlowDefinition<unknown>>,
       const TFunctions extends Record<string, AnyFunctionDefinition> = Record<string, AnyFunctionDefinition>,
     >(config: OpenShopConfigInput<TProviders, TFlows, TFunctions>): OpenShopConfig<TProviders, TFlows, TFunctions> {
+      validatePagesConfig(config.pages)
       return validateConfig({
         ...app,
         ...config,
         shopify: config.shopify ?? app.shopify,
         providers: app.providers,
         mcp: config.mcp ?? app.mcp,
-        pages: (app.pages || config.pages) ? { ...app.pages, ...config.pages } : undefined,
+        pages: app.pages === undefined && config.pages === undefined
+          ? undefined
+          : { ...app.pages, ...config.pages },
         worker: config.worker ?? app.worker,
         retryPolicy: config.retryPolicy ?? app.retryPolicy,
         onError: config.onError ?? app.onError,

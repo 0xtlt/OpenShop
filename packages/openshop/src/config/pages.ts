@@ -1,7 +1,12 @@
-import type { AdminPageId, AdminPageMode, AdminPagesConfig, OpenShopConfig, ResolvedAdminPages } from '../types.ts'
+/** Admin screens that can be hidden from nav or disabled entirely. Home is always visible. */
+export const ADMIN_PAGE_IDS = ['flows', 'providers', 'crons', 'functions', 'mcp'] as const
+export const ADMIN_PAGE_MODES = ['visible', 'hidden', 'disabled'] as const
 
-export const ADMIN_PAGE_IDS: readonly AdminPageId[] = ['flows', 'providers', 'crons', 'functions', 'mcp']
-export const ADMIN_PAGE_MODES: readonly AdminPageMode[] = ['visible', 'hidden', 'disabled']
+export type AdminPageId = (typeof ADMIN_PAGE_IDS)[number]
+/** `visible` shows the nav link; `hidden` keeps the URL; `disabled` blocks UI and admin API. */
+export type AdminPageMode = (typeof ADMIN_PAGE_MODES)[number]
+export type AdminPagesConfig = Partial<Record<AdminPageId, AdminPageMode>>
+export type ResolvedAdminPages = Record<AdminPageId, AdminPageMode>
 
 const adminPageIds = new Set<string>(ADMIN_PAGE_IDS)
 const adminPageModes = new Set<string>(ADMIN_PAGE_MODES)
@@ -22,10 +27,6 @@ export function resolveAdminPages(pages?: AdminPagesConfig): ResolvedAdminPages 
     functions: pages?.functions ?? 'visible',
     mcp: pages?.mcp ?? 'visible',
   }
-}
-
-export function resolveAdminPagesFromConfig(config: Pick<OpenShopConfig, 'pages'>): ResolvedAdminPages {
-  return resolveAdminPages(config.pages)
 }
 
 export function sameAdminPages(left: ResolvedAdminPages, right: ResolvedAdminPages): boolean {

@@ -222,4 +222,22 @@ test.group('defineOpenShop config validation', () => {
       pages: { flows: 'off' } as never,
     }), /pages.flows must be "visible", "hidden", "disabled"/)
   })
+
+  test('rejects non-object pages passed to defineOpenShop', ({ assert }) => {
+    for (const pages of [null, false, true, 0, [], 'disabled']) {
+      assert.throws(() => defineOpenShop({
+        providers: {},
+        pages: pages as never,
+      }), /pages must be an object/)
+    }
+  })
+
+  test('rejects non-object pages passed to defineConfig', ({ assert }) => {
+    for (const pages of [null, false, true, 0, [], 'disabled']) {
+      assert.throws(() => emptyApp.defineConfig({
+        flows: { sync: flow },
+        pages: pages as never,
+      }), /pages must be an object/)
+    }
+  })
 })

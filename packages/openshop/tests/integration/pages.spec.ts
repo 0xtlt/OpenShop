@@ -98,9 +98,17 @@ test.group('Admin page visibility', (group) => {
     assert.equal((await req(app, '/api/functions')).status, 404)
     assert.equal((await req(app, '/api/mcp/capabilities')).status, 404)
 
+    const encodedStatuses = await Promise.all([
+      '/api/%66lows',
+      '/api/%72uns?limit=10',
+      '/api/%66unctions',
+      '/api/%6dcp/capabilities',
+    ].map(async (path) => (await req(app, path)).status))
+    assert.deepEqual(encodedStatuses, [404, 404, 404, 404])
+
     assert.equal((await req(app, '/api/providers')).status, 200)
     assert.equal((await req(app, '/api/crons')).status, 200)
-  })
+  }).timeout(5000)
 
   test('disabling the MCP admin page does not disable the MCP protocol', async ({ assert }) => {
     const config = createConfig({ 'test-flow': simpleFlow }, {

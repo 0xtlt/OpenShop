@@ -10,7 +10,7 @@ import Crons from './pages/Crons'
 import Mcp from './pages/Mcp'
 import { addShopifyNavigateListener } from './navigation'
 import { apiJson } from './fetch'
-import { AdminPagesContext, gateAdminPage, useAdminPages } from './admin-pages'
+import { AdminPageGate, AdminPagesContext, useAdminPages } from './admin-pages'
 import { sameAdminPages } from '../config/pages.ts'
 import type { ResolvedAdminPages } from '../types.ts'
 
@@ -108,11 +108,13 @@ function AuthGate({ children }: { children: ComponentChildren }) {
       if (document.visibilityState === 'visible') refresh()
     }
     document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', refresh)
 
     return () => {
       active = false
       clearInterval(iv)
       document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', refresh)
     }
   }, [status, url])
 
@@ -146,31 +148,26 @@ function ShopifyNavigateBridge() {
   return null
 }
 
-const FlowsPage = gateAdminPage('flows', Flows)
-const FlowRunPage = gateAdminPage('flows', FlowRun)
-const CronsPage = gateAdminPage('crons', Crons)
-const ProvidersPage = gateAdminPage('providers', Providers)
-const McpPage = gateAdminPage('mcp', Mcp)
-const FunctionsPage = gateAdminPage('functions', Functions)
-
 export default function App() {
   return (
     <LocationProvider>
       <ShopifyNavigateBridge />
       <AuthGate>
         <NavMenu />
-        <Router>
-          <Route path="/" component={Home} />
-          <Route path="/flows" component={FlowsPage} />
-          <Route path="/flows/:name" component={FlowsPage} />
-          <Route path="/runs/:id" component={FlowRunPage} />
-          <Route path="/crons" component={CronsPage} />
-          <Route path="/providers" component={ProvidersPage} />
-          <Route path="/mcp" component={McpPage} />
-          <Route path="/functions" component={FunctionsPage} />
-          <Route path="/functions/:handle" component={FunctionsPage} />
-          <Route path="/functions/:handle/:action" component={FunctionsPage} />
-        </Router>
+        <AdminPageGate>
+          <Router>
+            <Route path="/" component={Home} />
+            <Route path="/flows" component={Flows} />
+            <Route path="/flows/:name" component={Flows} />
+            <Route path="/runs/:id" component={FlowRun} />
+            <Route path="/crons" component={Crons} />
+            <Route path="/providers" component={Providers} />
+            <Route path="/mcp" component={Mcp} />
+            <Route path="/functions" component={Functions} />
+            <Route path="/functions/:handle" component={Functions} />
+            <Route path="/functions/:handle/:action" component={Functions} />
+          </Router>
+        </AdminPageGate>
       </AuthGate>
     </LocationProvider>
   )

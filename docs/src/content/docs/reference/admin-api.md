@@ -61,7 +61,7 @@ When a page is `disabled`, its admin API group returns `404` with `{ "error": "N
 - `functions` covers `/api/functions`
 - `mcp` covers `/api/mcp`
 
-`hidden` only removes the Shopify sidebar link; the URL and admin API still work. Runtime endpoints such as `POST /mcp`, webhooks, and the worker are not gated by `pages`.
+`hidden` only removes the Shopify sidebar link; the URL and admin API still work. It is not an access-control boundary. Use `disabled` when shop staff must not be able to open a page or call its admin API. Runtime endpoints such as `POST /mcp`, webhooks, and the worker are not gated by `pages`.
 
 ## Flows and runs
 
@@ -185,4 +185,3 @@ its ID and fingerprint.
 | `404` | Resource not found within the authenticated app and shop, or the admin page is `disabled`. |
 | `409` | Lifecycle or concurrency conflict. |
 | `500` | Provider checker or unexpected server failure. |
-

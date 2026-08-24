@@ -38,8 +38,12 @@ an empty body.
 ## Tokens
 
 Create and manage tokens from the embedded `/mcp` page. Set `pages.mcp` to
-`hidden` or `disabled` to remove that screen from the admin UI; `mcp.enabled:
-false` disables the JSON-RPC endpoint instead.
+`hidden` to remove only its sidebar link, or to `disabled` to block the page and
+`/api/mcp/*`. Set `mcp.enabled: false` to disable the JSON-RPC endpoint. Set
+both `pages.mcp: 'disabled'` and `mcp.enabled: false` to disable MCP completely.
+
+`hidden` is navigation-only: the direct page URL and admin API remain available.
+It must not be used as an access-control boundary.
 
 - The plaintext token is returned only on create or rotate.
 - OpenShop stores a hash, stable token ID, and display fingerprint.

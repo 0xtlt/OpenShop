@@ -135,7 +135,23 @@ export default app.defineConfig({
 | `hidden` | Hidden | Works | 200 |
 | `disabled` | Hidden | Shows “This page is disabled” | 404 |
 
-Supported keys: `flows`, `providers`, `crons`, `functions`, `mcp`. You can set defaults on `defineOpenShop({ pages })` and override individual pages in `defineConfig()`. `pages.mcp` only affects the `/mcp` admin screen and `/api/mcp/*`; it does not replace `mcp.enabled`.
+Supported keys: `flows`, `providers`, `crons`, `functions`, `mcp`. You can set defaults on `defineOpenShop({ pages })` and override individual pages in `defineConfig()`.
+
+`hidden` is navigation-only and must not be used as an access-control boundary. Use `disabled` when shop staff must not be able to open a page or call its admin API.
+
+The MCP dashboard and protocol are independent:
+
+```ts
+export default app.defineConfig({
+  flows: { syncOrders },
+  pages: { mcp: 'disabled' }, // Block the dashboard and /api/mcp/*.
+  mcp: { enabled: false },    // Block POST /mcp.
+})
+```
+
+- Set only `pages.mcp: 'disabled'` to block MCP administration while existing MCP tokens can continue using `POST /mcp`.
+- Set only `mcp.enabled: false` to stop the protocol while leaving the dashboard available for token administration.
+- Set both values to disable MCP completely.
 
 ## Runtime validation
 

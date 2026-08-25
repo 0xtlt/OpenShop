@@ -34,7 +34,7 @@ export function FunctionList() {
           <s-box key={fn.handle} padding="large-100" background="base" border="base" borderRadius="large">
             <s-stack direction="inline" justifyContent="space-between" alignItems="center">
               <s-stack gap="small">
-                <s-heading>{fn.key}</s-heading>
+                <s-heading>{fn.label}</s-heading>
                 <s-stack direction="inline" gap="base">
                   <s-badge>{TYPE_LABELS[fn.type] ?? fn.type}</s-badge>
                   {fn.modes && fn.modes.length > 1 && (

@@ -141,6 +141,9 @@ export function validateOpenShopConfig(config: OpenShopConfig): void {
   for (const [key, fn] of Object.entries(config.functions ?? {})) {
     if (!functionTypes.has(fn.type)) fail(`functions.${key}.type is not supported`)
     if (typeof fn.handle !== 'string' || fn.handle.trim() === '') fail(`functions.${key}.handle must be a non-empty string`)
+    if (fn.label !== undefined && (typeof fn.label !== 'string' || fn.label.trim() === '')) {
+      fail(`functions.${key}.label must be a non-empty string`)
+    }
     if (functionHandles.has(fn.handle)) fail(`functions.${key}.handle duplicates "${fn.handle}"`)
     functionHandles.add(fn.handle)
 

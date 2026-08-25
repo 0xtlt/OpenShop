@@ -237,6 +237,8 @@ export interface FunctionOwner<TConfig = Record<string, unknown>> {
 export interface FunctionDefinition<TFields extends ProviderFieldDefinitions = ProviderFieldDefinitions> {
   type: ShopifyFunctionType
   handle: string
+  /** Merchant-facing label used by OpenShop. Shopify owners may not have a title. */
+  label?: string
   modes?: DiscountMode[]
   owner?: FunctionOwner<ConfigFromFields<TFields>>
   config: TFields

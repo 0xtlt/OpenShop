@@ -50,6 +50,7 @@ export interface OpenShopApp<TProviders extends Record<string, ProviderDefinitio
   defineFunction<const TFields extends ProviderFieldDefinitions>(fn: {
     type: ShopifyFunctionType
     handle: string
+    label?: string
     modes?: DiscountMode[]
     owner?: FunctionOwner<ConfigFromFields<TFields>>
     config: TFields
@@ -97,6 +98,7 @@ export function defineOpenShop<const TProviders extends Record<string, ProviderD
     defineFunction<const TFields extends ProviderFieldDefinitions>(fn: {
       type: ShopifyFunctionType
       handle: string
+      label?: string
       modes?: DiscountMode[]
       owner?: FunctionOwner<ConfigFromFields<TFields>>
       config: TFields

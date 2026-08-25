@@ -59,6 +59,20 @@ test.group('defineOpenShop config validation', () => {
     }), /duplicates "volume-discount"/)
   })
 
+  test('rejects an empty Shopify Function label', ({ assert }) => {
+    const fn = emptyApp.defineFunction({
+      type: 'cart-transform',
+      handle: 'cart-transform',
+      label: '   ',
+      config: {},
+    })
+
+    assert.throws(() => emptyApp.defineConfig({
+      flows: { sync: flow },
+      functions: { fn },
+    }), /label must be a non-empty string/)
+  })
+
   test('rejects invalid worker numbers', ({ assert }) => {
     assert.throws(() => emptyApp.defineConfig({
       flows: { sync: flow },

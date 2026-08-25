@@ -11,6 +11,7 @@ WASM extension.
 export const volumeDiscount = app.defineFunction({
   type: 'discount',
   handle: 'volume-discount',
+  label: 'Volume discount',
   modes: ['automatic', 'code'],
   owner: {
     title: (config) => `Volume discount ${config.threshold}`,
@@ -27,6 +28,8 @@ export const volumeDiscount = app.defineFunction({
 
 The `handle` must match the Shopify Function extension handle deployed for the
 app. OpenShop requires handles to be non-empty and unique in its config.
+`label` is optional, stays local to OpenShop, and falls back to the humanized
+key used in the `functions` config.
 
 ## Supported lifecycle
 
@@ -43,6 +46,11 @@ For types without update, the API returns a 400 instructing the caller to delete
 and recreate. These mappings reflect the GraphQL operations currently used by
 OpenShop; Shopify availability and required scopes depend on the Admin API
 version and app configuration.
+
+Cart Transform is a singleton owner. Shopify does not provide it with a title
+or an editable enabled status, so OpenShop displays the definition `label` and
+derives `Active` from the owner's existence. Its creation form exposes
+`blockOnFailure`; once an owner exists, the Create action is hidden.
 
 ## Configuration fields
 

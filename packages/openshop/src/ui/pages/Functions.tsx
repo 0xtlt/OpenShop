@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'preact/hooks'
 import { useLocation } from 'preact-iso'
 import { apiFetch } from '../fetch'
-import { eventValue } from '../events'
+import { eventChecked, eventValue } from '../events'
 import { ConfigFieldRenderer } from '../components/ConfigFieldRenderer'
 import type { BannerTone } from '../types'
 import { FunctionInstances } from './functions/FunctionInstances'
 import { FunctionList } from './functions/FunctionList'
 import { TYPE_LABELS, type FunctionDef, type FunctionInstance } from './functions/types'
+import { hasConfigFields } from './functions/model'
 
 export default function Functions({ handle, action }: { handle?: string; action?: string }) {
   if (handle && action === 'new') return <FunctionForm handle={handle} />
@@ -21,6 +22,7 @@ function FunctionForm({ handle, instanceId }: { handle: string; instanceId?: str
   const [fnDef, setFnDef] = useState<FunctionDef | null>(null)
   const [form, setForm] = useState<Record<string, string>>({})
   const [mode, setMode] = useState<string>('automatic')
+  const [blockOnFailure, setBlockOnFailure] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [msg, setMsg] = useState<{ tone: BannerTone; text: string } | null>(null)
@@ -31,6 +33,7 @@ function FunctionForm({ handle, instanceId }: { handle: string; instanceId?: str
   }
 
   useEffect(() => {
+    setBlockOnFailure(false)
     apiFetch('/api/functions').then((r) => r.json()).then((defs: FunctionDef[]) => {
       const def = defs.find((d) => d.handle === handle)
       if (def) {
@@ -45,11 +48,13 @@ function FunctionForm({ handle, instanceId }: { handle: string; instanceId?: str
         if (inst?.config) {
           setForm(Object.fromEntries(Object.entries(inst.config).map(([k, v]) => [k, String(v ?? '')])))
         }
+        if (inst?.blockOnFailure !== undefined) setBlockOnFailure(inst.blockOnFailure)
       })
     }
   }, [handle, instanceId])
 
   const save = async () => {
+    if (!fnDef) return
     setSaving(true)
     setMsg(null)
     try {
@@ -59,7 +64,11 @@ function FunctionForm({ handle, instanceId }: { handle: string; instanceId?: str
       const res = await apiFetch(endpoint, {
         method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: form, mode }),
+        body: JSON.stringify({
+          config: form,
+          mode,
+          ...(fnDef.type === 'cart-transform' ? { blockOnFailure } : {}),
+        }),
       })
       const data = await res.json()
       if (res.ok) {
@@ -120,7 +129,7 @@ function FunctionForm({ handle, instanceId }: { handle: string; instanceId?: str
     )}
     <s-page heading={isEdit ? 'Edit instance' : `New ${typeLabel}`}>
       <s-link slot="breadcrumb-actions" href={`/functions/${handle}`} onClick={(event: Event) => { event.preventDefault(); route(`/functions/${handle}`) }}>
-        {fnDef.key}
+        {fnDef.label}
       </s-link>
       <s-button
         slot="primary-action"
@@ -140,6 +149,17 @@ function FunctionForm({ handle, instanceId }: { handle: string; instanceId?: str
           </s-banner>
         )}
 
+        {fnDef.type === 'cart-transform' && (
+          <s-box padding="large-100" background="base" border="base" borderRadius="large">
+            <s-checkbox
+              label="Block checkout when the Cart Transform fails"
+              checked={blockOnFailure}
+              disabled={isEdit}
+              onChange={(event) => setBlockOnFailure(eventChecked(event))}
+            />
+          </s-box>
+        )}
+
         {fnDef.modes && fnDef.modes.length > 1 && (
           <s-box padding="large-100" background="base" border="base" borderRadius="large">
             <s-select label="Discount mode" value={mode} onChange={(event) => setMode(eventValue(event))}>
@@ -150,22 +170,24 @@ function FunctionForm({ handle, instanceId }: { handle: string; instanceId?: str
           </s-box>
         )}
 
-        <s-box padding="large-100" background="base" border="base" borderRadius="large">
-          <s-stack gap="base">
-            <s-heading>Configuration</s-heading>
-            {Object.entries(fnDef.fields).map(([key, field]) => {
-              return (
-                <ConfigFieldRenderer
-                  key={key}
-                  fieldKey={key}
-                  field={field}
-                  value={form[key] ?? ''}
-                  onChange={updateField}
-                />
-              )
-            })}
-          </s-stack>
-        </s-box>
+        {hasConfigFields(fnDef) && (
+          <s-box padding="large-100" background="base" border="base" borderRadius="large">
+            <s-stack gap="base">
+              <s-heading>Configuration</s-heading>
+              {Object.entries(fnDef.fields).map(([key, field]) => {
+                return (
+                  <ConfigFieldRenderer
+                    key={key}
+                    fieldKey={key}
+                    field={field}
+                    value={form[key] ?? ''}
+                    onChange={updateField}
+                  />
+                )
+              })}
+            </s-stack>
+          </s-box>
+        )}
 
         {isEdit && (
           <s-box padding="large-100" background="base" border="base" borderRadius="large">

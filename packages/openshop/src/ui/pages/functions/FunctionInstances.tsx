@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'preact/hooks'
 import { useLocation } from 'preact-iso'
 import { apiFetch } from '../../fetch'
 import { TYPE_LABELS, type FunctionDef, type FunctionInstance } from './types'
+import { canCreateInstance, instanceIsActive, instanceLabel, instanceState } from './model'
 
 export function FunctionInstances({ handle }: { handle: string }) {
   const [instances, setInstances] = useState<FunctionInstance[]>([])
@@ -35,15 +36,18 @@ export function FunctionInstances({ handle }: { handle: string }) {
   useEffect(() => { load() }, [load])
 
   const typeLabel = fnDef ? (TYPE_LABELS[fnDef.type] ?? fnDef.type) : ''
+  const canCreate = canCreateInstance(fnDef, instances, !loading && error === null)
 
   return (
-    <s-page heading={fnDef?.key ?? handle}>
+    <s-page heading={fnDef?.label ?? handle}>
       <s-link slot="breadcrumb-actions" href="/functions" onClick={(event: Event) => { event.preventDefault(); route('/functions') }}>
         Functions
       </s-link>
-      <s-button slot="primary-action" variant="primary" onClick={() => route(`/functions/${handle}/new`)}>
-        Create instance
-      </s-button>
+      {canCreate && (
+        <s-button slot="primary-action" variant="primary" onClick={() => route(`/functions/${handle}/new`)}>
+          Create instance
+        </s-button>
+      )}
 
       {error && <s-banner tone="critical">{error}</s-banner>}
 
@@ -59,9 +63,11 @@ export function FunctionInstances({ handle }: { handle: string }) {
               Create your first {typeLabel} instance to start using this function.
               Each instance has its own configuration stored as metafields on Shopify.
             </s-paragraph>
-            <s-button variant="primary" onClick={() => route(`/functions/${handle}/new`)}>
-              Create first instance
-            </s-button>
+            {canCreate && (
+              <s-button variant="primary" onClick={() => route(`/functions/${handle}/new`)}>
+                Create first instance
+              </s-button>
+            )}
           </s-stack>
         </s-box>
       ) : (
@@ -69,7 +75,7 @@ export function FunctionInstances({ handle }: { handle: string }) {
           <s-text color="subdued">{instances.length} instance{instances.length !== 1 ? 's' : ''} — {typeLabel}</s-text>
           <s-table>
             <s-table-header-row>
-              <s-table-header listSlot="primary">Title</s-table-header>
+              <s-table-header listSlot="primary">{fnDef?.type === 'cart-transform' ? 'Label' : 'Title'}</s-table-header>
               <s-table-header listSlot="inline">Status</s-table-header>
               <s-table-header listSlot="secondary">Configuration</s-table-header>
               <s-table-header></s-table-header>
@@ -77,10 +83,10 @@ export function FunctionInstances({ handle }: { handle: string }) {
             <s-table-body>
               {instances.map((inst) => (
                 <s-table-row key={inst.id}>
-                  <s-table-cell>{inst.title ?? '(untitled)'}</s-table-cell>
+                  <s-table-cell>{instanceLabel(inst)}</s-table-cell>
                   <s-table-cell>
-                    <s-badge tone={inst.status === 'ACTIVE' || inst.enabled ? 'success' : 'warning'}>
-                      {inst.status ?? (inst.enabled ? 'Active' : 'Inactive')}
+                    <s-badge tone={instanceIsActive(inst) ? 'success' : 'warning'}>
+                      {instanceState(inst)}
                     </s-badge>
                   </s-table-cell>
                   <s-table-cell>

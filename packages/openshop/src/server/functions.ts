@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { getShop, getShopifyApp } from '#server/shop'
-import type { OpenShopConfig, DiscountMode } from '#types'
+import type { AnyFunctionDefinition, OpenShopConfig, DiscountMode } from '#types'
+import type { ShopifyClient } from '../shopify/client.ts'
 import { validateFunctionConfig } from '#server/function-config'
 import {
   METAFIELD_NAMESPACE,
@@ -27,6 +28,58 @@ function discountModeFromBody(body: Record<string, unknown>, fallback: DiscountM
   return body.mode === 'automatic' || body.mode === 'code' ? body.mode : fallback
 }
 
+function humanize(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[-_]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (character) => character.toUpperCase())
+}
+
+function functionLabel(key: string, def: AnyFunctionDefinition): string {
+  return def.label?.trim() || humanize(key) || humanize(def.handle)
+}
+
+function findFunction(config: OpenShopConfig, handle: string) {
+  const entry = Object.entries(config.functions ?? {}).find(([, definition]) => definition.handle === handle)
+  if (!entry) return undefined
+  return { key: entry[0], definition: entry[1], label: functionLabel(entry[0], entry[1]) }
+}
+
+function connectionNodes(data: unknown, key: string): Record<string, unknown>[] {
+  const root = gql(data)
+  const nodes = root[key]?.nodes
+  return Array.isArray(nodes) ? nodes.filter(isRecord) : []
+}
+
+async function listCartTransformInstances(shopify: ShopifyClient, handle: string, label: string) {
+  const query = `#graphql
+    query ListCartTransformInstances($metafieldKey: String!) {
+      shopifyFunctions(first: 100) { nodes { id handle } }
+      cartTransforms(first: 50) {
+        nodes {
+          id functionId blockOnFailure
+          metafield(namespace: "${METAFIELD_NAMESPACE}", key: $metafieldKey) { value }
+        }
+      }
+    }`
+  const data = await shopify.graphql(query, { variables: { metafieldKey: handle } })
+  const handles = new Map(connectionNodes(data, 'shopifyFunctions').map((fn) => [fn.id, fn.handle]))
+
+  return connectionNodes(data, 'cartTransforms')
+    .filter((node) => handles.get(node.functionId) === handle)
+    .map((node) => {
+      const metafield = isRecord(node.metafield) ? node.metafield : {}
+      return {
+        id: node.id,
+        label,
+        state: 'active' as const,
+        blockOnFailure: node.blockOnFailure === true,
+        config: metafield.value ? JSON.parse(String(metafield.value)) : {},
+      }
+    })
+}
+
 // ─── Routes ──────────────────────────────────────────────────────────
 
 export function createFunctionRoutes(getConfig: () => OpenShopConfig) {
@@ -44,10 +97,12 @@ export function createFunctionRoutes(getConfig: () => OpenShopConfig) {
       }
       return {
         key,
+        label: functionLabel(key, def),
         type: def.type,
         handle: def.handle,
         modes: def.type === 'discount' ? (def.modes ?? ['automatic']) : undefined,
         supportsUpdate: def.type !== 'cart-transform' && def.type !== 'fulfillment-constraints',
+        singleton: def.type === 'cart-transform',
         fields,
       }
     })
@@ -60,14 +115,19 @@ export function createFunctionRoutes(getConfig: () => OpenShopConfig) {
     const shop = getShop(c)
     const shopifyApp = getShopifyApp(c)
     const handle = c.req.param('handle')
-    const def = config.functions ? Object.values(config.functions).find((f) => f.handle === handle) : undefined
-    if (!def) return c.json({ error: 'Function not found' }, 404)
+    const resolved = findFunction(config, handle)
+    if (!resolved) return c.json({ error: 'Function not found' }, 404)
+    const def = resolved.definition
 
     const mutations = getMutations(def)
     if (!mutations) return c.json({ error: `Function type "${def.type}" has no GraphQL API` }, 400)
 
     const { createShopifyClient } = await import('../shopify/client.ts')
     const shopify = await createShopifyClient(shop, shopifyApp)
+
+    if (def.type === 'cart-transform') {
+      return c.json(await listCartTransformInstances(shopify, handle, resolved.label))
+    }
 
     if (def.type === 'discount') {
       const query = `#graphql
@@ -109,7 +169,7 @@ export function createFunctionRoutes(getConfig: () => OpenShopConfig) {
         ${mutations.list}(first: 50) {
           nodes {
             id
-            ${def.type !== 'cart-transform' ? 'title enabled' : 'blockOnFailure'}
+            title enabled
             metafield(namespace: "${METAFIELD_NAMESPACE}", key: "${handle}") { value }
           }
         }
@@ -131,8 +191,9 @@ export function createFunctionRoutes(getConfig: () => OpenShopConfig) {
     const shop = getShop(c)
     const shopifyApp = getShopifyApp(c)
     const handle = c.req.param('handle')
-    const def = config.functions ? Object.values(config.functions).find((f) => f.handle === handle) : undefined
-    if (!def) return c.json({ error: 'Function not found' }, 404)
+    const resolved = findFunction(config, handle)
+    if (!resolved) return c.json({ error: 'Function not found' }, 404)
+    const def = resolved.definition
 
     const mutations = getMutations(def)
     if (!mutations) return c.json({ error: `Function type "${def.type}" has no GraphQL API` }, 400)
@@ -146,6 +207,11 @@ export function createFunctionRoutes(getConfig: () => OpenShopConfig) {
     const { createShopifyClient } = await import('../shopify/client.ts')
     const shopify = await createShopifyClient(shop, shopifyApp)
 
+    if (def.type === 'cart-transform'
+      && (await listCartTransformInstances(shopify, handle, resolved.label)).length > 0) {
+      return c.json({ error: 'This Cart Transform already has an instance' }, 409)
+    }
+
     const title = resolveTitle(def.owner, fnConfig)
     const request = buildCreateMutation(def, handle, mode, title, fnConfig, body)
     if (!request) {
@@ -156,6 +222,9 @@ export function createFunctionRoutes(getConfig: () => OpenShopConfig) {
     const errors = extractErrors(result)
 
     if (errors.length) {
+      if (def.type === 'cart-transform' && errors.some((error) => error.code === 'FUNCTION_ALREADY_REGISTERED')) {
+        return c.json({ error: 'This Cart Transform already has an instance', userErrors: errors }, 409)
+      }
       return c.json({ error: errors.map((e) => e.message).join(', '), userErrors: errors }, 400)
     }
 

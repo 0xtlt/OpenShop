@@ -50,6 +50,7 @@ const functions = {
   cartTransform: {
     type: 'cart-transform',
     handle: 'cart-transform',
+    label: 'Bundle cart transform',
     config: {
       message: { type: 'text', label: 'Message' },
     },
@@ -116,7 +117,8 @@ test.group('API Shopify functions', (group) => {
   let app: Awaited<ReturnType<typeof createServer>>
   let originalFetch: typeof globalThis.fetch
   let graphqlCalls: GraphqlCall[] = []
-  let nextUserErrors: Array<{ field: string; message: string }> | null = null
+  let nextUserErrors: Array<{ field: string; message: string; code?: string }> | null = null
+  let cartTransformNodes: Record<string, unknown>[] = []
 
   group.setup(async () => {
     const config = createConfig({}, { functions })
@@ -133,6 +135,7 @@ test.group('API Shopify functions', (group) => {
 
     graphqlCalls = []
     nextUserErrors = null
+    cartTransformNodes = []
     originalFetch = globalThis.fetch
     globalThis.fetch = async (_input, init) => {
       const body = JSON.parse(String(init?.body ?? '{}')) as Omit<GraphqlCall, 'url' | 'accessToken'>
@@ -173,6 +176,20 @@ test.group('API Shopify functions', (group) => {
                 metafield: { value: JSON.stringify({ message: 'ship it' }) },
               }],
             },
+          },
+        })
+      }
+
+      if (body.query.includes('ListCartTransformInstances')) {
+        return Response.json({
+          data: {
+            shopifyFunctions: {
+              nodes: [
+                { id: 'function-cart', handle: 'cart-transform' },
+                { id: 'function-other', handle: 'other-cart-transform' },
+              ],
+            },
+            cartTransforms: { nodes: cartTransformNodes },
           },
         })
       }
@@ -229,7 +246,11 @@ test.group('API Shopify functions', (group) => {
     const data = await res.json()
     assert.isArray(data)
     assert.lengthOf(data, 6)
-    assert.equal(data.find((def: { handle: string }) => def.handle === 'cart-transform').supportsUpdate, false)
+    assert.deepInclude(data.find((def: { handle: string }) => def.handle === 'cart-transform'), {
+      label: 'Bundle cart transform',
+      singleton: true,
+      supportsUpdate: false,
+    })
     assert.equal(data.find((def: { handle: string }) => def.handle === 'delivery-rules').supportsUpdate, true)
     assert.notProperty(data.find((def: { handle: string }) => def.handle === 'volume-discount').fields.percent, 'validate')
     assert.lengthOf(graphqlCalls, 0)
@@ -264,6 +285,35 @@ test.group('API Shopify functions', (group) => {
       config: { message: 'ship it' },
     })
     assert.include(lastCall().query, 'deliveryCustomizations')
+  })
+
+  test('normalizes and filters Cart Transform instances by deployed function handle', async ({ assert }) => {
+    cartTransformNodes = [
+      {
+        id: 'gid://shopify/CartTransform/1',
+        functionId: 'function-cart',
+        blockOnFailure: true,
+        metafield: { value: JSON.stringify({ message: 'bundle' }) },
+      },
+      {
+        id: 'gid://shopify/CartTransform/2',
+        functionId: 'function-other',
+        blockOnFailure: false,
+        metafield: null,
+      },
+    ]
+
+    const res = await req('/api/functions/cart-transform/instances')
+
+    assert.equal(res.status, 200)
+    assert.deepEqual(await res.json(), [{
+      id: 'gid://shopify/CartTransform/1',
+      label: 'Bundle cart transform',
+      state: 'active',
+      blockOnFailure: true,
+      config: { message: 'bundle' },
+    }])
+    assert.deepEqual(lastCall().variables, { metafieldKey: 'cart-transform' })
   })
 
   test('uses the JWT shop installation for Shopify function reads and writes', async ({ assert }) => {
@@ -385,6 +435,43 @@ test.group('API Shopify functions', (group) => {
       enable: true,
       blockOnFailure: true,
     })
+  })
+
+  test('rejects a second Cart Transform instance', async ({ assert }) => {
+    cartTransformNodes = [{
+      id: 'gid://shopify/CartTransform/1',
+      functionId: 'function-cart',
+      blockOnFailure: false,
+      metafield: null,
+    }]
+
+    const res = await jsonReq('POST', '/api/functions/cart-transform/instances', {
+      blockOnFailure: true,
+      config: { message: 'duplicate' },
+    })
+
+    assert.equal(res.status, 409)
+    assert.deepEqual(await res.json(), { error: 'This Cart Transform already has an instance' })
+    assert.lengthOf(graphqlCalls, 1)
+    assert.include(lastCall().query, 'ListCartTransformInstances')
+  })
+
+  test('maps Shopify Cart Transform duplicate races to conflict', async ({ assert }) => {
+    nextUserErrors = [{
+      field: 'functionHandle',
+      message: 'A cart transform already exists for this function',
+      code: 'FUNCTION_ALREADY_REGISTERED',
+    }]
+
+    const res = await jsonReq('POST', '/api/functions/cart-transform/instances', {
+      blockOnFailure: true,
+      config: { message: 'racing duplicate' },
+    })
+    const body = await res.json()
+
+    assert.equal(res.status, 409)
+    assert.equal(body.error, 'This Cart Transform already has an instance')
+    assert.include(lastCall().query, 'userErrors { field message code }')
   })
 
   test('updates supported instances from a single parsed body', async ({ assert }) => {

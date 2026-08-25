@@ -1,7 +1,13 @@
 import type { FunctionDef, FunctionInstance } from './types'
 
-export function canCreateInstance(definition: FunctionDef | null, instances: FunctionInstance[]): boolean {
-  return Boolean(definition && (!definition.singleton || instances.length === 0))
+export function canCreateInstance(
+  definition: FunctionDef | null,
+  instances: FunctionInstance[],
+  instancesLoaded = true,
+): boolean {
+  if (!definition) return false
+  if (!definition.singleton) return true
+  return instancesLoaded && instances.length === 0
 }
 
 export function instanceLabel(instance: FunctionInstance): string {

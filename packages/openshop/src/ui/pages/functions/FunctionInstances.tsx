@@ -36,7 +36,7 @@ export function FunctionInstances({ handle }: { handle: string }) {
   useEffect(() => { load() }, [load])
 
   const typeLabel = fnDef ? (TYPE_LABELS[fnDef.type] ?? fnDef.type) : ''
-  const canCreate = canCreateInstance(fnDef, instances)
+  const canCreate = canCreateInstance(fnDef, instances, !loading && error === null)
 
   return (
     <s-page heading={fnDef?.label ?? handle}>

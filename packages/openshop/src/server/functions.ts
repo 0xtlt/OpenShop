@@ -222,6 +222,9 @@ export function createFunctionRoutes(getConfig: () => OpenShopConfig) {
     const errors = extractErrors(result)
 
     if (errors.length) {
+      if (def.type === 'cart-transform' && errors.some((error) => error.code === 'FUNCTION_ALREADY_REGISTERED')) {
+        return c.json({ error: 'This Cart Transform already has an instance', userErrors: errors }, 409)
+      }
       return c.json({ error: errors.map((e) => e.message).join(', '), userErrors: errors }, 400)
     }
 

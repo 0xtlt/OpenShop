@@ -38,4 +38,8 @@ test.group('Function UI model', () => {
     assert.isFalse(canCreateInstance(cartTransform, [instance]))
     assert.isFalse(hasConfigFields(cartTransform))
   })
+
+  test('hides singleton creation while instance discovery is unknown', ({ assert }) => {
+    assert.isFalse(canCreateInstance(cartTransform, [], false))
+  })
 })

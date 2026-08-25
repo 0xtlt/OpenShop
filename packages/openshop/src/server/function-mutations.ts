@@ -4,6 +4,7 @@ import { DISCOUNT_MUTATIONS, FUNCTION_MUTATIONS, type MutationSet } from './func
 export interface ShopifyUserError {
   field: string
   message: string
+  code?: string
 }
 
 export interface MutationRequest {
@@ -122,7 +123,7 @@ export function buildCreateMutation(
         mutation CreateCartTransform($functionHandle: String!, $blockOnFailure: Boolean, $metafields: [MetafieldInput!]) {
           cartTransformCreate(functionHandle: $functionHandle, blockOnFailure: $blockOnFailure, metafields: $metafields) {
             cartTransform { id }
-            userErrors { field message }
+            userErrors { field message code }
           }
         }`,
       variables: { functionHandle: handle, blockOnFailure: body.blockOnFailure ?? false, metafields: [metafield] },

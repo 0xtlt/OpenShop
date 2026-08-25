@@ -117,7 +117,7 @@ test.group('API Shopify functions', (group) => {
   let app: Awaited<ReturnType<typeof createServer>>
   let originalFetch: typeof globalThis.fetch
   let graphqlCalls: GraphqlCall[] = []
-  let nextUserErrors: Array<{ field: string; message: string }> | null = null
+  let nextUserErrors: Array<{ field: string; message: string; code?: string }> | null = null
   let cartTransformNodes: Record<string, unknown>[] = []
 
   group.setup(async () => {
@@ -454,6 +454,24 @@ test.group('API Shopify functions', (group) => {
     assert.deepEqual(await res.json(), { error: 'This Cart Transform already has an instance' })
     assert.lengthOf(graphqlCalls, 1)
     assert.include(lastCall().query, 'ListCartTransformInstances')
+  })
+
+  test('maps Shopify Cart Transform duplicate races to conflict', async ({ assert }) => {
+    nextUserErrors = [{
+      field: 'functionHandle',
+      message: 'A cart transform already exists for this function',
+      code: 'FUNCTION_ALREADY_REGISTERED',
+    }]
+
+    const res = await jsonReq('POST', '/api/functions/cart-transform/instances', {
+      blockOnFailure: true,
+      config: { message: 'racing duplicate' },
+    })
+    const body = await res.json()
+
+    assert.equal(res.status, 409)
+    assert.equal(body.error, 'This Cart Transform already has an instance')
+    assert.include(lastCall().query, 'userErrors { field message code }')
   })
 
   test('updates supported instances from a single parsed body', async ({ assert }) => {

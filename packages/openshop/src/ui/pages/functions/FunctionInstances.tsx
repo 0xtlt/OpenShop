@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'preact/hooks'
 import { useLocation } from 'preact-iso'
-import { apiFetch } from '../../fetch'
-import { TYPE_LABELS, type FunctionDef, type FunctionInstance } from './types'
+import { apiJson } from '../../fetch'
+import { canCreate, configurationSummary, resolveConfigurationPath, stateLabel } from './model'
+import { STATE_TONES, TYPE_LABELS, type FunctionDef, type FunctionInstance } from './types'
 
 export function FunctionInstances({ handle }: { handle: string }) {
   const [instances, setInstances] = useState<FunctionInstance[]>([])
@@ -14,19 +15,14 @@ export function FunctionInstances({ handle }: { handle: string }) {
     setLoading(true)
     setError(null)
     try {
-      const [defsRes, instRes] = await Promise.all([
-        apiFetch('/api/functions'),
-        apiFetch(`/api/functions/${handle}/instances`),
+      const [defs, loadedInstances] = await Promise.all([
+        apiJson<FunctionDef[]>('/api/functions'),
+        apiJson<FunctionInstance[]>(`/api/functions/${handle}/instances`),
       ])
-      const defs: FunctionDef[] = await defsRes.json()
       setFnDef(defs.find((d) => d.handle === handle) ?? null)
-
-      if (instRes.ok) {
-        setInstances(await instRes.json())
-      } else {
-        const data = await instRes.json()
-        setError(data.error)
-      }
+      setInstances(loadedInstances)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to load function instances')
     } finally {
       setLoading(false)
     }
@@ -35,15 +31,18 @@ export function FunctionInstances({ handle }: { handle: string }) {
   useEffect(() => { load() }, [load])
 
   const typeLabel = fnDef ? (TYPE_LABELS[fnDef.type] ?? fnDef.type) : ''
+  const createAllowed = canCreate(fnDef, instances)
 
   return (
-    <s-page heading={fnDef?.key ?? handle}>
+    <s-page heading={fnDef?.label ?? handle}>
       <s-link slot="breadcrumb-actions" href="/functions" onClick={(event: Event) => { event.preventDefault(); route('/functions') }}>
         Functions
       </s-link>
-      <s-button slot="primary-action" variant="primary" onClick={() => route(`/functions/${handle}/new`)}>
-        Create instance
-      </s-button>
+      {createAllowed && (
+        <s-button slot="primary-action" variant="primary" onClick={() => route(`/functions/${handle}/new`)}>
+          Create instance
+        </s-button>
+      )}
 
       {error && <s-banner tone="critical">{error}</s-banner>}
 
@@ -57,11 +56,13 @@ export function FunctionInstances({ handle }: { handle: string }) {
             <s-heading>No instances yet</s-heading>
             <s-paragraph>
               Create your first {typeLabel} instance to start using this function.
-              Each instance has its own configuration stored as metafields on Shopify.
+              Settings and optional app configuration follow the capabilities exposed by Shopify.
             </s-paragraph>
-            <s-button variant="primary" onClick={() => route(`/functions/${handle}/new`)}>
-              Create first instance
-            </s-button>
+            {createAllowed && (
+              <s-button variant="primary" onClick={() => route(`/functions/${handle}/new`)}>
+                Create first instance
+              </s-button>
+            )}
           </s-stack>
         </s-box>
       ) : (
@@ -69,24 +70,33 @@ export function FunctionInstances({ handle }: { handle: string }) {
           <s-text color="subdued">{instances.length} instance{instances.length !== 1 ? 's' : ''} — {typeLabel}</s-text>
           <s-table>
             <s-table-header-row>
-              <s-table-header listSlot="primary">Title</s-table-header>
-              <s-table-header listSlot="inline">Status</s-table-header>
+              <s-table-header listSlot="primary">Label</s-table-header>
+              <s-table-header listSlot="inline">State</s-table-header>
               <s-table-header listSlot="secondary">Configuration</s-table-header>
               <s-table-header></s-table-header>
             </s-table-header-row>
             <s-table-body>
               {instances.map((inst) => (
                 <s-table-row key={inst.id}>
-                  <s-table-cell>{inst.title ?? '(untitled)'}</s-table-cell>
+                  <s-table-cell>{inst.label}</s-table-cell>
                   <s-table-cell>
-                    <s-badge tone={inst.status === 'ACTIVE' || inst.enabled ? 'success' : 'warning'}>
-                      {inst.status ?? (inst.enabled ? 'Active' : 'Inactive')}
+                    <s-badge tone={STATE_TONES[inst.state]}>
+                      {stateLabel(inst.state)}
                     </s-badge>
                   </s-table-cell>
                   <s-table-cell>
-                    <s-text color="subdued">
-                      {Object.entries(inst.config).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}
-                    </s-text>
+                    <s-stack gap="small">
+                      {inst.config.state === 'invalid' ? (
+                        <s-badge tone="critical">{configurationSummary(inst.config)}</s-badge>
+                      ) : (
+                        <s-text color="subdued">{configurationSummary(inst.config)}</s-text>
+                      )}
+                      {resolveConfigurationPath(fnDef?.ui?.configurationPath, inst.id) && (
+                        <s-link href={resolveConfigurationPath(fnDef?.ui?.configurationPath, inst.id)!}>
+                          {fnDef?.ui?.configurationLabel ?? 'Configure'}
+                        </s-link>
+                      )}
+                    </s-stack>
                   </s-table-cell>
                   <s-table-cell>
                     <s-button variant="secondary" onClick={() => route(`/functions/${handle}/${encodeURIComponent(inst.id)}`)}>See</s-button>

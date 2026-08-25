@@ -1,20 +1,50 @@
-import type { ConfigField } from '../../components/ConfigFieldRenderer'
+import type { BadgeTone } from '../../types'
+
+export type FunctionState = 'active' | 'inactive' | 'scheduled' | 'expired' | 'unknown'
+
+export interface FunctionField {
+  type: 'text' | 'password' | 'number' | 'select' | 'multiselect' | 'checkbox'
+  label: string
+  placeholder?: string
+  options?: Array<{ label: string; value: string }>
+  required?: boolean
+  defaultValue?: unknown
+}
+
+export interface FunctionOperations {
+  updateSettings: boolean
+  updateConfig: boolean
+  delete: boolean
+}
 
 export interface FunctionDef {
-  key: string
+  label: string
   type: string
   handle: string
-  modes?: string[]
-  supportsUpdate: boolean
-  fields: Record<string, ConfigField>
+  capabilities: FunctionOperations & {
+    create: boolean
+    singleton: boolean
+  }
+  settingsFields: Record<string, FunctionField>
+  configFields: Record<string, FunctionField>
+  ui?: {
+    configurationPath?: string
+    configurationLabel?: string
+  }
 }
+
+export type FunctionConfig =
+  | { state: 'missing' }
+  | { state: 'valid'; value: Record<string, unknown> }
+  | { state: 'invalid'; raw: string }
 
 export interface FunctionInstance {
   id: string
-  title?: string
-  status?: string
-  enabled?: boolean
-  config: Record<string, unknown>
+  label: string
+  state: FunctionState
+  settings: Record<string, unknown>
+  config: FunctionConfig
+  operations: FunctionOperations
 }
 
 export const TYPE_LABELS: Record<string, string> = {
@@ -24,4 +54,12 @@ export const TYPE_LABELS: Record<string, string> = {
   'payment-customization': 'Payment Customization',
   'checkout-validation': 'Checkout Validation',
   'fulfillment-constraints': 'Fulfillment Constraints',
+}
+
+export const STATE_TONES: Record<FunctionState, BadgeTone> = {
+  active: 'success',
+  inactive: 'warning',
+  scheduled: 'info',
+  expired: 'neutral',
+  unknown: 'caution',
 }

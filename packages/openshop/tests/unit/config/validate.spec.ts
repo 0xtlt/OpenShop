@@ -59,6 +59,38 @@ test.group('defineOpenShop config validation', () => {
     }), /duplicates "volume-discount"/)
   })
 
+  test('rejects legacy and type-incompatible Shopify Function options at runtime', ({ assert }) => {
+    const invalidDefinitions = [
+      {
+        value: { type: 'cart-transform', handle: 'cart', owner: { title: 'Legacy' } },
+        error: /functions\.invalid\.owner is not supported/,
+      },
+      {
+        value: { type: 'cart-transform', handle: 'cart', defaults: { title: 'Impossible' } },
+        error: /functions\.invalid\.defaults\.title is not supported for cart-transform/,
+      },
+      {
+        value: { type: 'delivery-customization', handle: 'delivery', modes: ['automatic'] },
+        error: /functions\.invalid\.modes is only supported for discount/,
+      },
+      {
+        value: { type: 'cart-transform', handle: 'cart', ui: { configurationPath: 'https:\/\/example.com' } },
+        error: /functions\.invalid\.ui\.configurationPath must start with "\/"/,
+      },
+      {
+        value: { type: 'cart-transform', handle: 'cart', ui: { configurationLabel: 'Configure' } },
+        error: /configurationLabel requires configurationPath/,
+      },
+    ]
+
+    for (const invalid of invalidDefinitions) {
+      assert.throws(() => emptyApp.defineConfig({
+        flows: { sync: flow },
+        functions: { invalid: invalid.value as never },
+      }), invalid.error)
+    }
+  })
+
   test('rejects invalid worker numbers', ({ assert }) => {
     assert.throws(() => emptyApp.defineConfig({
       flows: { sync: flow },

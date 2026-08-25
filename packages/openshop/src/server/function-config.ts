@@ -24,7 +24,7 @@ export function validateFunctionConfig(def: Pick<AnyFunctionDefinition, 'config'
     : {}
   const config: Record<string, unknown> = {}
 
-  for (const [fieldName, field] of Object.entries(def.config)) {
+  for (const [fieldName, field] of Object.entries(def.config ?? {}) as Array<[string, ProviderFieldDef]>) {
     const value = coerceFieldValue(field, input[fieldName])
     const required = field.required !== false
 

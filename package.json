@@ -18,7 +18,7 @@
   "workspaces": ["packages/*", "apps/*"],
   "scripts": {
     "check": "pnpm run check:core && pnpm run check:ui && pnpm --filter openshop-demo run lint",
-    "check:core": "tsc --noEmit -p packages/openshop/tsconfig.json",
+    "check:core": "tsc --noEmit -p packages/openshop/tsconfig.json && tsc --noEmit -p packages/openshop/tsconfig.type-tests.json",
     "check:ui": "tsc --noEmit -p packages/openshop/tsconfig.ui.json",
     "dev": "pnpm --filter openshop-demo dev",
     "coverage:unit": "node scripts/run-c8.mjs --cwd packages/openshop --clean --temp-directory coverage/tmp --reporter=none -- node tests/bootstrap.ts",

@@ -6,6 +6,16 @@ import { ADMIN_PAGE_IDS, ADMIN_PAGE_MODES, isAdminPageId, isAdminPageMode } from
 const fieldTypes = new Set<ProviderFieldDef['type']>(['text', 'password', 'number', 'select', 'checkbox'])
 const functionTypes = new Set(['discount', 'cart-transform', 'delivery-customization', 'payment-customization', 'checkout-validation', 'fulfillment-constraints'])
 const discountModes = new Set(['automatic', 'code'])
+const deliveryMethodTypes = new Set(['LOCAL', 'NONE', 'PICK_UP', 'PICKUP_POINT', 'RETAIL', 'SHIPPING'])
+const functionKeys = new Set(['type', 'handle', 'label', 'config', 'defaults', 'ui', 'modes'])
+const functionDefaultKeys: Record<string, Set<string>> = {
+  discount: new Set(['title', 'startsAt', 'endsAt', 'usageLimit', 'combinesWith']),
+  'cart-transform': new Set(['blockOnFailure']),
+  'delivery-customization': new Set(['title', 'enabled']),
+  'payment-customization': new Set(['title', 'enabled']),
+  'checkout-validation': new Set(['title', 'enabled', 'blockOnFailure']),
+  'fulfillment-constraints': new Set(['deliveryMethodTypes']),
+}
 
 function fail(message: string): never {
   throw new Error(`[openshop] Invalid config: ${message}`)
@@ -103,6 +113,72 @@ function validateField(field: ProviderFieldDef, path: string): void {
   }
 }
 
+function rejectUnknownKeys(value: Record<string, unknown>, allowed: Set<string>, path: string): void {
+  const key = Object.keys(value).find((candidate) => !allowed.has(candidate))
+  if (key) fail(`${path}.${key} is not supported`)
+}
+
+function validateFunctionDefaults(fn: Record<string, unknown>, type: string, path: string): void {
+  if (fn.defaults === undefined) return
+  if (!isRecord(fn.defaults)) fail(`${path}.defaults must be an object`)
+  const unsupportedKey = Object.keys(fn.defaults).find((key) => !functionDefaultKeys[type]?.has(key))
+  if (unsupportedKey) fail(`${path}.defaults.${unsupportedKey} is not supported for ${type}`)
+
+  const defaults = fn.defaults
+  if (defaults.title !== undefined && typeof defaults.title !== 'string' && typeof defaults.title !== 'function') {
+    fail(`${path}.defaults.title must be a string or function`)
+  }
+  for (const key of ['enabled', 'blockOnFailure']) {
+    if (defaults[key] !== undefined && typeof defaults[key] !== 'boolean') {
+      fail(`${path}.defaults.${key} must be a boolean`)
+    }
+  }
+  for (const key of ['startsAt', 'endsAt']) {
+    if (defaults[key] !== undefined && defaults[key] !== null && typeof defaults[key] !== 'string') {
+      fail(`${path}.defaults.${key} must be a string or null`)
+    }
+  }
+  if (defaults.usageLimit !== undefined && defaults.usageLimit !== null
+    && (!Number.isInteger(defaults.usageLimit) || Number(defaults.usageLimit) <= 0)) {
+    fail(`${path}.defaults.usageLimit must be a positive integer or null`)
+  }
+  if (defaults.combinesWith !== undefined) {
+    if (!isRecord(defaults.combinesWith)) fail(`${path}.defaults.combinesWith must be an object`)
+    rejectUnknownKeys(
+      defaults.combinesWith,
+      new Set(['productDiscounts', 'orderDiscounts', 'shippingDiscounts']),
+      `${path}.defaults.combinesWith`,
+    )
+    for (const [key, value] of Object.entries(defaults.combinesWith)) {
+      if (typeof value !== 'boolean') fail(`${path}.defaults.combinesWith.${key} must be a boolean`)
+    }
+  }
+  if (defaults.deliveryMethodTypes !== undefined) {
+    if (!Array.isArray(defaults.deliveryMethodTypes)
+      || defaults.deliveryMethodTypes.some((value) => typeof value !== 'string' || !deliveryMethodTypes.has(value))) {
+      fail(`${path}.defaults.deliveryMethodTypes contains an unsupported delivery method type`)
+    }
+  }
+}
+
+function validateFunctionUi(fn: Record<string, unknown>, path: string): void {
+  if (fn.ui === undefined) return
+  if (!isRecord(fn.ui)) fail(`${path}.ui must be an object`)
+  rejectUnknownKeys(fn.ui, new Set(['configurationPath', 'configurationLabel']), `${path}.ui`)
+  const configurationPath = fn.ui.configurationPath
+  if (configurationPath !== undefined) {
+    if (typeof configurationPath !== 'string' || !configurationPath.startsWith('/') || configurationPath.startsWith('//')) {
+      fail(`${path}.ui.configurationPath must start with "/" and remain app-relative`)
+    }
+  }
+  if (fn.ui.configurationLabel !== undefined) {
+    if (typeof fn.ui.configurationLabel !== 'string' || !fn.ui.configurationLabel.trim()) {
+      fail(`${path}.ui.configurationLabel must be a non-empty string`)
+    }
+    if (configurationPath === undefined) fail(`${path}.ui.configurationLabel requires configurationPath`)
+  }
+}
+
 export function validateOpenShopConfig(config: OpenShopConfig): void {
   if (!isRecord(config)) fail('config must be an object')
   validateShopifyConfig(config.shopify)
@@ -139,20 +215,33 @@ export function validateOpenShopConfig(config: OpenShopConfig): void {
 
   const functionHandles = new Set<string>()
   for (const [key, fn] of Object.entries(config.functions ?? {})) {
+    if (!isRecord(fn)) fail(`functions.${key} must be an object`)
+    rejectUnknownKeys(fn, functionKeys, `functions.${key}`)
     if (!functionTypes.has(fn.type)) fail(`functions.${key}.type is not supported`)
     if (typeof fn.handle !== 'string' || fn.handle.trim() === '') fail(`functions.${key}.handle must be a non-empty string`)
+    if (fn.label !== undefined && (typeof fn.label !== 'string' || !fn.label.trim())) {
+      fail(`functions.${key}.label must be a non-empty string`)
+    }
     if (functionHandles.has(fn.handle)) fail(`functions.${key}.handle duplicates "${fn.handle}"`)
     functionHandles.add(fn.handle)
 
     if (fn.type === 'discount') {
+      if (fn.modes !== undefined && !Array.isArray(fn.modes)) {
+        fail(`functions.${key}.modes must be an array`)
+      }
       for (const mode of fn.modes ?? []) {
         if (!discountModes.has(mode)) fail(`functions.${key}.modes contains unsupported mode "${mode}"`)
       }
+    } else if (fn.modes !== undefined) {
+      fail(`functions.${key}.modes is only supported for discount`)
     }
 
-    for (const [fieldName, field] of Object.entries(fn.config) as Array<[string, ProviderFieldDef]>) {
+    if (fn.config !== undefined && !isRecord(fn.config)) fail(`functions.${key}.config must be an object`)
+    for (const [fieldName, field] of Object.entries(fn.config ?? {}) as Array<[string, ProviderFieldDef]>) {
       validateField(field, `functions.${key}.config.${fieldName}`)
     }
+    validateFunctionDefaults(fn, fn.type, `functions.${key}`)
+    validateFunctionUi(fn, `functions.${key}`)
   }
 
   validatePagesConfig(config.pages)

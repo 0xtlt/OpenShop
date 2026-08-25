@@ -133,21 +133,26 @@ instances.
 
 | Method and path | Request | Response |
 | --- | --- | --- |
-| `GET /api/functions` | — | Local function definitions and editable fields. |
-| `GET /api/functions/:handle/instances` | — | Up to 50 live Shopify instances. |
-| `POST /api/functions/:handle/instances` | Function config and owner fields | `201` with mutation payload. |
-| `PUT /api/functions/:handle/instances/:id` | Function config and owner fields | `{ ok: true }`. |
-| `DELETE /api/functions/:handle/instances/:id` | Optional `mode` query | `{ ok: true }`. |
+| `GET /api/functions` | — | `{ label, type, handle, capabilities, settingsFields, configFields, ui }[]`. |
+| `GET /api/functions/:handle/instances` | — | `{ id, label, state, settings, config, operations }[]`. |
+| `POST /api/functions/:handle/instances` | `{ settings?, config? }` | `201` with `{ ok: true, id }`. |
+| `PUT /api/functions/:handle/instances/:id` | `{ settings?, config? }` | `{ ok: true }`. |
+| `DELETE /api/functions/:handle/instances/:id` | — | `{ ok: true }`. |
 
-Create and update bodies always accept `config`. Additional owner fields depend on
-the type, including discount mode, code, dates, usage limit, combination flags, or
-enabled state. Invalid Shopify mutation input returns `400` with `error` and
-`userErrors`.
+`state` is `active`, `inactive`, `scheduled`, `expired`, or `unknown`. `config`
+is tagged as `missing`, `valid` with `value`, or `invalid` with `raw`. The
+per-instance `operations` and definition `capabilities` determine which UI
+controls are legal; clients must not infer behavior from the function type.
 
-Cart transforms and fulfillment constraints cannot be updated: delete and recreate
-them. Function types without a supported Shopify GraphQL mutation return `400`.
-For discount functions configured with both modes, delete requires
-`?mode=automatic` or `?mode=code`.
+Cart Transform is a singleton and its Shopify settings cannot be updated.
+Fulfillment constraints expose live `deliveryMethodTypes` and support updates.
+Discount delete mode is inferred from the live owner. Every list is filtered by
+the deployed Shopify Function handle.
+
+Function errors always use `{ "error": { "code", "message", "details"? } }`.
+The stable mapping is: `400` invalid request or Shopify user error, `404` unknown
+definition/instance, `405` unsupported operation, `409` singleton conflict, and
+`502` Shopify transport or top-level GraphQL failure.
 
 ## MCP token administration
 
@@ -183,5 +188,7 @@ its ID and fingerprint.
 | `400` | Invalid request, provider config, function config, or MCP permission. |
 | `401` | Missing, expired, malformed, or invalid Shopify session token. |
 | `404` | Resource not found within the authenticated app and shop, or the admin page is `disabled`. |
+| `405` | The Shopify Function owner does not support the requested operation. |
 | `409` | Lifecycle or concurrency conflict. |
 | `500` | Provider checker or unexpected server failure. |
+| `502` | Shopify Admin API transport or top-level GraphQL failure. |

@@ -1,4 +1,4 @@
-import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ProviderFieldDefinitions, ProviderMethod, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, AnyFunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders, McpConfig, AdminPagesConfig, AuthenticatedServerRouteDefinition, UnauthenticatedServerRouteDefinition } from './types.ts'
+import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ProviderFieldDefinitions, ProviderMethod, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, AnyFunctionDefinition, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders, McpConfig, AdminPagesConfig, AuthenticatedServerRouteDefinition, UnauthenticatedServerRouteDefinition } from './types.ts'
 import type { Type } from 'arktype'
 import type { StandardCRON } from 'ts-cron-validator'
 import { validateOpenShopConfig, validatePagesConfig } from './config/validate.ts'
@@ -47,13 +47,7 @@ interface OpenShopConfigInput<
 
 export interface OpenShopApp<TProviders extends Record<string, ProviderDefinition>> {
   defineFlow<TInput = Record<string, unknown>>(flow: FlowInput<TInput, TProviders>): FlowDefinition<TInput>
-  defineFunction<const TFields extends ProviderFieldDefinitions>(fn: {
-    type: ShopifyFunctionType
-    handle: string
-    modes?: DiscountMode[]
-    owner?: FunctionOwner<ConfigFromFields<TFields>>
-    config: TFields
-  }): FunctionDefinition<TFields>
+  defineFunction<const TFields extends ProviderFieldDefinitions>(fn: FunctionDefinition<TFields>): FunctionDefinition<TFields>
   defineProxy(proxy: ProxyDefinition): ProxyDefinition
   defineRoute(route: UnauthenticatedServerRouteDefinition<ConnectorsFromProviders<TProviders>>): UnauthenticatedServerRouteDefinition<ConnectorsFromProviders<TProviders>>
   defineRoute<TAuth>(route: AuthenticatedServerRouteDefinition<TAuth, ConnectorsFromProviders<TProviders>>): AuthenticatedServerRouteDefinition<TAuth, ConnectorsFromProviders<TProviders>>
@@ -94,13 +88,7 @@ export function defineOpenShop<const TProviders extends Record<string, ProviderD
     defineFlow<TInput = Record<string, unknown>>(flow: FlowInput<TInput, TProviders>): FlowDefinition<TInput> {
       return flow as unknown as FlowDefinition<TInput>
     },
-    defineFunction<const TFields extends ProviderFieldDefinitions>(fn: {
-      type: ShopifyFunctionType
-      handle: string
-      modes?: DiscountMode[]
-      owner?: FunctionOwner<ConfigFromFields<TFields>>
-      config: TFields
-    }): FunctionDefinition<TFields> {
+    defineFunction<const TFields extends ProviderFieldDefinitions>(fn: FunctionDefinition<TFields>): FunctionDefinition<TFields> {
       return fn
     },
     defineProxy(proxy: ProxyDefinition): ProxyDefinition {
@@ -183,7 +171,15 @@ export type {
   ShopifyAppConfig,
   ConnectorsFromProviders,
   FunctionDefinition,
+  FunctionUiDefinition,
+  DiscountFunctionDefaults,
+  CartTransformFunctionDefaults,
+  TitledFunctionDefaults,
+  ValidationFunctionDefaults,
+  FulfillmentConstraintFunctionDefaults,
   ShopifyFunctionType,
+  DiscountMode,
+  DeliveryMethodType,
   ConnectorOf,
   ProxyDefinition,
   ProxyContext,

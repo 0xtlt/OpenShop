@@ -400,10 +400,26 @@ test.group('API Shopify functions list', (group) => {
     const data = await res.json()
     assert.isArray(data)
     assert.equal(data.length, 1)
-    assert.equal(data[0].handle, 'test-fn')
-    assert.equal(data[0].type, 'cart-transform')
-    assert.isFalse(data[0].supportsUpdate)
-    assert.property(data[0].fields, 'note')
-    assert.equal(data[0].fields.note.label, 'Note')
+    assert.deepInclude(data[0], {
+      label: 'Test Fn',
+      handle: 'test-fn',
+      type: 'cart-transform',
+      capabilities: {
+        create: true,
+        updateSettings: false,
+        updateConfig: true,
+        delete: true,
+        singleton: true,
+      },
+    })
+    assert.deepEqual(data[0].settingsFields.blockOnFailure, {
+      type: 'checkbox',
+      label: 'Block checkout on failure',
+      required: true,
+      defaultValue: false,
+    })
+    assert.equal(data[0].configFields.note.label, 'Note')
+    assert.notProperty(data[0], 'supportsUpdate')
+    assert.notProperty(data[0], 'fields')
   })
 })

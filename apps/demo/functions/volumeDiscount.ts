@@ -6,10 +6,9 @@ export const volumeDiscount = app.defineFunction({
   handle: 'volume-discount',
   modes: ['automatic', 'code'],
 
-  owner: {
+  label: 'Volume discount',
+  defaults: {
     title: (config) => `${config.percentage}% off ${config.minQuantity}+ items`,
-    startsAt: true,
-    endsAt: true,
     combinesWith: {
       productDiscounts: true,
       orderDiscounts: false,

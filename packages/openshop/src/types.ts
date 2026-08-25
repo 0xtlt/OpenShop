@@ -43,7 +43,7 @@ export type ConfigFromFields<F extends ProviderFieldDefinitions> = {
 
 export type AnyProviderDefinition = ProviderDefinition
 export type AnyFlowDefinition = FlowDefinition<unknown>
-export type AnyFunctionDefinition = Omit<FunctionDefinition<ProviderFieldDefinitions>, 'owner'> & { owner?: FunctionOwner<never> }
+export type AnyFunctionDefinition = FunctionDefinition<any>
 
 export type ConnectorsFromProviders<TProviders extends Record<string, ProviderDefinition>> = {
   [K in keyof TProviders]: ConnectorOf<TProviders[K]>
@@ -216,31 +216,87 @@ export type ShopifyFunctionType =
 
 export type DiscountMode = 'automatic' | 'code'
 
+export type DeliveryMethodType = 'LOCAL' | 'NONE' | 'PICK_UP' | 'PICKUP_POINT' | 'RETAIL' | 'SHIPPING'
+
 export interface CombinesWith {
   productDiscounts?: boolean
   orderDiscounts?: boolean
   shippingDiscounts?: boolean
 }
 
-export interface FunctionOwner<TConfig = Record<string, unknown>> {
-  title: string | ((config: TConfig) => string)
-  // Discount-specific
-  startsAt?: boolean
-  endsAt?: boolean
-  usageLimit?: boolean
+export interface FunctionUiDefinition {
+  configurationPath?: string
+  configurationLabel?: string
+}
+
+interface FunctionDefinitionBase<TFields extends ProviderFieldDefinitions> {
+  handle: string
+  label?: string
+  config?: TFields
+  ui?: FunctionUiDefinition
+}
+
+export type FunctionTitle<TFields extends ProviderFieldDefinitions> =
+  | string
+  | ((config: ConfigFromFields<TFields>) => string)
+
+export interface DiscountFunctionDefaults<TFields extends ProviderFieldDefinitions> {
+  title?: FunctionTitle<TFields>
+  startsAt?: string
+  endsAt?: string | null
+  usageLimit?: number | null
   combinesWith?: CombinesWith
-  appliesOnEachItem?: boolean
-  // Non-discount
+}
+
+export interface CartTransformFunctionDefaults {
+  blockOnFailure?: boolean
+}
+
+export interface TitledFunctionDefaults<TFields extends ProviderFieldDefinitions> {
+  title?: FunctionTitle<TFields>
   enabled?: boolean
 }
 
-export interface FunctionDefinition<TFields extends ProviderFieldDefinitions = ProviderFieldDefinitions> {
-  type: ShopifyFunctionType
-  handle: string
-  modes?: DiscountMode[]
-  owner?: FunctionOwner<ConfigFromFields<TFields>>
-  config: TFields
+export interface ValidationFunctionDefaults<TFields extends ProviderFieldDefinitions>
+  extends TitledFunctionDefaults<TFields> {
+  blockOnFailure?: boolean
 }
+
+export interface FulfillmentConstraintFunctionDefaults {
+  deliveryMethodTypes?: DeliveryMethodType[]
+}
+
+export type FunctionDefinition<TFields extends ProviderFieldDefinitions = ProviderFieldDefinitions> =
+  | (FunctionDefinitionBase<TFields> & {
+      type: 'discount'
+      modes?: DiscountMode[]
+      defaults?: DiscountFunctionDefaults<TFields>
+    })
+  | (FunctionDefinitionBase<TFields> & {
+      type: 'cart-transform'
+      modes?: never
+      defaults?: CartTransformFunctionDefaults
+    })
+  | (FunctionDefinitionBase<TFields> & {
+      type: 'delivery-customization'
+      modes?: never
+      defaults?: TitledFunctionDefaults<TFields>
+    })
+  | (FunctionDefinitionBase<TFields> & {
+      type: 'payment-customization'
+      modes?: never
+      defaults?: TitledFunctionDefaults<TFields>
+    })
+  | (FunctionDefinitionBase<TFields> & {
+      type: 'checkout-validation'
+      modes?: never
+      defaults?: ValidationFunctionDefaults<TFields>
+    })
+  | (FunctionDefinitionBase<TFields> & {
+      type: 'fulfillment-constraints'
+      modes?: never
+      defaults?: FulfillmentConstraintFunctionDefaults
+    })
 
 // ─── App Proxy ──────────────────────────────────────────────────────
 

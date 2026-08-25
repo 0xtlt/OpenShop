@@ -53,11 +53,46 @@ Parameters:
 The returned object exposes:
 
 - `defineFlow({ name, input?, timeout?, stepTimeout?, concurrency?, retryPolicy?, run })`
-- `defineFunction({ type, handle, modes?, owner?, config })`
+- `defineFunction({ type, handle, label?, config?, defaults?, ui? })`
 - `defineProxy({ type?, GET?, POST?, PUT?, DELETE?, PATCH? })`
 - `defineRoute({ auth, GET?, HEAD?, POST?, PUT?, PATCH?, DELETE?, OPTIONS? })`
 - `defineWebhook({ run })`
 - `defineConfig({ flows, functions?, webhooks?, crons?, pages?, ... })`
+
+## `defineFunction(definition)`
+
+Defines management metadata for one deployed Shopify Function while preserving
+the inferred types of its application config fields.
+
+```ts
+const cartTransform = app.defineFunction({
+  type: 'cart-transform',
+  handle: 'bundle-transform',
+  label: 'Bundle Builder',
+  defaults: { blockOnFailure: true },
+  config: {
+    campaignId: { type: 'text', label: 'Campaign ID' },
+  },
+  ui: {
+    configurationPath: '/bundles/:id',
+    configurationLabel: 'Configure bundle',
+  },
+})
+```
+
+- `type` is one of the six supported Shopify owner types and discriminates
+  `defaults` strictly.
+- `handle` must match the deployed Shopify Function handle.
+- `label` affects only OpenShop's UI. It is never sent as a Cart Transform title.
+- `config` declares the JSON metafield fields owned by the application.
+- `defaults` contains only the native settings supported by the selected type.
+- `ui.configurationPath` links to an application-owned, app-relative screen and
+  may contain `:id`.
+
+Discounts alone accept `modes`. Type-incompatible keys and the removed `owner`
+object fail both TypeScript checking and runtime config validation. See
+[Shopify Functions](/reference/shopify-functions/) for the complete capability
+matrix and HTTP representation.
 
 ## `defineProvider(provider)`
 

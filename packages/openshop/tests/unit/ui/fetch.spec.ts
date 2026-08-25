@@ -1,5 +1,5 @@
 import { test } from '@japa/runner'
-import { apiFetch } from '../../../src/ui/fetch.ts'
+import { apiErrorMessage, apiFetch } from '../../../src/ui/fetch.ts'
 
 type TestGlobal = typeof globalThis & { window?: { shopify?: { idToken?: () => Promise<string> } } }
 
@@ -66,5 +66,18 @@ test.group('apiFetch', (group) => {
 
     const headers = new Headers(receivedInit?.headers)
     assert.isFalse(headers.has('Authorization'))
+  })
+})
+
+test.group('apiErrorMessage', () => {
+  test('reads the stable nested function-management error payload', ({ assert }) => {
+    assert.equal(apiErrorMessage({
+      error: { code: 'instance_limit_reached', message: 'Only one Cart Transform is allowed' },
+    }, 409), 'Only one Cart Transform is allowed')
+  })
+
+  test('keeps compatibility with simple API errors', ({ assert }) => {
+    assert.equal(apiErrorMessage({ error: 'Legacy failure' }, 400), 'Legacy failure')
+    assert.equal(apiErrorMessage(null, 502), 'Request failed with 502')
   })
 })

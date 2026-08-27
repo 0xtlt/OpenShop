@@ -188,7 +188,11 @@ export async function createServer(getConfig: ConfigGetter, options?: ServerOpti
     // SPA fallback: serve index.html for non-API, non-static routes
     app.get('*', async (c) => {
       const pathname = new URL(c.req.url).pathname
-      if (!isUiShellPath(pathname)) return staticHandler(c, async () => undefined)
+      if (!isUiShellPath(pathname)) {
+        return staticHandler(c, async () => {
+          c.res = await c.notFound()
+        })
+      }
       const apiKey = (c as unknown as { get: (key: string) => unknown }).get('shopifyApiKey') as string | undefined
       const html = readFileSync(indexHtmlPath, 'utf8')
         .replace(/<meta name="shopify-api-key" content="[^"]*" \/>/, `<meta name="shopify-api-key" content="${apiKey ?? ''}" />`)

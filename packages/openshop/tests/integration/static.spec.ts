@@ -1,10 +1,13 @@
 import { test } from '@japa/runner'
+import { serve } from '@hono/node-server'
 import { createHmac } from 'node:crypto'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { getDb } from '#db/client'
 import { installations } from '#db/schema'
+import { closeHttpServer } from '#server/http'
 import { createServer } from '#server/index'
 import { createConfig, truncateAll } from './helpers.ts'
 
@@ -61,6 +64,26 @@ test.group('Static files and SPA fallback', (group) => {
     assert.equal(res.status, 200)
     assert.equal(res.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive, nosnippet')
     assert.include(await res.text(), 'plain asset')
+  })
+
+  test('GET missing static asset returns 404 through the Node server adapter', async ({ assert }) => {
+    const server = serve({ fetch: app.fetch, port: 0 })
+
+    try {
+      if (!server.listening) {
+        await new Promise<void>((resolve, reject) => {
+          server.once('listening', resolve)
+          server.once('error', reject)
+        })
+      }
+
+      const address = server.address() as AddressInfo
+      const res = await fetch(`http://127.0.0.1:${address.port}/favicon.ico`)
+
+      assert.equal(res.status, 404)
+    } finally {
+      await closeHttpServer(server)
+    }
   })
 
   test('GET robots.txt disallows all crawlers', async ({ assert }) => {

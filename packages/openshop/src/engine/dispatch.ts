@@ -4,23 +4,56 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { resolveRetryPolicy } from './backoff.ts'
 import { FlowConcurrencyError } from './errors.ts'
 import { DEFAULT_SHOPIFY_APP_HANDLE } from '#server/shopify-apps'
-import type { OpenShopConfig, DispatchOptions } from '../types.ts'
+import type {
+  AnyFunctionDefinition,
+  DispatchOptions,
+  FlowDefinition,
+  OpenShopConfig,
+  ProviderDefinition,
+} from '../types.ts'
 
-export interface DispatchFlowParams {
-  flowName: string
-  input?: Record<string, unknown>
-  config: OpenShopConfig
+type InputFor<TFlow> = TFlow extends FlowDefinition<infer TInput>
+  ? TInput
+  : Record<string, unknown>
+
+export interface ConfigDispatchFlowParams<
+  TFlows extends Record<string, FlowDefinition<unknown>>,
+  TFlowName extends keyof TFlows & string,
+> {
+  flowName: TFlowName
+  input?: InputFor<TFlows[TFlowName]>
   shop: string
   shopifyApp?: string
   parentRunId?: string
   options?: DispatchOptions
 }
 
-export async function dispatchFlow(params: DispatchFlowParams) {
+export interface DispatchFlowParams<
+  TProviders extends Record<string, ProviderDefinition> = Record<string, ProviderDefinition>,
+  TFlows extends Record<string, FlowDefinition<unknown>> = Record<string, FlowDefinition<unknown>>,
+  TFunctions extends Record<string, AnyFunctionDefinition> = Record<string, AnyFunctionDefinition>,
+  TFlowName extends keyof TFlows & string = keyof TFlows & string,
+> extends ConfigDispatchFlowParams<TFlows, TFlowName> {
+  config: OpenShopConfig<TProviders, TFlows, TFunctions>
+}
+
+export interface DispatchFlowResult {
+  runId: string
+  status: 'pending'
+}
+
+export async function dispatchFlow<
+  const TProviders extends Record<string, ProviderDefinition>,
+  const TFlows extends Record<string, FlowDefinition<unknown>>,
+  const TFunctions extends Record<string, AnyFunctionDefinition>,
+  const TFlowName extends keyof TFlows & string,
+>(params: DispatchFlowParams<TProviders, TFlows, TFunctions, TFlowName>): Promise<DispatchFlowResult> {
   const { flowName, input = {}, config, shop, parentRunId, options } = params
   const shopifyApp = params.shopifyApp ?? DEFAULT_SHOPIFY_APP_HANDLE
   const db = getDb()
-  const flow = config.flows[flowName]
+  const flow = Object.hasOwn(config.flows, flowName)
+    ? config.flows[flowName]
+    : undefined
 
   if (!flow) {
     throw new Error(`Flow "${flowName}" not found. Available: ${Object.keys(config.flows).join(', ')}`)

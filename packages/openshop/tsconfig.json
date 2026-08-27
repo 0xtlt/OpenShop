@@ -19,6 +19,6 @@
       "#types": ["./src/types"]
     }
   },
-  "include": ["src/**/*", "bin/**/*"],
+  "include": ["src/**/*", "bin/**/*", "tests/typecheck/**/*"],
   "exclude": ["src/ui/**/*"]
 }

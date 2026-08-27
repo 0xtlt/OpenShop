@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import { getDb } from '#db/client'
 import { flowRuns } from '#db/schema'
 import { dispatchFlow } from '#engine/dispatch'
+import { defineOpenShop } from '../../../src/index.ts'
 import { truncateAll, createConfig, TEST_SHOP } from '../helpers.ts'
 
 const simpleFlow = {
@@ -39,12 +40,42 @@ test.group('dispatch', (group) => {
     assert.equal(run.shop, TEST_SHOP)
   })
 
+  test('dispatches through the configured OpenShop instance', async ({ assert }) => {
+    const openshop = defineOpenShop({ providers: {} }).defineConfig({
+      flows: { 'test-flow': simpleFlow },
+    })
+    const { runId, status } = await openshop.dispatchFlow({
+      flowName: 'test-flow',
+      input: { source: 'config' },
+      shop: TEST_SHOP,
+    })
+
+    assert.equal(status, 'pending')
+
+    const db = getDb()
+    const [run] = await db.select().from(flowRuns).where(eq(flowRuns.id, runId)).limit(1)
+    assert.equal(run.flowName, 'test-flow')
+    assert.deepEqual(run.input, { source: 'config' })
+    assert.equal(run.shop, TEST_SHOP)
+  })
+
   test('throws on unknown flow', async ({ assert }) => {
     const config = createConfig({ 'test-flow': simpleFlow })
     await assert.rejects(
       () => dispatchFlow({ flowName: 'unknown', config, shop: TEST_SHOP }),
       /not found/,
     )
+  })
+
+  test('rejects inherited object properties as flow names', async ({ assert }) => {
+    const config = createConfig({ 'test-flow': simpleFlow })
+
+    for (const flowName of ['constructor', 'toString', '__proto__']) {
+      await assert.rejects(
+        () => dispatchFlow({ flowName, config, shop: TEST_SHOP }),
+        /not found/,
+      )
+    }
   })
 
   test('concurrency reject throws when flow already running', async ({ assert }) => {

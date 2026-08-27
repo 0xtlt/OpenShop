@@ -3,14 +3,15 @@ title: Configuration
 description: Options accepted by app.defineConfig().
 ---
 
-OpenShop apps export a default config from `openshop.config.ts`.
+OpenShop apps export a configured instance from `openshop.config.ts`. The
+instance contains the validated config and can dispatch its registered flows.
 
 ```ts
 import { cron } from 'openshop'
 import { app } from '#app'
 import { syncOrders } from '#flows/syncOrders'
 
-export default app.defineConfig({
+const openshop = app.defineConfig({
   flows: { syncOrders },
   crons: [
     { name: 'Quick sync', schedule: cron('*/5 * * * *'), flow: 'syncOrders', shops: 'all' },
@@ -28,7 +29,13 @@ export default app.defineConfig({
     console.error('[openshop:error]', context, error)
   },
 })
+
+export default openshop
 ```
+
+Import this default export from a public route when you need to enqueue durable
+work. `openshop.dispatchFlow()` captures the active config, restricts
+`flowName` to registered flow keys, and types `input` from the selected flow.
 
 ## Top-level options
 

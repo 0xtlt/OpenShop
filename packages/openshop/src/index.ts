@@ -2,6 +2,11 @@ import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition
 import type { Type } from 'arktype'
 import type { StandardCRON } from 'ts-cron-validator'
 import { validateOpenShopConfig, validatePagesConfig } from './config/validate.ts'
+import {
+  dispatchFlow,
+  type ConfigDispatchFlowParams,
+  type DispatchFlowResult,
+} from './engine/dispatch.ts'
 
 interface OpenShopAppBase<TProviders extends Record<string, ProviderDefinition>> {
   shopify?: ShopifyConfig
@@ -45,6 +50,16 @@ interface OpenShopConfigInput<
   onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void
 }
 
+export type ConfiguredOpenShop<
+  TProviders extends Record<string, ProviderDefinition>,
+  TFlows extends Record<string, FlowDefinition<unknown>>,
+  TFunctions extends Record<string, AnyFunctionDefinition>,
+> = OpenShopConfig<TProviders, TFlows, TFunctions> & {
+  readonly dispatchFlow: <const TFlowName extends keyof TFlows & string>(
+    params: ConfigDispatchFlowParams<TFlows, TFlowName>,
+  ) => Promise<DispatchFlowResult>
+}
+
 export interface OpenShopApp<TProviders extends Record<string, ProviderDefinition>> {
   defineFlow<TInput = Record<string, unknown>>(flow: FlowInput<TInput, TProviders>): FlowDefinition<TInput>
   defineFunction<const TFields extends ProviderFieldDefinitions>(fn: {
@@ -62,7 +77,7 @@ export interface OpenShopApp<TProviders extends Record<string, ProviderDefinitio
   defineConfig<
     const TFlows extends Record<string, FlowDefinition<unknown>>,
     const TFunctions extends Record<string, AnyFunctionDefinition> = Record<string, AnyFunctionDefinition>,
-  >(config: OpenShopConfigInput<TProviders, TFlows, TFunctions>): OpenShopConfig<TProviders, TFlows, TFunctions>
+  >(config: OpenShopConfigInput<TProviders, TFlows, TFunctions>): ConfiguredOpenShop<TProviders, TFlows, TFunctions>
 }
 
 function validateConfig<
@@ -115,9 +130,9 @@ export function defineOpenShop<const TProviders extends Record<string, ProviderD
     defineConfig<
       const TFlows extends Record<string, FlowDefinition<unknown>>,
       const TFunctions extends Record<string, AnyFunctionDefinition> = Record<string, AnyFunctionDefinition>,
-    >(config: OpenShopConfigInput<TProviders, TFlows, TFunctions>): OpenShopConfig<TProviders, TFlows, TFunctions> {
+    >(config: OpenShopConfigInput<TProviders, TFlows, TFunctions>): ConfiguredOpenShop<TProviders, TFlows, TFunctions> {
       validatePagesConfig(config.pages)
-      return validateConfig({
+      const resolvedConfig = validateConfig({
         ...app,
         ...config,
         shopify: config.shopify ?? app.shopify,
@@ -130,6 +145,13 @@ export function defineOpenShop<const TProviders extends Record<string, ProviderD
         retryPolicy: config.retryPolicy ?? app.retryPolicy,
         onError: config.onError ?? app.onError,
       })
+
+      return Object.defineProperty(resolvedConfig, 'dispatchFlow', {
+        enumerable: false,
+        value: <const TFlowName extends keyof TFlows & string>(
+          params: ConfigDispatchFlowParams<TFlows, TFlowName>,
+        ) => dispatchFlow({ ...params, config: resolvedConfig }),
+      }) as ConfiguredOpenShop<TProviders, TFlows, TFunctions>
     },
   }
 }
@@ -215,7 +237,6 @@ export type {
 
 export type { ShopifyClient } from './shopify/client.ts'
 export type { RetryPolicy, WorkerConfig, DispatchOptions } from './types.ts'
-export { dispatchFlow } from './engine/dispatch.ts'
 export { defineModel } from './db/schema.ts'
 export { getDb } from './db/client.ts'
 export { createShopifyClient } from './shopify/client.ts'

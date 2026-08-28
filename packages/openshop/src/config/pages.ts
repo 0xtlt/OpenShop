@@ -8,6 +8,14 @@ export type AdminPageMode = (typeof ADMIN_PAGE_MODES)[number]
 export type AdminPagesConfig = Partial<Record<AdminPageId, AdminPageMode>>
 export type ResolvedAdminPages = Record<AdminPageId, AdminPageMode>
 
+/** Config-backed resources that determine whether a sidebar destination has content. */
+export interface AdminNavigationResources {
+  flows: Readonly<Record<string, unknown>>
+  providers: Readonly<Record<string, unknown>>
+  crons?: readonly unknown[]
+  functions?: Readonly<Record<string, unknown>>
+}
+
 const adminPageIds = new Set<string>(ADMIN_PAGE_IDS)
 const adminPageModes = new Set<string>(ADMIN_PAGE_MODES)
 
@@ -19,14 +27,31 @@ export function isAdminPageMode(value: string): value is AdminPageMode {
   return adminPageModes.has(value)
 }
 
-export function resolveAdminPages(pages?: AdminPagesConfig): ResolvedAdminPages {
-  return {
+export function resolveAdminPages(
+  pages?: AdminPagesConfig,
+  resources?: AdminNavigationResources,
+): ResolvedAdminPages {
+  const resolved: ResolvedAdminPages = {
     flows: pages?.flows ?? 'visible',
     providers: pages?.providers ?? 'visible',
     crons: pages?.crons ?? 'visible',
     functions: pages?.functions ?? 'visible',
     mcp: pages?.mcp ?? 'visible',
   }
+
+  if (!resources) return resolved
+
+  return {
+    flows: hideEmptyPage(resolved.flows, Object.keys(resources.flows).length > 0),
+    providers: hideEmptyPage(resolved.providers, Object.keys(resources.providers).length > 0),
+    crons: hideEmptyPage(resolved.crons, (resources.crons?.length ?? 0) > 0),
+    functions: hideEmptyPage(resolved.functions, Object.keys(resources.functions ?? {}).length > 0),
+    mcp: resolved.mcp,
+  }
+}
+
+function hideEmptyPage(mode: AdminPageMode, hasResources: boolean): AdminPageMode {
+  return mode === 'visible' && !hasResources ? 'hidden' : mode
 }
 
 export function sameAdminPages(left: ResolvedAdminPages, right: ResolvedAdminPages): boolean {

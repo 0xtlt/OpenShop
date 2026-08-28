@@ -137,7 +137,8 @@ export async function createServer(getConfig: ConfigGetter, options?: ServerOpti
 
   app.use('/api/*', async (c, next) => {
     const page = adminPageFromApiPath(c.req.path)
-    if (page && resolveAdminPages(getConfig().pages)[page] === 'disabled') {
+    const config = getConfig()
+    if (page && resolveAdminPages(config.pages, config)[page] === 'disabled') {
       return c.json({ error: 'Not found' }, 404)
     }
     await next()

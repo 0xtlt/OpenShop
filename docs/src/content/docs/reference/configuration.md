@@ -124,7 +124,9 @@ An individual `step(name, fn, { timeout })` can override `stepTimeout`.
 
 ## Admin pages
 
-`pages` controls which embedded admin screens appear in the Shopify sidebar and whether their admin API stays reachable. Home is always visible. Runtime behavior is unchanged: crons still fire, webhooks still run, Shopify Functions still execute, and `POST /mcp` still follows `mcp.enabled`.
+`pages` controls which embedded admin screens appear in the Shopify sidebar and whether their admin API stays reachable. Home is always visible. Flows, Providers, Crons, and Functions are automatically hidden from the sidebar when their corresponding config collection is empty; their direct URLs and admin APIs remain available. MCP stays visible by default because OpenShop provides core MCP capabilities without custom configuration.
+
+Runtime behavior is unchanged: crons still fire, webhooks still run, Shopify Functions still execute, and `POST /mcp` still follows `mcp.enabled`.
 
 ```ts
 export default app.defineConfig({
@@ -138,7 +140,7 @@ export default app.defineConfig({
 
 | Mode | Sidebar | Direct URL | Admin API `/api/*` |
 | --- | --- | --- | --- |
-| `visible` (default) | Shown | Works | 200 |
+| `visible` (default) | Shown when the corresponding config has entries | Works | 200 |
 | `hidden` | Hidden | Works | 200 |
 | `disabled` | Hidden | Shows “This page is disabled” | 404 |
 

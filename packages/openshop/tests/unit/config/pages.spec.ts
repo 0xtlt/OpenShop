@@ -26,6 +26,57 @@ test.group('resolveAdminPages', () => {
       mcp: 'disabled',
     })
   })
+
+  test('hides config-backed pages that have no resources', ({ assert }) => {
+    assert.deepEqual(resolveAdminPages(undefined, {
+      flows: {},
+      providers: {},
+      crons: [],
+      functions: {},
+    }), {
+      flows: 'hidden',
+      providers: 'hidden',
+      crons: 'hidden',
+      functions: 'hidden',
+      mcp: 'visible',
+    })
+  })
+
+  test('shows config-backed pages when resources exist', ({ assert }) => {
+    assert.deepEqual(resolveAdminPages(undefined, {
+      flows: { syncOrders: {} },
+      providers: { warehouse: {} },
+      crons: [{}],
+      functions: { volumeDiscount: {} },
+    }), {
+      flows: 'visible',
+      providers: 'visible',
+      crons: 'visible',
+      functions: 'visible',
+      mcp: 'visible',
+    })
+  })
+
+  test('preserves explicit hidden and disabled modes for empty pages', ({ assert }) => {
+    assert.deepEqual(resolveAdminPages({
+      flows: 'disabled',
+      providers: 'hidden',
+      crons: 'disabled',
+      functions: 'hidden',
+      mcp: 'disabled',
+    }, {
+      flows: {},
+      providers: {},
+      crons: [],
+      functions: {},
+    }), {
+      flows: 'disabled',
+      providers: 'hidden',
+      crons: 'disabled',
+      functions: 'hidden',
+      mcp: 'disabled',
+    })
+  })
 })
 
 test.group('sameAdminPages', () => {

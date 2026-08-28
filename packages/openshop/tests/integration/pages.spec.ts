@@ -40,15 +40,15 @@ test.group('Admin page visibility', (group) => {
     })
   }
 
-  test('GET /api/pages returns visible defaults', async ({ assert }) => {
+  test('GET /api/pages hides config-backed pages without resources', async ({ assert }) => {
     const app = await createServer(() => createConfig({ 'test-flow': simpleFlow }))
     const res = await req(app, '/api/pages')
     assert.equal(res.status, 200)
     assert.deepEqual(await res.json(), {
       flows: 'visible',
-      providers: 'visible',
-      crons: 'visible',
-      functions: 'visible',
+      providers: 'hidden',
+      crons: 'hidden',
+      functions: 'hidden',
       mcp: 'visible',
     })
   })
@@ -68,8 +68,8 @@ test.group('Admin page visibility', (group) => {
     assert.equal(pages.status, 200)
     assert.deepEqual(await pages.json(), {
       flows: 'visible',
-      providers: 'visible',
-      crons: 'visible',
+      providers: 'hidden',
+      crons: 'hidden',
       functions: 'hidden',
       mcp: 'hidden',
     })

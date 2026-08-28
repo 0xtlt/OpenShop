@@ -148,11 +148,25 @@ Register the flow in `openshop.config.ts`:
 import { app } from '#app'
 import { syncOrders } from '#flows/syncOrders'
 
-export default app.defineConfig({
+const openshop = app.defineConfig({
   flows: { syncOrders },
   crons: [
     { schedule: '*/5 * * * *', flow: 'syncOrders', shops: 'all' },
   ],
+})
+
+export default openshop
+```
+
+The configured OpenShop instance can dispatch its registered flows without
+passing the config back into the framework:
+
+```ts
+import openshop from './openshop.config.ts'
+
+const result = await openshop.dispatchFlow({
+  flowName: 'syncOrders',
+  shop: 'example.myshopify.com',
 })
 ```
 

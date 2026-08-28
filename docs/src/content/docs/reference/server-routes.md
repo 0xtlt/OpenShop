@@ -56,3 +56,37 @@ context.
 Values used to select a shop are untrusted until the route authenticates the
 request. Never treat a query parameter, path parameter, header, or decoded but
 unverified payload as proof of identity.
+
+## Queue durable work
+
+Keep externally called routes short and move retryable work into a flow. Import
+the configured OpenShop instance and dispatch a registered flow after the route
+has authenticated the shop identity:
+
+```ts
+// routes/warehouse.ts
+import { app } from '#app'
+import openshop from '../openshop.config.ts'
+import { authenticateWarehouse } from '../integrations/warehouse.ts'
+
+export default app.defineRoute({
+  auth: async ({ request, forShop }) => {
+    const identity = await authenticateWarehouse(request)
+    if (!identity) return null
+    return forShop(identity)
+  },
+  async POST({ auth }) {
+    const result = await openshop.dispatchFlow({
+      flowName: 'syncOrders',
+      input: { limit: 50 },
+      shop: auth.shop,
+      shopifyApp: auth.shopifyApp,
+    })
+
+    return Response.json(result, { status: 202 })
+  },
+})
+```
+
+The configured instance supplies its own config. `flowName` autocompletes from
+registered flow keys, and `input` is checked against the selected flow schema.

@@ -12,7 +12,6 @@ import {
   defineModel,
   defineOpenShop,
   defineProvider,
-  dispatchFlow,
   getDb,
   getRuntimeLogger,
   setRuntimeLogger,
@@ -127,18 +126,19 @@ const hourly = cron('@hourly')
 Supported nicknames are `@yearly`, `@annually`, `@monthly`, `@weekly`, `@daily`,
 and `@hourly`.
 
-## `dispatchFlow(params)`
+## `configuredOpenShop.dispatchFlow(params)`
 
-Adds a flow run to PostgreSQL. A worker must be running to execute it.
+`app.defineConfig()` returns a configured OpenShop instance. Import that instance
+to add a flow run to PostgreSQL without passing its config back into the
+framework. A worker must be running to execute it.
 
 ```ts
-import { dispatchFlow, type OpenShopConfig } from 'openshop'
+import openshop from './openshop.config.ts'
 
-export async function queueSync(config: OpenShopConfig) {
-  return dispatchFlow({
+export async function queueSync() {
+  return openshop.dispatchFlow({
     flowName: 'syncOrders',
     input: { limit: 50 },
-    config,
     shop: 'example.myshopify.com',
     shopifyApp: 'default',
     parentRunId: undefined,
@@ -152,9 +152,8 @@ export async function queueSync(config: OpenShopConfig) {
 
 | Parameter | Type | Notes |
 | --- | --- | --- |
-| `flowName` | `string` | Must exist in `config.flows`. |
-| `input` | `Record<string, unknown>` | Defaults to `{}`. |
-| `config` | `OpenShopConfig` | Active application config. |
+| `flowName` | Registered flow key | Inferred from the configured instance. |
+| `input` | Selected flow input | Defaults to `{}`. |
 | `shop` | `string` | Target `*.myshopify.com` domain, or the cron global sentinel when used internally. |
 | `shopifyApp` | `string` | Defaults to the `default` app handle. |
 | `parentRunId` | `string` | Optional parent run relationship. |

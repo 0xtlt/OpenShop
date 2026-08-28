@@ -32,6 +32,8 @@ test.group('defineOpenShop config validation', () => {
     })
 
     assert.equal(config.flows.sync.name, 'sync')
+    assert.isFunction(config.dispatchFlow)
+    assert.notInclude(Object.keys(config), 'dispatchFlow')
   })
 
   test('rejects crons that reference an unknown flow', ({ assert }) => {

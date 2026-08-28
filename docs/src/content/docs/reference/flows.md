@@ -39,7 +39,7 @@ const syncOrders = app.defineFlow({
 | `retryPolicy` | `Partial<RetryPolicy>` | App policy | Overrides the app-level policy. |
 | `run` | `(ctx) => Promise<void>` | Required | Flow implementation. |
 
-`dispatchFlow()` returns `{ runId, status: 'pending' }`. Its `delayMs` and
+`openshop.dispatchFlow()` returns `{ runId, status: 'pending' }`. Its `delayMs` and
 `retryPolicy` options override the flow and app values for that run.
 The `config.flows` object key—not `flow.name`—is the runtime identifier used by
 dispatch, crons, runs, and logs.
@@ -65,7 +65,7 @@ Retry settings merge from least to most specific:
 1. OpenShop defaults
 2. `config.retryPolicy`
 3. `flow.retryPolicy`
-4. `dispatchFlow(..., { options: { retryPolicy } })`
+4. `openshop.dispatchFlow({ options: { retryPolicy }, ... })`
 
 | Field | Default | Meaning |
 | --- | --- | --- |

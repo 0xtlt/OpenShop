@@ -35,7 +35,10 @@ export default defineConfig({
 				alt: 'OpenShop',
 				replacesTitle: true,
 			},
-			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/0xtlt/OpenShop' }],
+			social: [
+				{ icon: 'github', label: 'GitHub', href: 'https://github.com/0xtlt/OpenShop' },
+				{ icon: 'npm', label: 'npm', href: 'https://www.npmjs.com/package/openshop' },
+			],
 			sidebar: [
 				{
 					label: 'Start Here',

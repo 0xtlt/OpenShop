@@ -1,5 +1,7 @@
 # OpenShop
 
+[![npm version](https://img.shields.io/npm/v/openshop.svg?logo=npm)](https://www.npmjs.com/package/openshop)
+
 OpenShop is a Shopify integration framework for apps that need typed flows, provider configuration, background workers, and an embedded admin UI.
 
 - Website: https://openshop.run/

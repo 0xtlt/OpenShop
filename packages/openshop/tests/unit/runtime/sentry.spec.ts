@@ -38,6 +38,10 @@ test.group('Sentry runtime', () => {
 
     const app = new Hono()
     assert.isTrue(installSentryMiddleware(app, enabledConfig))
+    app.onError((error, c) => {
+      c.error = error
+      return c.text('Internal Server Error', 500)
+    })
     app.get('/boom', () => {
       throw new Error('request failed')
     })

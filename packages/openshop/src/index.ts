@@ -143,7 +143,7 @@ export function defineOpenShop<const TProviders extends Record<string, ProviderD
         pages: app.pages === undefined && config.pages === undefined
           ? undefined
           : { ...app.pages, ...config.pages },
-        sentry: config.sentry ?? app.sentry,
+        sentry: config.sentry === undefined ? app.sentry : config.sentry,
         worker: config.worker ?? app.worker,
         retryPolicy: config.retryPolicy ?? app.retryPolicy,
         onError: config.onError ?? app.onError,

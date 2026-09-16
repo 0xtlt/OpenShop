@@ -134,6 +134,22 @@ export function registerCustomAdminPageRoutes(
     return c.json(response)
   })
 
+  api.get('/pages/custom/access', async (c) => {
+    const config = getConfig()
+    const pathname = c.req.query('path')
+    if (!customPagesEnabled(config.experimental) || !pathname) {
+      return c.json({ allowed: false }, 404)
+    }
+    const page = runtimePages(directory)
+      .find((candidate) => matchCustomAdminPath(candidate.routePattern, pathname))
+    if (!page) return c.json({ allowed: false }, 404)
+    const params = extractParams(page.routePattern, pathname)
+    if (!params) return c.json({ allowed: false }, 404)
+    const module = await loadServerModule(page)
+    const context = await createContext(c, config, params, randomUUID())
+    return c.json({ allowed: await isAllowed(module, context) })
+  })
+
   api.post('/pages/custom/*', async (c) => {
     const startedAt = Date.now()
     const requestId = randomUUID()
@@ -192,13 +208,14 @@ export function registerCustomAdminPageRoutes(
         const result = definition.output(output)
         if (result instanceof type.errors) throw new Error(`Invalid output: ${result.summary}`)
       }
-      JSON.stringify(output)
+      const serializedOutput = JSON.stringify(output)
+      if (serializedOutput === undefined) throw new Error('Admin function output is not JSON-serializable')
       Object.assign(metadata, { pageId: page.id, functionName: name, kind, status: 200 })
       logger.info('[openshop] Custom admin function completed', {
         ...metadata,
         durationMs: Date.now() - startedAt,
       })
-      return c.body(JSON.stringify(output as JsonValue), 200, {
+      return c.body(serializedOutput, 200, {
         'content-type': 'application/json; charset=UTF-8',
       })
     } catch (error) {

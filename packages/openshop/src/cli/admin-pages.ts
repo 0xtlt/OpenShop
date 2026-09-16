@@ -69,6 +69,23 @@ export function discoverCustomAdminPages(cwd = process.cwd()): CustomAdminPageMa
     }
   })
 
+  pages.sort((left, right) => {
+    const leftSegments = left.routePattern.split('/')
+    const rightSegments = right.routePattern.split('/')
+    for (let index = 0; index < Math.max(leftSegments.length, rightSegments.length); index++) {
+      const leftSegment = leftSegments[index]
+      const rightSegment = rightSegments[index]
+      if (leftSegment === rightSegment) continue
+      if (leftSegment === undefined) return -1
+      if (rightSegment === undefined) return 1
+      if (leftSegment.startsWith(':') !== rightSegment.startsWith(':')) {
+        return leftSegment.startsWith(':') ? 1 : -1
+      }
+      return leftSegment.localeCompare(rightSegment)
+    }
+    return 0
+  })
+
   const seen = new Set<string>()
   for (const page of pages) {
     if (seen.has(page.routePattern)) {

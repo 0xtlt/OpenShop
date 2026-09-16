@@ -6,6 +6,7 @@ import { customAdminPages, type CustomAdminClientPage } from 'virtual:openshop-a
 import type { AdminPageDefinition } from '../admin/index.ts'
 import { matchCustomAdminPath, type CustomAdminPagesResponse } from '../config/custom-pages.ts'
 import Disabled from './pages/Disabled'
+import { apiJson } from './fetch'
 
 export { customAdminPages }
 
@@ -74,9 +75,23 @@ export function LazyCustomAdminPage({
 
 export function CustomAdminPageGate({ children }: { children: ComponentChildren }) {
   const { path } = useLocation()
-  const access = useCustomAdminPages()
   const page = customAdminPages.find((candidate) => matchCustomAdminPath(candidate.routePattern, path))
+  const [routeAccess, setRouteAccess] = useState<{ path: string; allowed: boolean } | null>(null)
+
+  useEffect(() => {
+    if (!page) return
+    let active = true
+    void apiJson<{ allowed: boolean }>(`/api/pages/custom/access?path=${encodeURIComponent(path)}`)
+      .then(({ allowed }) => {
+        if (active) setRouteAccess({ path, allowed })
+      })
+      .catch(() => {
+        if (active) setRouteAccess({ path, allowed: false })
+      })
+    return () => { active = false }
+  }, [page, path])
+
   if (!page) return <>{children}</>
-  const allowed = access.pages.find((candidate) => candidate.id === page.id)?.allowed
-  return allowed ? <>{children}</> : <Disabled />
+  if (routeAccess?.path !== path) return <s-page>Loading...</s-page>
+  return routeAccess.allowed ? <>{children}</> : <Disabled />
 }

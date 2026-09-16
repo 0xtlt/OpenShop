@@ -22,18 +22,20 @@ test.group('custom admin page discovery', (group) => {
     writeFileSync(join(cwd, 'admin/pages/reviews/[id]/page.tsx'), 'export default {}')
 
     const pages = discoverCustomAdminPages(cwd)
+    const listPage = pages.find((page) => page.id === 'reviews')
+    const detailPage = pages.find((page) => page.id === 'reviews/[id]')
 
-    assert.deepInclude(pages[0], {
+    assert.deepInclude(listPage, {
       id: 'reviews',
       path: '/reviews',
       routePattern: '/reviews',
     })
-    assert.deepInclude(pages[1], {
+    assert.deepInclude(detailPage, {
       id: 'reviews/[id]',
       path: '/reviews/[id]',
       routePattern: '/reviews/:id',
     })
-    assert.equal(pages[0]?.serverFile, join(cwd, 'admin/pages/reviews/actions.server.ts'))
+    assert.equal(listPage?.serverFile, join(cwd, 'admin/pages/reviews/actions.server.ts'))
   })
 
   test('rejects built-in and reserved routes', ({ assert }) => {

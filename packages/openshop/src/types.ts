@@ -1,4 +1,5 @@
 import type { Type } from 'arktype'
+import type { NodeOptions as SentryNodeOptions } from '@sentry/node'
 import type { AdminPagesConfig } from './config/pages.ts'
 
 export type { AdminPageId, AdminPageMode, AdminPagesConfig, ResolvedAdminPages } from './config/pages.ts'
@@ -169,10 +170,15 @@ export interface OpenShopConfig<
   webhooks?: Record<string, WebhookDefinition>
   crons?: CronEntryFor<TFlows>[]
   pages?: AdminPagesConfig
+  /** Opt-in backend error and performance monitoring. Omit to leave Sentry uninitialized. */
+  sentry?: SentryConfig
   worker?: Partial<WorkerConfig>
   retryPolicy?: Partial<RetryPolicy>
   onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void
 }
+
+/** Standard Sentry Node SDK options used when OpenShop initializes Sentry. */
+export type SentryConfig = SentryNodeOptions
 
 export interface ShopifyConfig {
   /** Global OAuth scopes. If omitted, OpenShop reads scopes from Shopify TOML files when available. */

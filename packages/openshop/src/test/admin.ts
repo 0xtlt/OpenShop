@@ -46,7 +46,7 @@ export async function invokeAdminFunction<
   if (definition.authorize && !(await definition.authorize(context))) {
     throw new Error('Admin function authorization rejected')
   }
-  let validatedInput = input
+  let validatedInput: unknown = input
   if (definition.input) {
     const result = definition.input(input)
     if (result instanceof type.errors) throw new Error(result.summary)

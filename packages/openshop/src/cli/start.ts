@@ -2,12 +2,14 @@ import { resolve } from 'node:path'
 import { existsSync } from 'node:fs'
 import { loadBuiltConfig, resolveBuiltConfig, resolveBuiltProxyDir, resolveBuiltRoutesDir } from './app-build.ts'
 import { closeHttpServer } from '#server/http'
+import { captureException, flushOpenShopSentry, initOpenShopSentry } from '../sentry/init.ts'
 
 export async function startProd() {
   const cwd = process.cwd()
   const port = Number(process.env.PORT) || 3000
 
   console.log('[openshop] Starting production server...')
+  await initOpenShopSentry({ process: 'web' })
 
   process.env.DATABASE_URL ??= 'postgresql://openshop:openshop@localhost:5432/openshop'
   console.log('[openshop] Database migrations are manual. Run `openshop migrate` before starting production processes.')
@@ -22,6 +24,8 @@ export async function startProd() {
   } catch (error) {
     console.error(`[openshop] Failed to load ${resolveBuiltConfig(cwd)}`)
     console.error(error)
+    captureException(error, { mechanism: 'cli' })
+    await flushOpenShopSentry()
     process.exit(1)
   }
 
@@ -45,9 +49,11 @@ export async function startProd() {
     try {
       await closeHttpServer(server)
       stopScheduler()
+      await flushOpenShopSentry()
       process.exit(0)
     } catch (error) {
       console.error('[openshop] Failed to close HTTP server:', error)
+      await flushOpenShopSentry()
       process.exit(1)
     }
   }

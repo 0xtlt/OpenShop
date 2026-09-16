@@ -156,6 +156,14 @@ export type CronEntryFor<TFlows extends Record<string, FlowDefinition<unknown>>>
   }
 }[keyof TFlows & string]
 
+/** Optional Sentry tags and kill-switch. DSN and sample rates come from environment variables. */
+export interface SentryConfig {
+  /** When `false`, OpenShop closes Sentry even if `SENTRY_DSN` is set. */
+  enabled?: boolean
+  /** Static tags applied to every event after config load. */
+  tags?: Record<string, string>
+}
+
 export interface OpenShopConfig<
   TProviders extends Record<string, ProviderDefinition> = Record<string, ProviderDefinition>,
   TFlows extends Record<string, FlowDefinition<unknown>> = Record<string, FlowDefinition<unknown>>,
@@ -166,6 +174,7 @@ export interface OpenShopConfig<
   flows: TFlows
   functions?: TFunctions
   mcp?: McpConfig
+  sentry?: SentryConfig
   webhooks?: Record<string, WebhookDefinition>
   crons?: CronEntryFor<TFlows>[]
   pages?: AdminPagesConfig

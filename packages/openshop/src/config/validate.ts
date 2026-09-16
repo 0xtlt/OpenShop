@@ -161,7 +161,22 @@ export function validateOpenShopConfig(config: OpenShopConfig): void {
   validatePagesConfig(config.pages)
   validateWorkerConfig(config.worker)
   validateRetryPolicy(config.retryPolicy, 'retryPolicy')
+  validateSentryConfig(config.sentry)
   buildMcpRegistry(config, createCoreMcpCapabilities(() => config))
+}
+
+function validateSentryConfig(sentry: OpenShopConfig['sentry']): void {
+  if (sentry === undefined) return
+  if (!isRecord(sentry)) fail('sentry must be an object')
+  if (sentry.enabled !== undefined && typeof sentry.enabled !== 'boolean') {
+    fail('sentry.enabled must be a boolean')
+  }
+  if (sentry.tags === undefined) return
+  if (!isRecord(sentry.tags)) fail('sentry.tags must be an object')
+  for (const [key, value] of Object.entries(sentry.tags)) {
+    if (typeof key !== 'string' || key.trim() === '') fail('sentry.tags keys must be non-empty strings')
+    if (typeof value !== 'string' || value.trim() === '') fail(`sentry.tags.${key} must be a non-empty string`)
+  }
 }
 
 export function validatePagesConfig(pages: OpenShopConfig['pages']): void {

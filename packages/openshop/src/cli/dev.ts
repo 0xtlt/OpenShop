@@ -8,6 +8,7 @@ import { stripCorsResponseHeaders } from './dev-cors.ts'
 import { watchAppDirectories } from './dev-watch.ts'
 import { loadEnvFile } from './env.ts'
 import { runCodegenOnce } from '../vite/codegen-utils.ts'
+import { initOpenShopSentry } from '../sentry/init.ts'
 
 function currentDir() {
   return dirname(fileURLToPath(import.meta.url))
@@ -30,6 +31,7 @@ const viteDefaultAllowedOrigins = /^https?:\/\/(?:(?:[^:]+\.)?localhost|127\.0\.
 export async function startDev() {
   const cwd = process.cwd()
   loadEnvFile(cwd)
+  await initOpenShopSentry({ process: 'dev' })
 
   const port = Number(process.env.PORT) || 3000
   const apiPort = port + 1

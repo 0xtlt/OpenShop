@@ -81,6 +81,7 @@ export default defineConfig({
 						{ label: 'MCP', slug: 'reference/mcp' },
 						{ label: 'CLI commands', slug: 'reference/cli' },
 						{ label: 'Logging', slug: 'reference/logging' },
+						{ label: 'Sentry', slug: 'reference/sentry' },
 						{ label: 'Errors', slug: 'reference/errors' },
 						{ label: 'Security', slug: 'reference/security' },
 						{ label: 'Versioning', slug: 'reference/versioning' },

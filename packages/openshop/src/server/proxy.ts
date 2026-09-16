@@ -6,6 +6,7 @@ import { normalizeShopDomain } from '#server/shop-domain'
 import { hasConfiguredShopifyAppSecret, readJwtAudience, resolveShopifyAppByApiKey, resolveShopifyApps, type ResolvedShopifyApp } from '#server/shopify-apps'
 import type { OpenShopConfig, ProxyDefinition, ProxyContext } from '#types'
 import { getRuntimeLogger } from '../runtime/logger.ts'
+import { captureException } from '../sentry/reporter.ts'
 
 // ─── HMAC Verification ──────────────────────────────────────────────
 
@@ -228,6 +229,13 @@ export async function createProxyRoutes(
           return sendResponse(result, responseType)
         } catch (error) {
           logger.error(`[openshop] Proxy ${method} ${routePath} error`, { error })
+          captureException(error, {
+            mechanism: 'proxy',
+            route: routePath,
+            method,
+            shop: ctx.shop,
+            shopifyApp: ctx.shopifyApp,
+          })
           return c.json({ error: 'Internal proxy error' }, 500)
         }
       })

@@ -1,5 +1,6 @@
 import type { ServerType } from '@hono/node-server'
 import { closeHttpServer } from '#server/http'
+import { flushOpenShopSentry } from '../sentry/init.ts'
 
 interface CreateApiShutdownHandlerOptions {
   server: ServerType
@@ -20,6 +21,7 @@ export function createApiShutdownHandler(options: CreateApiShutdownHandlerOption
       options.notifyListenerClosed?.()
       options.stopScheduler()
       await options.stopWorker()
+      await flushOpenShopSentry()
     })()
 
     return shutdownPromise

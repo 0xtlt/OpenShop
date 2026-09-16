@@ -256,4 +256,31 @@ test.group('defineOpenShop config validation', () => {
       }), /pages must be an object/)
     }
   })
+
+  test('accepts sentry tags and enabled flag', ({ assert }) => {
+    const config = emptyApp.defineConfig({
+      flows: { sync: flow },
+      sentry: {
+        enabled: true,
+        tags: { region: 'eu' },
+      },
+    })
+
+    assert.equal(config.sentry?.enabled, true)
+    assert.equal(config.sentry?.tags?.region, 'eu')
+  })
+
+  test('rejects invalid sentry tags', ({ assert }) => {
+    assert.throws(() => emptyApp.defineConfig({
+      flows: { sync: flow },
+      sentry: { tags: { region: '   ' } },
+    }), /sentry\.tags\.region must be a non-empty string/)
+  })
+
+  test('rejects a non-object sentry config', ({ assert }) => {
+    assert.throws(() => emptyApp.defineConfig({
+      flows: { sync: flow },
+      sentry: true as never,
+    }), /sentry must be an object/)
+  })
 })

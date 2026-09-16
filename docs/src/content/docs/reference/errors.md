@@ -51,3 +51,8 @@ export default app.defineConfig({
 
 The hook supplements stored logs. It does not replace throwing errors from
 failed provider or Shopify operations.
+
+When `SENTRY_DSN` is set, OpenShop also reports flow failures, HTTP 500s,
+webhook handler errors, and unhandled exceptions to Sentry. See
+[Sentry](/reference/sentry/). `onError` remains available for additional
+reporters.

@@ -105,6 +105,7 @@
   "dependencies": {
     "@hono/node-server": "2.1.1",
     "@preact/preset-vite": "2.10.6",
+    "@sentry/node": "10.74.0",
     "@types/pg": "^8.21.0",
     "arktype": "^2.2.3",
     "croner": "^10.0.1",

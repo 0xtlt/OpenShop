@@ -7,6 +7,7 @@ import { dispatchFlow } from '#engine/dispatch'
 import { cancelRun } from '#engine/abort'
 import { truncateAll, createConfig, TEST_SHOP } from '../helpers.ts'
 import type { FlowRunContext } from '#types'
+import { setExceptionReporter } from '../../../src/sentry/reporter.ts'
 
 function defineTestFlow(fn: (ctx: FlowRunContext) => Promise<void>, opts: Record<string, unknown> = {}) {
   return { name: 'test-flow', ...opts, run: fn }
@@ -77,6 +78,38 @@ test.group('runner', (group) => {
     const [run] = await db.select().from(flowRuns).where(eq(flowRuns.id, runId)).limit(1)
     assert.equal(run.status, 'failed')
     assert.include(run.error!, 'boom')
+  })
+
+  test('reports flow failures to the exception reporter', async ({ assert }) => {
+    const captured: Array<{ message: string; flow?: string; shop?: string }> = []
+    const previous = setExceptionReporter({
+      captureException(error, context) {
+        captured.push({
+          message: error instanceof Error ? error.message : String(error),
+          flow: context.flow,
+          shop: context.shop,
+        })
+      },
+    })
+
+    try {
+      const flow = defineTestFlow(async () => {
+        throw new Error('sentry-boom')
+      })
+      const config = createConfig({ 'test-flow': flow })
+      const { runId } = await dispatchFlow({
+        flowName: 'test-flow', config, shop: TEST_SHOP,
+        options: { retryPolicy: { maxAttempts: 0 } },
+      })
+
+      await runFlow({ runId, flowName: 'test-flow', config, shop: TEST_SHOP })
+      assert.lengthOf(captured, 1)
+      assert.include(captured[0]!.message, 'sentry-boom')
+      assert.equal(captured[0]!.flow, 'test-flow')
+      assert.equal(captured[0]!.shop, TEST_SHOP)
+    } finally {
+      setExceptionReporter(previous)
+    }
   })
 
   test('flow with retry stays pending after failure', async ({ assert }) => {

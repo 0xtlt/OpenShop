@@ -278,25 +278,34 @@ export function useAction<TInput, TOutput extends JsonValue>(
   reference: AdminActionClient<TInput, TOutput>,
 ): AdminActionState<TInput, TOutput> {
   const [state, setState] = useState<Omit<AdminActionState<TInput, TOutput>, 'invoke' | 'reset'>>({ pending: false })
-  const pending = useRef(false)
+  const inFlight = useRef(0)
+  const latestInvocation = useRef(0)
 
   const invoke = useCallback(async (input: TInput, options?: AdminActionOptions) => {
-    if (pending.current && options?.concurrency !== 'allow') return undefined
-    pending.current = true
+    if (inFlight.current > 0 && options?.concurrency !== 'allow') return undefined
+    inFlight.current += 1
+    const invocation = ++latestInvocation.current
     setState((current) => ({ ...current, pending: true, error: undefined }))
     try {
       const data = await callAdminFunction(reference, input, options)
-      setState({ data, pending: false })
+      inFlight.current -= 1
+      setState((current) => invocation === latestInvocation.current
+        ? { data, pending: inFlight.current > 0 }
+        : { ...current, pending: inFlight.current > 0 })
       for (const loader of options?.revalidate ?? []) revalidate(loader)
       return data
     } catch (error) {
-      setState({ error: error instanceof Error ? error : new Error(String(error)), pending: false })
+      inFlight.current -= 1
+      setState((current) => invocation === latestInvocation.current
+        ? {
+            error: error instanceof Error ? error : new Error(String(error)),
+            pending: inFlight.current > 0,
+          }
+        : { ...current, pending: inFlight.current > 0 })
       throw error
-    } finally {
-      pending.current = false
     }
   }, [reference])
 
-  const reset = useCallback(() => setState({ pending: false }), [])
+  const reset = useCallback(() => setState({ pending: inFlight.current > 0 }), [])
   return { ...state, invoke, reset }
 }

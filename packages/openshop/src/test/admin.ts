@@ -1,7 +1,8 @@
 import { type } from 'arktype'
 import type {
+  AdminActionDefinition,
+  AdminLoaderDefinition,
   AdminServerContext,
-  AnyAdminFunctionDefinition,
   JsonValue,
 } from '../admin/index.ts'
 import { getDb } from '../db/client.ts'
@@ -31,10 +32,16 @@ export async function createAdminFunctionTestContext(options: {
   }
 }
 
-export async function invokeAdminFunction<TOutput extends JsonValue>(
-  definition: AnyAdminFunctionDefinition,
-  context: AdminServerContext,
-  input?: unknown,
+export async function invokeAdminFunction<
+  TInput,
+  TOutput extends JsonValue,
+  TParams extends Record<string, string>,
+>(
+  definition:
+    | AdminLoaderDefinition<TInput, TOutput, TParams>
+    | AdminActionDefinition<TInput, TOutput, TParams>,
+  context: AdminServerContext<TParams>,
+  input: TInput,
 ): Promise<TOutput> {
   if (definition.authorize && !(await definition.authorize(context))) {
     throw new Error('Admin function authorization rejected')
@@ -45,5 +52,5 @@ export async function invokeAdminFunction<TOutput extends JsonValue>(
     if (result instanceof type.errors) throw new Error(result.summary)
     validatedInput = result
   }
-  return definition.handler(context, validatedInput) as Promise<TOutput>
+  return definition.handler(context, validatedInput as TInput)
 }

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { dirname, resolve, sep } from 'node:path'
 import type { Plugin } from 'vite'
 import type { CustomAdminPageManifestEntry } from '../config/custom-pages.ts'
 import { discoverCustomAdminPages } from '../cli/admin-pages.ts'
@@ -10,7 +10,7 @@ const actionPrefix = '\0virtual:openshop-admin-actions:'
 
 function exportedFunctions(source: string): Array<{ name: string; kind: 'loader' | 'action' }> {
   const exports: Array<{ name: string; kind: 'loader' | 'action' }> = []
-  const expression = /export\s+const\s+([A-Za-z_$][\w$]*)\s*=\s*defineAdmin(Loader|Action)\s*(?:<[^;]*?>)?\s*\(/g
+  const expression = /export\s+const\s+([A-Za-z_$][\w$]*)(?:\s*:[^=\n]+)?\s*=\s*defineAdmin(Loader|Action)\b/g
   for (const match of source.matchAll(expression)) {
     exports.push({
       name: match[1]!,
@@ -49,7 +49,20 @@ export function adminPagesPlugin(
     enforce: 'pre',
     resolveId(source, importer) {
       if (source === manifestId) return resolvedManifestId
-      if (!importer || !/(?:^|\/)actions\.server\.(?:ts|js)$/.test(source)) return null
+      if (!importer) return null
+      const isActionsFile = /(?:^|\/)actions\.server\.(?:ts|js)$/.test(source)
+      if (!isActionsFile) {
+        const importerPath = importer.split('?')[0]!
+        const appPage = importerPath.includes(`${sep}admin${sep}pages${sep}`)
+        if (appPage && (
+          /(?:^|\/)[^/]+\.server\.(?:ts|js)$/.test(source)
+          || source.startsWith('#server/')
+          || source.includes('/server/')
+        )) {
+          throw new Error(`[openshop] Server-only import "${source}" is not allowed in a custom admin page`)
+        }
+        return null
+      }
       const absolute = resolve(dirname(importer.split('?')[0]!), source)
       const candidates = [absolute, `${absolute}.ts`, `${absolute}.js`]
       const page = candidates.map((candidate) => byServerFile.get(candidate)).find(Boolean)
@@ -82,6 +95,10 @@ export function adminPagesPlugin(
           refreshIndex()
           const module = server.moduleGraph.getModuleById(resolvedManifestId)
           if (module) server.moduleGraph.invalidateModule(module)
+          for (const currentPage of pages) {
+            const actionModule = server.moduleGraph.getModuleById(`${actionPrefix}${currentPage.id}`)
+            if (actionModule) server.moduleGraph.invalidateModule(actionModule)
+          }
           server.ws.send({ type: 'full-reload', path: '*' })
         })
       }

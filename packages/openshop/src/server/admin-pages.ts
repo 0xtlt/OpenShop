@@ -91,6 +91,27 @@ async function isAllowed(
   return authorize ? authorize(context) : true
 }
 
+async function pageIsAllowed(
+  c: Context,
+  config: OpenShopConfig,
+  page: CustomAdminPageManifestEntry,
+  pathname: string,
+): Promise<boolean> {
+  try {
+    const params = extractParams(page.routePattern, pathname)
+    if (!params) return false
+    const module = await loadServerModule(page)
+    const context = await createContext(c, config, params, randomUUID())
+    return isAllowed(module, context)
+  } catch (error) {
+    getRuntimeLogger().warn('[openshop] Custom admin page access check failed', {
+      pageId: page.id,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return false
+  }
+}
+
 function publicErrorResponse(c: Context, error: AdminPublicError, requestId: string) {
   return c.json({
     error: error.message,
@@ -113,22 +134,19 @@ export function registerCustomAdminPageRoutes(
       customPagesConfig(config.experimental)?.navigation,
       pages,
     )
-    const access = await Promise.all(pages.map(async (page) => {
-      const params = extractParams(page.routePattern, page.path)
-      if (!params) return { id: page.id, path: page.routePattern, allowed: false }
-      const module = await loadServerModule(page)
-      const context = await createContext(c, config, params, randomUUID())
-      return {
-        id: page.id,
-        path: page.routePattern,
-        allowed: await isAllowed(module, context),
-      }
+    const access = await Promise.all(pages.map(async (page) => ({
+      id: page.id,
+      path: page.routePattern,
+      allowed: page.routePattern.includes(':')
+        ? false
+        : await pageIsAllowed(c, config, page, page.path),
+    })))
+    const authorizedNavigation = await Promise.all(navigation.map(async (item) => {
+      const page = pages.find((candidate) => matchCustomAdminPath(candidate.routePattern, item.path))
+      return page && await pageIsAllowed(c, config, page, item.path) ? item : null
     }))
-    const allowedPatterns = access.filter((page) => page.allowed).map((page) => page.path)
     const response: CustomAdminPagesResponse = {
-      navigation: navigation.filter((item) => (
-        allowedPatterns.some((pattern) => matchCustomAdminPath(pattern, item.path))
-      )),
+      navigation: authorizedNavigation.filter((item): item is NonNullable<typeof item> => Boolean(item)),
       pages: access,
     }
     return c.json(response)
@@ -143,11 +161,7 @@ export function registerCustomAdminPageRoutes(
     const page = runtimePages(directory)
       .find((candidate) => matchCustomAdminPath(candidate.routePattern, pathname))
     if (!page) return c.json({ allowed: false }, 404)
-    const params = extractParams(page.routePattern, pathname)
-    if (!params) return c.json({ allowed: false }, 404)
-    const module = await loadServerModule(page)
-    const context = await createContext(c, config, params, randomUUID())
-    return c.json({ allowed: await isAllowed(module, context) })
+    return c.json({ allowed: await pageIsAllowed(c, config, page, pathname) })
   })
 
   api.post('/pages/custom/*', async (c) => {

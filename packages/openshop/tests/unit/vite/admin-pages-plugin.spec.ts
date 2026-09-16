@@ -9,7 +9,7 @@ test('renders typed client references without server handler code', ({ assert })
   try {
     const serverFile = join(directory, 'actions.server.ts')
     writeFileSync(serverFile, `
-      export const load = defineAdminLoader({
+      export const load: Loader = defineAdminLoader<{ query: string }, Result>({
         handler: () => ({ secret: process.env.SECRET }),
       })
       export const save = defineAdminAction({

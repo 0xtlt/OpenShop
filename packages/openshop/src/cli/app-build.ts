@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
 import { build } from 'esbuild'
+import type { CustomAdminPageManifestEntry } from '../config/custom-pages.ts'
+import { writeCustomAdminPagesManifest } from './admin-pages.ts'
 
 export const serverBuildDir = 'dist/openshop/server'
 export const serverConfigFile = 'openshop.config.js'
@@ -42,6 +44,10 @@ export function resolveBuiltRoutesDir(cwd = process.cwd()) {
   return resolve(cwd, serverBuildDir, 'routes')
 }
 
+export function resolveBuiltAdminPagesDir(cwd = process.cwd()) {
+  return resolve(cwd, serverBuildDir, 'admin-pages')
+}
+
 export async function loadBuiltConfig(cwd = process.cwd()): Promise<import('#types').OpenShopConfig> {
   const configPath = resolveBuiltConfig(cwd)
   if (!existsSync(configPath)) {
@@ -52,7 +58,10 @@ export async function loadBuiltConfig(cwd = process.cwd()): Promise<import('#typ
   return mod.default ?? mod
 }
 
-export async function buildServerApp(cwd = process.cwd()) {
+export async function buildServerApp(
+  cwd = process.cwd(),
+  adminPages: readonly CustomAdminPageManifestEntry[] = [],
+) {
   const configPath = resolve(cwd, 'openshop.config.ts')
   if (!existsSync(configPath)) {
     throw new Error(`OpenShop config not found at ${configPath}`)
@@ -91,6 +100,22 @@ export async function buildServerApp(cwd = process.cwd()) {
       entryPoints: entries,
       outdir: resolve(outDir, directory),
       outbase: sourceDir,
+      entryNames: '[dir]/[name]',
+    })
+  }
+
+  const adminPagesDir = resolveBuiltAdminPagesDir(cwd)
+  mkdirSync(adminPagesDir, { recursive: true })
+  writeCustomAdminPagesManifest(adminPagesDir, adminPages, cwd)
+  const serverEntries = adminPages
+    .map((page) => page.serverFile)
+    .filter((file): file is string => Boolean(file))
+  if (serverEntries.length > 0) {
+    await build({
+      ...common,
+      entryPoints: serverEntries,
+      outdir: adminPagesDir,
+      outbase: resolve(cwd, 'admin', 'pages'),
       entryNames: '[dir]/[name]',
     })
   }

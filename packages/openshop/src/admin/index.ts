@@ -1,0 +1,277 @@
+import type { ComponentType } from 'preact'
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
+import type { Type } from 'arktype'
+import type { RuntimeConnectors } from '../server/connectors.ts'
+import type { ShopifyClient } from '../shopify/client.ts'
+import type { getDb } from '../db/client.ts'
+
+declare global {
+  interface Window {
+    shopify?: {
+      idToken(): Promise<string>
+    }
+  }
+}
+
+export type JsonPrimitive = string | number | boolean | null
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
+
+export interface AdminActor {
+  id: string
+  sessionId: string
+}
+
+export interface AdminServerContext<TParams extends Record<string, string> = Record<string, string>> {
+  shop: string
+  shopifyApp: string
+  actor: AdminActor
+  params: Readonly<TParams>
+  db: ReturnType<typeof getDb>
+  shopify: ShopifyClient
+  connectors: RuntimeConnectors
+  requestId: string
+  idempotencyKey?: string
+}
+
+export type AdminAuthorize<TParams extends Record<string, string> = Record<string, string>> = (
+  context: AdminServerContext<TParams>,
+) => boolean | Promise<boolean>
+
+export function defineAdminPageAccess<
+  TParams extends Record<string, string> = Record<string, string>,
+>(authorize: AdminAuthorize<TParams>): AdminAuthorize<TParams> {
+  return authorize
+}
+
+interface AdminFunctionBase<
+  TInput,
+  TOutput extends JsonValue,
+  TParams extends Record<string, string>,
+> {
+  output?: Type<TOutput>
+  authorize?: AdminAuthorize<TParams>
+  handler: (
+    context: AdminServerContext<TParams>,
+    input: TInput,
+  ) => TOutput | Promise<TOutput>
+}
+
+export interface AdminLoaderDefinition<
+  TInput = undefined,
+  TOutput extends JsonValue = JsonValue,
+  TParams extends Record<string, string> = Record<string, string>,
+> extends AdminFunctionBase<TInput, TOutput, TParams> {
+  kind: 'loader'
+  input?: Type<TInput>
+}
+
+export interface AdminActionDefinition<
+  TInput,
+  TOutput extends JsonValue = JsonValue,
+  TParams extends Record<string, string> = Record<string, string>,
+> extends AdminFunctionBase<TInput, TOutput, TParams> {
+  kind: 'action'
+  input: Type<TInput>
+}
+
+export type AnyAdminFunctionDefinition =
+  | AdminLoaderDefinition<unknown, JsonValue>
+  | AdminActionDefinition<unknown, JsonValue>
+
+export interface AdminPageDefinition<TProps = Record<string, string>> {
+  title?: string
+  component: ComponentType<TProps>
+}
+
+export function defineAdminPage<TProps>(
+  definition: AdminPageDefinition<TProps>,
+): AdminPageDefinition<TProps> {
+  return definition
+}
+
+export function defineAdminLoader<
+  TInput = undefined,
+  TOutput extends JsonValue = JsonValue,
+  TParams extends Record<string, string> = Record<string, string>,
+>(
+  definition: Omit<AdminLoaderDefinition<TInput, TOutput, TParams>, 'kind'>,
+): AdminLoaderDefinition<TInput, TOutput, TParams> {
+  return { ...definition, kind: 'loader' }
+}
+
+export function defineAdminAction<
+  TInput,
+  TOutput extends JsonValue = JsonValue,
+  TParams extends Record<string, string> = Record<string, string>,
+>(
+  definition: Omit<AdminActionDefinition<TInput, TOutput, TParams>, 'kind'>,
+): AdminActionDefinition<TInput, TOutput, TParams> {
+  return { ...definition, kind: 'action' }
+}
+
+export class AdminPublicError extends Error {
+  readonly code: string
+  readonly status: number
+  readonly fieldErrors?: Record<string, string>
+
+  constructor(
+    code: string,
+    message: string,
+    options?: { status?: number; fieldErrors?: Record<string, string> },
+  ) {
+    super(message)
+    this.name = 'AdminPublicError'
+    this.code = code
+    this.status = options?.status ?? 400
+    this.fieldErrors = options?.fieldErrors
+  }
+}
+
+export interface AdminFunctionReference<TInput, TOutput extends JsonValue> {
+  readonly kind: 'loader' | 'action'
+  readonly name: string
+  readonly pagePattern: string
+  readonly __input?: TInput
+  readonly __output?: TOutput
+}
+
+export function createAdminFunctionReference<TInput, TOutput extends JsonValue>(
+  reference: Omit<AdminFunctionReference<TInput, TOutput>, '__input' | '__output'>,
+): AdminFunctionReference<TInput, TOutput> {
+  return reference
+}
+
+interface RpcError {
+  error: string
+  code?: string
+  requestId?: string
+  fieldErrors?: Record<string, string>
+}
+
+export class AdminRpcError extends Error {
+  readonly code?: string
+  readonly requestId?: string
+  readonly fieldErrors?: Record<string, string>
+
+  constructor(payload: RpcError) {
+    super(payload.error)
+    this.name = 'AdminRpcError'
+    this.code = payload.code
+    this.requestId = payload.requestId
+    this.fieldErrors = payload.fieldErrors
+  }
+}
+
+async function callAdminFunction<TInput, TOutput extends JsonValue>(
+  reference: AdminFunctionReference<TInput, TOutput>,
+  input: TInput,
+  options?: { signal?: AbortSignal; idempotencyKey?: string },
+): Promise<TOutput> {
+  const headers = new Headers({ 'content-type': 'application/json' })
+  const token = await window.shopify?.idToken?.()
+  if (token) headers.set('authorization', `Bearer ${token}`)
+  if (options?.idempotencyKey) headers.set('idempotency-key', options.idempotencyKey)
+
+  const pathname = window.location.pathname.replace(/\/$/, '') || '/'
+  const response = await fetch(
+    `/api/pages/custom${pathname}/_rpc/${reference.kind}/${encodeURIComponent(reference.name)}`,
+    {
+      method: 'POST',
+      headers,
+      signal: options?.signal,
+      body: JSON.stringify({ input: input ?? null }),
+    },
+  )
+  const payload = await response.json() as TOutput | RpcError
+  if (!response.ok) throw new AdminRpcError(payload as RpcError)
+  return payload as TOutput
+}
+
+const loaderListeners = new Map<AdminFunctionReference<unknown, JsonValue>, Set<() => void>>()
+
+function revalidate(reference: AdminFunctionReference<unknown, JsonValue>) {
+  for (const listener of loaderListeners.get(reference) ?? []) listener()
+}
+
+export interface AdminLoaderState<TOutput> {
+  data?: TOutput
+  error?: Error
+  loading: boolean
+  revalidate(): void
+}
+
+export function useLoader<TInput, TOutput extends JsonValue>(
+  reference: AdminFunctionReference<TInput, TOutput>,
+  input: TInput,
+): AdminLoaderState<TOutput> {
+  const [state, setState] = useState<Omit<AdminLoaderState<TOutput>, 'revalidate'>>({ loading: true })
+  const [generation, setGeneration] = useState(0)
+  const serializedInput = JSON.stringify(input ?? null)
+  const refresh = useCallback(() => setGeneration((value) => value + 1), [])
+
+  useEffect(() => {
+    const listeners = loaderListeners.get(reference as AdminFunctionReference<unknown, JsonValue>) ?? new Set()
+    listeners.add(refresh)
+    loaderListeners.set(reference as AdminFunctionReference<unknown, JsonValue>, listeners)
+    return () => {
+      listeners.delete(refresh)
+      if (listeners.size === 0) loaderListeners.delete(reference as AdminFunctionReference<unknown, JsonValue>)
+    }
+  }, [reference, refresh])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setState((current) => ({ ...current, loading: true, error: undefined }))
+    void callAdminFunction(reference, JSON.parse(serializedInput) as TInput, { signal: controller.signal })
+      .then((data) => setState({ data, loading: false }))
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setState({ error: error instanceof Error ? error : new Error(String(error)), loading: false })
+        }
+      })
+    return () => controller.abort()
+  }, [reference, serializedInput, generation])
+
+  return { ...state, revalidate: refresh }
+}
+
+export interface AdminActionOptions {
+  concurrency?: 'ignore' | 'allow'
+  idempotencyKey?: string
+  revalidate?: AdminFunctionReference<unknown, JsonValue>[]
+}
+
+export interface AdminActionState<TInput, TOutput> {
+  data?: TOutput
+  error?: Error
+  pending: boolean
+  invoke(input: TInput, options?: AdminActionOptions): Promise<TOutput | undefined>
+  reset(): void
+}
+
+export function useAction<TInput, TOutput extends JsonValue>(
+  reference: AdminFunctionReference<TInput, TOutput>,
+): AdminActionState<TInput, TOutput> {
+  const [state, setState] = useState<Omit<AdminActionState<TInput, TOutput>, 'invoke' | 'reset'>>({ pending: false })
+  const pending = useRef(false)
+
+  const invoke = useCallback(async (input: TInput, options?: AdminActionOptions) => {
+    if (pending.current && options?.concurrency !== 'allow') return undefined
+    pending.current = true
+    setState((current) => ({ ...current, pending: true, error: undefined }))
+    try {
+      const data = await callAdminFunction(reference, input, options)
+      setState({ data, pending: false })
+      for (const loader of options?.revalidate ?? []) revalidate(loader)
+      return data
+    } catch (error) {
+      setState({ error: error instanceof Error ? error : new Error(String(error)), pending: false })
+      throw error
+    } finally {
+      pending.current = false
+    }
+  }, [reference])
+
+  const reset = useCallback(() => setState({ pending: false }), [])
+  return { ...state, invoke, reset }
+}

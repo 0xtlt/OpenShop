@@ -6,8 +6,12 @@ import { registerRunRoutes } from '#server/api-routes/runs'
 import { registerProviderRoutes } from '#server/api-routes/providers'
 import { registerMcpAdminRoutes } from '#server/api-routes/mcp'
 import { registerPageRoutes } from '#server/api-routes/pages'
+import { registerCustomAdminPageRoutes } from './admin-pages.ts'
 
-export function createApiRoutes(getConfig: () => OpenShopConfig) {
+export function createApiRoutes(
+  getConfig: () => OpenShopConfig,
+  options?: { adminPagesDir?: string },
+) {
   const api = new Hono()
 
   registerPageRoutes(api, getConfig)
@@ -16,6 +20,9 @@ export function createApiRoutes(getConfig: () => OpenShopConfig) {
   registerRunRoutes(api, getConfig)
   registerProviderRoutes(api, getConfig)
   registerMcpAdminRoutes(api, getConfig)
+  if (options?.adminPagesDir) {
+    registerCustomAdminPageRoutes(api, getConfig, options.adminPagesDir)
+  }
 
   return api
 }

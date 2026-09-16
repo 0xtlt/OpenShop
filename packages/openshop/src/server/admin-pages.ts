@@ -1,0 +1,219 @@
+import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { type } from 'arktype'
+import type { Context, Hono } from 'hono'
+import type {
+  AdminAuthorize,
+  AdminServerContext,
+  AnyAdminFunctionDefinition,
+  JsonValue,
+} from '../admin/index.ts'
+import { AdminPublicError } from '../admin/index.ts'
+import {
+  customPagesConfig,
+  customPagesEnabled,
+  matchCustomAdminPath,
+  type CustomAdminPageManifestEntry,
+  type CustomAdminPagesResponse,
+} from '../config/custom-pages.ts'
+import {
+  adminPagesManifestFile,
+  discoverCustomAdminPages,
+  readCustomAdminPagesManifest,
+  validateCustomAdminNavigation,
+} from '../cli/admin-pages.ts'
+import { getDb } from '../db/client.ts'
+import { createShopifyClient } from '../shopify/client.ts'
+import { getRuntimeLogger } from '../runtime/logger.ts'
+import type { OpenShopConfig } from '../types.ts'
+import { buildConnectors } from './connectors.ts'
+import { getAdminActor, getShop, getShopifyApp } from './shop.ts'
+
+type AdminServerModule = Record<string, unknown> & {
+  pageAccess?: AdminAuthorize
+}
+
+function runtimePages(directory: string): CustomAdminPageManifestEntry[] {
+  if (existsSync(resolve(directory, adminPagesManifestFile))) {
+    return readCustomAdminPagesManifest(directory).map((page) => ({
+      ...page,
+      serverFile: page.serverFile ? resolve(directory, page.serverFile) : undefined,
+    }))
+  }
+  return discoverCustomAdminPages(process.cwd())
+}
+
+async function loadServerModule(page: CustomAdminPageManifestEntry): Promise<AdminServerModule> {
+  if (!page.serverFile) return {}
+  return import(pathToFileURL(page.serverFile).href) as Promise<AdminServerModule>
+}
+
+function extractParams(pattern: string, pathname: string): Record<string, string> | null {
+  if (!matchCustomAdminPath(pattern, pathname)) return null
+  const params: Record<string, string> = {}
+  const patternSegments = pattern.split('/').filter(Boolean)
+  const pathSegments = pathname.split('/').filter(Boolean)
+  patternSegments.forEach((segment, index) => {
+    if (segment.startsWith(':')) params[segment.slice(1)] = decodeURIComponent(pathSegments[index]!)
+  })
+  return params
+}
+
+async function createContext(
+  c: Context,
+  config: OpenShopConfig,
+  params: Record<string, string>,
+  requestId: string,
+): Promise<AdminServerContext> {
+  const shop = getShop(c)
+  const shopifyApp = getShopifyApp(c)
+  return {
+    shop,
+    shopifyApp,
+    actor: getAdminActor(c),
+    params,
+    db: getDb(),
+    shopify: await createShopifyClient(shop, shopifyApp),
+    connectors: await buildConnectors(config, shop, shopifyApp),
+    requestId,
+    idempotencyKey: c.req.header('idempotency-key'),
+  }
+}
+
+async function isAllowed(
+  module: AdminServerModule,
+  context: AdminServerContext,
+  authorize?: AdminAuthorize,
+): Promise<boolean> {
+  if (module.pageAccess && !(await module.pageAccess(context))) return false
+  return authorize ? authorize(context) : true
+}
+
+function publicErrorResponse(c: Context, error: AdminPublicError, requestId: string) {
+  return c.json({
+    error: error.message,
+    code: error.code,
+    requestId,
+    ...(error.fieldErrors ? { fieldErrors: error.fieldErrors } : {}),
+  }, error.status as 400)
+}
+
+export function registerCustomAdminPageRoutes(
+  api: Hono,
+  getConfig: () => OpenShopConfig,
+  directory: string,
+) {
+  api.get('/pages/custom', async (c) => {
+    const config = getConfig()
+    if (!customPagesEnabled(config.experimental)) return c.json({ navigation: [], pages: [] })
+    const pages = runtimePages(directory)
+    const navigation = validateCustomAdminNavigation(
+      customPagesConfig(config.experimental)?.navigation,
+      pages,
+    )
+    const access = await Promise.all(pages.map(async (page) => {
+      const params = extractParams(page.routePattern, page.path)
+      if (!params) return { id: page.id, path: page.routePattern, allowed: false }
+      const module = await loadServerModule(page)
+      const context = await createContext(c, config, params, randomUUID())
+      return {
+        id: page.id,
+        path: page.routePattern,
+        allowed: await isAllowed(module, context),
+      }
+    }))
+    const allowedPatterns = access.filter((page) => page.allowed).map((page) => page.path)
+    const response: CustomAdminPagesResponse = {
+      navigation: navigation.filter((item) => (
+        allowedPatterns.some((pattern) => matchCustomAdminPath(pattern, item.path))
+      )),
+      pages: access,
+    }
+    return c.json(response)
+  })
+
+  api.post('/pages/custom/*', async (c) => {
+    const startedAt = Date.now()
+    const requestId = randomUUID()
+    const config = getConfig()
+    const logger = getRuntimeLogger()
+    const metadata: Record<string, unknown> = {
+      requestId,
+      shop: getShop(c),
+      shopifyApp: getShopifyApp(c),
+      actorId: getAdminActor(c).id,
+    }
+
+    try {
+      if (!customPagesEnabled(config.experimental)) {
+        throw new AdminPublicError('NOT_FOUND', 'Not found', { status: 404 })
+      }
+      const suffix = c.req.path.split('/pages/custom')[1] ?? ''
+      const marker = '/_rpc/'
+      const markerIndex = suffix.lastIndexOf(marker)
+      if (markerIndex < 1) throw new AdminPublicError('NOT_FOUND', 'Not found', { status: 404 })
+      const pagePath = suffix.slice(0, markerIndex)
+      const [kind, encodedName, ...rest] = suffix.slice(markerIndex + marker.length).split('/')
+      if (rest.length > 0 || (kind !== 'loader' && kind !== 'action') || !encodedName) {
+        throw new AdminPublicError('NOT_FOUND', 'Not found', { status: 404 })
+      }
+      const name = decodeURIComponent(encodedName)
+      const pages = runtimePages(directory)
+      const page = pages.find((candidate) => matchCustomAdminPath(candidate.routePattern, pagePath))
+      if (!page) throw new AdminPublicError('NOT_FOUND', 'Not found', { status: 404 })
+      const params = extractParams(page.routePattern, pagePath)
+      if (!params) throw new AdminPublicError('NOT_FOUND', 'Not found', { status: 404 })
+      const module = await loadServerModule(page)
+      const definition = module[name] as AnyAdminFunctionDefinition | undefined
+      if (!definition || definition.kind !== kind || typeof definition.handler !== 'function') {
+        throw new AdminPublicError('NOT_FOUND', 'Not found', { status: 404 })
+      }
+      const context = await createContext(c, config, params, requestId)
+      if (!(await isAllowed(module, context, definition.authorize))) {
+        throw new AdminPublicError('FORBIDDEN', 'Forbidden', { status: 403 })
+      }
+
+      const body = await c.req.json<{ input?: unknown }>().catch(() => ({ input: undefined }))
+      let input = body.input
+      if (definition.input) {
+        const result = definition.input(input)
+        if (result instanceof type.errors) {
+          throw new AdminPublicError('INVALID_INPUT', result.summary, { status: 422 })
+        }
+        input = result
+      } else if (kind === 'action') {
+        throw new AdminPublicError('INVALID_ACTION', 'Action input schema is required', { status: 500 })
+      }
+
+      const output = await definition.handler(context, input)
+      if (definition.output) {
+        const result = definition.output(output)
+        if (result instanceof type.errors) throw new Error(`Invalid output: ${result.summary}`)
+      }
+      JSON.stringify(output)
+      Object.assign(metadata, { pageId: page.id, functionName: name, kind, status: 200 })
+      logger.info('[openshop] Custom admin function completed', {
+        ...metadata,
+        durationMs: Date.now() - startedAt,
+      })
+      return c.json(output as JsonValue)
+    } catch (error) {
+      if (error instanceof AdminPublicError) {
+        Object.assign(metadata, { status: error.status, code: error.code })
+        logger.warn('[openshop] Custom admin function rejected', {
+          ...metadata,
+          durationMs: Date.now() - startedAt,
+        })
+        return publicErrorResponse(c, error, requestId)
+      }
+      logger.error('[openshop] Custom admin function failed', {
+        ...metadata,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return c.json({ error: 'Internal server error', code: 'INTERNAL_ERROR', requestId }, 500)
+    }
+  })
+}

@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { existsSync } from 'node:fs'
-import { loadBuiltConfig, resolveBuiltConfig, resolveBuiltProxyDir, resolveBuiltRoutesDir } from './app-build.ts'
+import { loadBuiltConfig, resolveBuiltAdminPagesDir, resolveBuiltConfig, resolveBuiltProxyDir, resolveBuiltRoutesDir } from './app-build.ts'
 import { closeHttpServer } from '#server/http'
 
 export async function startProd() {
@@ -37,6 +37,7 @@ export async function startProd() {
     staticDir,
     proxyDir: resolveBuiltProxyDir(cwd),
     routesDir: resolveBuiltRoutesDir(cwd),
+    adminPagesDir: resolveBuiltAdminPagesDir(cwd),
   })
   startScheduler(config)
 

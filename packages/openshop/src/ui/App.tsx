@@ -13,12 +13,22 @@ import { apiJson } from './fetch'
 import { AdminPageGate, AdminPagesContext, useAdminPages } from './admin-pages'
 import { sameAdminPages } from '../config/pages.ts'
 import type { ResolvedAdminPages } from '../types.ts'
+import type { CustomAdminPagesResponse } from '../config/custom-pages.ts'
+import {
+  customAdminPages,
+  CustomAdminErrorBoundary,
+  CustomAdminPageGate,
+  CustomAdminPagesContext,
+  LazyCustomAdminPage,
+  useCustomAdminPages,
+} from './custom-admin-pages'
 
 const pagesRefreshMs = 10_000
 
 function NavMenu() {
   const { url } = useLocation()
   const pages = useAdminPages()
+  const customPages = useCustomAdminPages()
 
   return (
     <ui-nav-menu>
@@ -50,6 +60,11 @@ function NavMenu() {
           Functions
         </a>
       )}
+      {customPages.navigation.map((item) => (
+        <a href={item.path} aria-current={url === item.path ? 'page' : undefined} key={item.path}>
+          {item.label}
+        </a>
+      ))}
     </ui-nav-menu>
   )
 }
@@ -58,6 +73,7 @@ function AuthGate({ children }: { children: ComponentChildren }) {
   const { url } = useLocation()
   const [status, setStatus] = useState<'checking' | 'ready' | 'blocked'>('checking')
   const [pages, setPages] = useState<ResolvedAdminPages | null>(null)
+  const [customPages, setCustomPages] = useState<CustomAdminPagesResponse | null>(null)
 
   useEffect(() => {
     let active = true
@@ -75,9 +91,13 @@ function AuthGate({ children }: { children: ComponentChildren }) {
           return
         }
 
-        const data = await apiJson<ResolvedAdminPages>('/api/pages')
+        const [data, customData] = await Promise.all([
+          apiJson<ResolvedAdminPages>('/api/pages'),
+          apiJson<CustomAdminPagesResponse>('/api/pages/custom'),
+        ])
         if (active) {
           setPages(data)
+          setCustomPages(customData)
           setStatus('ready')
         }
       } catch {
@@ -94,10 +114,16 @@ function AuthGate({ children }: { children: ComponentChildren }) {
     let active = true
 
     const refresh = () => {
-      void apiJson<ResolvedAdminPages>('/api/pages')
-        .then((data) => {
+      void Promise.all([
+        apiJson<ResolvedAdminPages>('/api/pages'),
+        apiJson<CustomAdminPagesResponse>('/api/pages/custom'),
+      ])
+        .then(([data, customData]) => {
           if (!active) return
           setPages((current) => current && sameAdminPages(current, data) ? current : data)
+          setCustomPages((current) => (
+            current && JSON.stringify(current) === JSON.stringify(customData) ? current : customData
+          ))
         })
         .catch(() => {})
     }
@@ -118,10 +144,12 @@ function AuthGate({ children }: { children: ComponentChildren }) {
     }
   }, [status, url])
 
-  if (status === 'ready' && pages) {
+  if (status === 'ready' && pages && customPages) {
     return (
       <AdminPagesContext.Provider value={pages}>
-        {children}
+        <CustomAdminPagesContext.Provider value={customPages}>
+          {children}
+        </CustomAdminPagesContext.Provider>
       </AdminPagesContext.Provider>
     )
   }
@@ -143,7 +171,15 @@ function AuthGate({ children }: { children: ComponentChildren }) {
 function ShopifyNavigateBridge() {
   const { route } = useLocation()
 
-  useEffect(() => addShopifyNavigateListener(route), [route])
+  useEffect(
+    () => addShopifyNavigateListener(
+      route,
+      document,
+      () => window.location.origin,
+      customAdminPages.map((page) => page.routePattern),
+    ),
+    [route],
+  )
 
   return null
 }
@@ -155,7 +191,8 @@ export default function App() {
       <AuthGate>
         <NavMenu />
         <AdminPageGate>
-          <Router>
+          <CustomAdminPageGate>
+            <Router>
             <Route path="/" component={Home} />
             <Route path="/flows" component={Flows} />
             <Route path="/flows/:name" component={Flows} />
@@ -166,7 +203,19 @@ export default function App() {
             <Route path="/functions" component={Functions} />
             <Route path="/functions/:handle" component={Functions} />
             <Route path="/functions/:handle/:action" component={Functions} />
-          </Router>
+              {customAdminPages.map((page) => (
+                <Route
+                  key={page.id}
+                  path={page.routePattern}
+                  component={(props: Record<string, string>) => (
+                    <CustomAdminErrorBoundary>
+                      <LazyCustomAdminPage page={page} routeProps={props} />
+                    </CustomAdminErrorBoundary>
+                  )}
+                />
+              ))}
+            </Router>
+          </CustomAdminPageGate>
         </AdminPageGate>
       </AuthGate>
     </LocationProvider>

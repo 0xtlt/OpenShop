@@ -159,9 +159,35 @@ export function validateOpenShopConfig(config: OpenShopConfig): void {
   }
 
   validatePagesConfig(config.pages)
+  validateExperimentalConfig(config.experimental)
   validateWorkerConfig(config.worker)
   validateRetryPolicy(config.retryPolicy, 'retryPolicy')
   buildMcpRegistry(config, createCoreMcpCapabilities(() => config))
+}
+
+export function validateExperimentalConfig(experimental: OpenShopConfig['experimental']): void {
+  if (experimental === undefined) return
+  if (!isRecord(experimental)) fail('experimental must be an object')
+  for (const key of Object.keys(experimental)) {
+    if (key !== 'customPages') fail(`experimental.${key} is not supported`)
+  }
+  const customPages = experimental.customPages
+  if (customPages === undefined || typeof customPages === 'boolean') return
+  if (!isRecord(customPages)) fail('experimental.customPages must be a boolean or object')
+  for (const key of Object.keys(customPages)) {
+    if (key !== 'navigation') fail(`experimental.customPages.${key} is not supported`)
+  }
+  if (customPages.navigation === undefined) return
+  if (!Array.isArray(customPages.navigation)) fail('experimental.customPages.navigation must be an array')
+  for (const [index, item] of customPages.navigation.entries()) {
+    if (!isRecord(item)) fail(`experimental.customPages.navigation[${index}] must be an object`)
+    if (typeof item.label !== 'string' || item.label.trim() === '') {
+      fail(`experimental.customPages.navigation[${index}].label must be a non-empty string`)
+    }
+    if (typeof item.path !== 'string' || item.path.trim() === '') {
+      fail(`experimental.customPages.navigation[${index}].path must be a non-empty string`)
+    }
+  }
 }
 
 export function validatePagesConfig(pages: OpenShopConfig['pages']): void {

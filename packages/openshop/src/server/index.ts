@@ -26,6 +26,7 @@ export interface ServerOptions {
   staticDir?: string
   proxyDir?: string
   routesDir?: string
+  adminPagesDir?: string
 }
 
 const localOrigin = /^https?:\/\/(?:(?:[^:]+\.)?localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/
@@ -145,7 +146,8 @@ export async function createServer(getConfig: ConfigGetter, options?: ServerOpti
   })
 
   // Mount API
-  app.route('/api', createApiRoutes(getConfig))
+  const adminPagesDir = options?.adminPagesDir ?? resolve(process.cwd(), 'admin', 'pages')
+  app.route('/api', createApiRoutes(getConfig, { adminPagesDir }))
   app.route('/api', createFunctionRoutes(getConfig))
 
   // Health check

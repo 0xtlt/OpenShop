@@ -2,6 +2,7 @@ import { resolve, dirname } from 'node:path'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { buildServerApp } from './app-build.ts'
+import { prepareCustomAdminPages } from './admin-pages.ts'
 
 function resolvePackagePath(...parts: string[]) {
   const here = dirname(fileURLToPath(import.meta.url))
@@ -20,8 +21,10 @@ export async function runBuild() {
 
   console.log('[openshop] Building for production...')
 
+  let adminPages
   try {
-    await buildServerApp(cwd)
+    adminPages = await prepareCustomAdminPages(cwd)
+    await buildServerApp(cwd, adminPages.pages)
   } catch (error) {
     console.error('[openshop] Server build failed:', error)
     process.exit(1)
@@ -35,6 +38,7 @@ export async function runBuild() {
     const { build } = await import('vite')
     const preact = (await import('@preact/preset-vite')).default
     const { openshopCodegen } = await import('../vite/codegen-plugin.ts')
+    const { adminPagesPlugin } = await import('../vite/admin-pages-plugin.ts')
 
     await build({
       root: uiRoot,
@@ -56,8 +60,12 @@ export async function runBuild() {
           },
         },
         openshopCodegen(),
+        adminPagesPlugin(adminPages.pages),
         preact(),
       ],
+      resolve: {
+        dedupe: ['preact', 'preact/hooks', 'preact-iso'],
+      },
     })
   } catch (error) {
     console.error('[openshop] Vite build failed:', error)

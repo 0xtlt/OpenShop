@@ -8,6 +8,7 @@ import { stripCorsResponseHeaders } from './dev-cors.ts'
 import { watchAppDirectories } from './dev-watch.ts'
 import { loadEnvFile } from './env.ts'
 import { runCodegenOnce } from '../vite/codegen-utils.ts'
+import { prepareCustomAdminPages } from './admin-pages.ts'
 
 function currentDir() {
   return dirname(fileURLToPath(import.meta.url))
@@ -35,6 +36,8 @@ export async function startDev() {
   const apiPort = port + 1
 
   console.log('[openshop] Starting dev server...')
+
+  const adminPages = await prepareCustomAdminPages(cwd)
 
   try {
     runCodegenOnce(cwd, { optional: true })
@@ -151,9 +154,17 @@ export async function startDev() {
 
   const configPath = resolve(cwd, 'openshop.config.ts')
   let configWatcher: FSWatcher | undefined
+  let adminServerWatcher: FSWatcher | undefined
   try {
     configWatcher = watch(configPath, () => scheduleReload('openshop.config.ts'))
   } catch { /* config is validated before the watcher starts */ }
+  try {
+    adminServerWatcher = watch(resolve(cwd, 'admin', 'pages'), { recursive: true }, (_, filename) => {
+      if (filename && /(?:^|\/)actions\.server\.(?:ts|js)$/.test(String(filename).replace(/\\/g, '/'))) {
+        scheduleReload(String(filename))
+      }
+    })
+  } catch { /* custom pages are optional */ }
 
   console.log('[openshop] Watching for changes (flows, providers, functions, webhooks, proxy, routes, config)')
 
@@ -161,6 +172,7 @@ export async function startDev() {
   const shutdown = () => {
     stopWatchingDirectories()
     configWatcher?.close()
+    adminServerWatcher?.close()
     restartCoordinator.currentProcess?.kill('SIGTERM')
     process.exit(0)
   }
@@ -258,8 +270,12 @@ export async function startDev() {
           },
         },
         (await import('../vite/codegen-plugin.ts')).openshopCodegen(),
+        (await import('../vite/admin-pages-plugin.ts')).adminPagesPlugin(adminPages.pages, { cwd }),
         preact(),
       ],
+      resolve: {
+        dedupe: ['preact', 'preact/hooks', 'preact-iso'],
+      },
     })
 
     await viteServer.listen()

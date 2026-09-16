@@ -30,7 +30,7 @@ Give every replica the same DSN, environment, and release.
 
 | Source | When |
 | --- | --- |
-| Flow failures | After each failed attempt, including retries. Canceled runs and `step.sleep()` are not reported. |
+| Flow failures | After each failed attempt, including retries. Canceled runs, overlapping `reject` concurrency, and `step.sleep()` are not reported. |
 | Webhooks | Handler throws. OpenShop still returns HTTP 200 to Shopify. |
 | Proxy and public routes | Handler or route authentication throws and OpenShop returns HTTP 500. |
 | Worker | Unregistered flows and unexpected worker errors. |

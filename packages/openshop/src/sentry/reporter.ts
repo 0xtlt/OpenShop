@@ -1,4 +1,4 @@
-import { FlowCanceledError, SleepSignal } from '../engine/errors.ts'
+import { FlowCanceledError, FlowConcurrencyError, SleepSignal } from '../engine/errors.ts'
 
 export type SentryMechanism =
   | 'flow'
@@ -49,7 +49,9 @@ export function getExceptionReporter(): ExceptionReporter {
 }
 
 export function shouldIgnoreException(error: unknown): boolean {
-  return error instanceof FlowCanceledError || error instanceof SleepSignal
+  return error instanceof FlowCanceledError
+    || error instanceof SleepSignal
+    || error instanceof FlowConcurrencyError
 }
 
 export function toError(error: unknown): Error {

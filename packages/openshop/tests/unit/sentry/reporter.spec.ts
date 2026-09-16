@@ -1,5 +1,5 @@
 import { test } from '@japa/runner'
-import { FlowCanceledError, SleepSignal } from '../../../src/engine/errors.ts'
+import { FlowCanceledError, FlowConcurrencyError, SleepSignal } from '../../../src/engine/errors.ts'
 import {
   captureException,
   resetSentryReporter,
@@ -11,9 +11,10 @@ import {
 test.group('sentry reporter', (group) => {
   group.each.teardown(() => resetSentryReporter())
 
-  test('ignores flow cancellation and sleep signals', ({ assert }) => {
+  test('ignores flow cancellation, sleep signals, and concurrency rejects', ({ assert }) => {
     assert.isTrue(shouldIgnoreException(new FlowCanceledError()))
     assert.isTrue(shouldIgnoreException(new SleepSignal(new Date())))
+    assert.isTrue(shouldIgnoreException(new FlowConcurrencyError('sync', 'demo.myshopify.com', 'run-1')))
     assert.isFalse(shouldIgnoreException(new Error('boom')))
   })
 

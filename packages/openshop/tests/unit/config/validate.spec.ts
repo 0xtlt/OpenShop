@@ -82,6 +82,38 @@ test.group('defineOpenShop config validation', () => {
     }), /worker\.concurrency must be a positive integer/)
   })
 
+  test('accepts optional Sentry Node options', ({ assert }) => {
+    const config = emptyApp.defineConfig({
+      flows: { sync: flow },
+      sentry: {
+        dsn: 'https://public@example.com/1',
+        environment: 'test',
+        tracesSampleRate: 0.25,
+      },
+    })
+
+    assert.equal(config.sentry?.environment, 'test')
+  })
+
+  test('inherits Sentry options from defineOpenShop', ({ assert }) => {
+    const appWithSentry = defineOpenShop({
+      providers: {},
+      sentry: { dsn: 'https://public@example.com/1', environment: 'production' },
+    })
+    const config = appWithSentry.defineConfig({ flows: { sync: flow } })
+
+    assert.equal(config.sentry?.environment, 'production')
+  })
+
+  test('rejects non-object Sentry config', ({ assert }) => {
+    for (const sentry of [null, false, true, 0, [], 'enabled']) {
+      assert.throws(() => emptyApp.defineConfig({
+        flows: { sync: flow },
+        sentry: sentry as never,
+      }), /sentry must be an object/)
+    }
+  })
+
   test('accepts MCP custom permissions, tools and resources', ({ assert }) => {
     const config = emptyApp.defineConfig({
       flows: { sync: flow },

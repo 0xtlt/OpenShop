@@ -46,6 +46,11 @@ function validateWorkerConfig(worker: Partial<WorkerConfig> | undefined): void {
   assertPositiveNumber(worker.leaseDurationMs, 'worker.leaseDurationMs')
 }
 
+function validateSentryConfig(sentry: OpenShopConfig['sentry']): void {
+  if (sentry === undefined) return
+  if (!isRecord(sentry)) fail('sentry must be an object')
+}
+
 function validateShopifyConfig(config: OpenShopConfig['shopify']): void {
   if (!config) return
   if (!isRecord(config)) fail('shopify must be an object')
@@ -159,6 +164,7 @@ export function validateOpenShopConfig(config: OpenShopConfig): void {
   }
 
   validatePagesConfig(config.pages)
+  validateSentryConfig(config.sentry)
   validateWorkerConfig(config.worker)
   validateRetryPolicy(config.retryPolicy, 'retryPolicy')
   buildMcpRegistry(config, createCoreMcpCapabilities(() => config))

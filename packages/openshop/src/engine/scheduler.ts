@@ -4,6 +4,7 @@ import { getDb } from '#db/client'
 import { installations, cronOverrides } from '#db/schema'
 import { dispatchFlow } from '#engine/dispatch'
 import { getRuntimeLogger } from '../runtime/logger.ts'
+import { captureSentryException, initializeSentry } from '../runtime/sentry.ts'
 import { DEFAULT_SHOPIFY_APP_HANDLE } from '#server/shopify-apps'
 import type { OpenShopConfig, CronEntry } from '#types'
 
@@ -58,6 +59,7 @@ async function resolveTargets(entry: Pick<CronEntry, 'shops'>): Promise<CronTarg
 
 export function startScheduler(config: OpenShopConfig) {
   if (!config.crons?.length) return
+  initializeSentry(config)
   const logger = getRuntimeLogger()
 
   for (const entry of config.crons) {
@@ -77,33 +79,45 @@ export function startScheduler(config: OpenShopConfig) {
     const cronKey = `${flow}:${schedule}`
 
     const job = new Cron(schedule, async () => {
-      const targets = await resolveTargets(entry)
+      try {
+        const targets = await resolveTargets(entry)
 
-      if (targets.length === 0) {
-        logger.info(`[openshop] Cron "${flow}": no shops to run for, skipping`)
-        return
-      }
-
-      logger.info(`[openshop] Cron triggered: ${flow} → ${targets.length} target(s)`)
-
-      const db = getDb()
-      for (const { shopifyApp, shop } of targets) {
-        try {
-          // Check if cron is disabled for this shop
-          const [override] = await db.select({ enabled: cronOverrides.enabled })
-            .from(cronOverrides)
-            .where(and(eq(cronOverrides.appHandle, shopifyApp), eq(cronOverrides.cronKey, cronKey), eq(cronOverrides.shop, shop)))
-            .limit(1)
-
-          if (override && !override.enabled) {
-            logger.info(`[openshop] Cron "${flow}" disabled for ${shop}, skipping`)
-            continue
-          }
-
-          await dispatchFlow({ flowName: flow, input: inputRecord(entry.input), config, shopifyApp, shop })
-        } catch (error) {
-          logger.error(`[openshop] Cron flow "${flow}" failed for ${shop}`, { error })
+        if (targets.length === 0) {
+          logger.info(`[openshop] Cron "${flow}": no shops to run for, skipping`)
+          return
         }
+
+        logger.info(`[openshop] Cron triggered: ${flow} → ${targets.length} target(s)`)
+
+        const db = getDb()
+        for (const { shopifyApp, shop } of targets) {
+          try {
+            // Check if cron is disabled for this shop
+            const [override] = await db.select({ enabled: cronOverrides.enabled })
+              .from(cronOverrides)
+              .where(and(eq(cronOverrides.appHandle, shopifyApp), eq(cronOverrides.cronKey, cronKey), eq(cronOverrides.shop, shop)))
+              .limit(1)
+
+            if (override && !override.enabled) {
+              logger.info(`[openshop] Cron "${flow}" disabled for ${shop}, skipping`)
+              continue
+            }
+
+            await dispatchFlow({ flowName: flow, input: inputRecord(entry.input), config, shopifyApp, shop })
+          } catch (error) {
+            logger.error(`[openshop] Cron flow "${flow}" failed for ${shop}`, { error })
+            captureSentryException(config, error, {
+              operation: 'cron',
+              tags: { flow, app_handle: shopifyApp, shop },
+            })
+          }
+        }
+      } catch (error) {
+        logger.error(`[openshop] Cron "${flow}" failed`, { error })
+        captureSentryException(config, error, {
+          operation: 'cron',
+          tags: { flow },
+        })
       }
     })
 

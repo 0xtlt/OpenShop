@@ -38,6 +38,10 @@ const shutdown = createApiShutdownHandler({
   server,
   stopScheduler,
   stopWorker: () => worker.stop(),
+  flushErrorReporter: async () => {
+    const { flushSentry } = await import('../runtime/sentry.ts')
+    await flushSentry(config)
+  },
   notifyListenerClosed: () => process.send?.('listener-closed'),
 })
 

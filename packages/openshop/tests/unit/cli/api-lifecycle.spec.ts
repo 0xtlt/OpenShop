@@ -35,6 +35,9 @@ test.group('api lifecycle', () => {
         await workerStop.promise
         events.push('worker-stop-end')
       },
+      flushErrorReporter: async () => {
+        events.push('error-reporter-flush')
+      },
       notifyListenerClosed: () => {
         events.push('listener-closed')
       },
@@ -63,6 +66,24 @@ test.group('api lifecycle', () => {
       'scheduler-stop',
       'worker-stop-start',
       'worker-stop-end',
+      'error-reporter-flush',
     ])
+  })
+
+  test('flushes the error reporter when HTTP shutdown fails', async ({ assert }) => {
+    const events: string[] = []
+    const shutdown = createApiShutdownHandler({
+      server: {
+        close(callback: (error?: Error | null) => void) {
+          callback(new Error('close failed'))
+        },
+      } as any,
+      stopScheduler: () => events.push('scheduler-stop'),
+      stopWorker: async () => { events.push('worker-stop') },
+      flushErrorReporter: async () => { events.push('error-reporter-flush') },
+    })
+
+    await assert.rejects(() => shutdown(), /close failed/)
+    assert.deepEqual(events, ['error-reporter-flush'])
   })
 })

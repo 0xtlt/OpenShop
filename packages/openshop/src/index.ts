@@ -1,4 +1,4 @@
-import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ProviderFieldDefinitions, ProviderMethod, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, AnyFunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders, McpConfig, AdminPagesConfig, AuthenticatedServerRouteDefinition, UnauthenticatedServerRouteDefinition } from './types.ts'
+import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ProviderFieldDefinitions, ProviderMethod, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, AnyFunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders, McpConfig, AdminPagesConfig, SentryConfig, AuthenticatedServerRouteDefinition, UnauthenticatedServerRouteDefinition } from './types.ts'
 import type { Type } from 'arktype'
 import type { StandardCRON } from 'ts-cron-validator'
 import { validateOpenShopConfig, validatePagesConfig } from './config/validate.ts'
@@ -13,6 +13,7 @@ interface OpenShopAppBase<TProviders extends Record<string, ProviderDefinition>>
   providers: TProviders
   mcp?: McpConfig
   pages?: AdminPagesConfig
+  sentry?: SentryConfig
   worker?: Partial<WorkerConfig>
   retryPolicy?: Partial<RetryPolicy>
   onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void
@@ -45,6 +46,7 @@ interface OpenShopConfigInput<
   webhooks?: Record<string, WebhookDefinition>
   crons?: CronEntryFor<TFlows>[]
   pages?: AdminPagesConfig
+  sentry?: SentryConfig
   worker?: Partial<WorkerConfig>
   retryPolicy?: Partial<RetryPolicy>
   onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void
@@ -141,6 +143,7 @@ export function defineOpenShop<const TProviders extends Record<string, ProviderD
         pages: app.pages === undefined && config.pages === undefined
           ? undefined
           : { ...app.pages, ...config.pages },
+        sentry: config.sentry === undefined ? app.sentry : config.sentry,
         worker: config.worker ?? app.worker,
         retryPolicy: config.retryPolicy ?? app.retryPolicy,
         onError: config.onError ?? app.onError,
@@ -224,6 +227,7 @@ export type {
   AdminPageId,
   AdminPageMode,
   AdminPagesConfig,
+  SentryConfig,
   ResolvedAdminPages,
   McpPermissionDefinition,
   McpToolDefinition,

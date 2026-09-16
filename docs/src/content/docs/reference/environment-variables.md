@@ -24,6 +24,7 @@ manager or deployment platform to inject their environment.
 | `PGPOOL_IDLE_TIMEOUT_MS` | No | `30000` | Idle PostgreSQL connection timeout |
 | `PGPOOL_CONNECTION_TIMEOUT_MS` | No | `5000` | PostgreSQL connection acquisition timeout |
 | `NODE_ENV` | No | Command/runtime dependent | Production safety checks and encryption enforcement |
+| `SENTRY_DSN` | No | Empty | Application-defined value passed to `sentry.dsn`; does not activate Sentry by itself |
 
 `OPENSHOP_API_PORT` is an implementation detail of `openshop dev`. Do not set it in
 normal production deployments.
@@ -36,6 +37,8 @@ SHOPIFY_API_KEY=your-client-id
 SHOPIFY_API_SECRET=your-client-secret
 HOST=https://your-app.example.com
 ENCRYPTION_KEY=replace-with-64-hex-characters
+# Optional when openshop.config.ts defines `sentry`
+SENTRY_DSN=https://public-key@your-sentry-host/project-id
 ```
 
 Generate the encryption key once:
@@ -79,6 +82,9 @@ export default app.defineConfig({
 OpenShop does not assign special meaning to `RETAIL_SHOPIFY_API_SECRET`,
 `WHOLESALE_SHOPIFY_API_KEY`, or `WHOLESALE_APP_URL`; they are application-defined
 variables read by this example.
+
+`SENTRY_DSN` is also application-defined until the exported OpenShop config includes
+the opt-in `sentry` object. See [Configuration: Sentry](/reference/configuration/#sentry).
 
 ## Resolution priority
 

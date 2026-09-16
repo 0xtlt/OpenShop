@@ -34,16 +34,20 @@ export function captureSentryException(
   error: unknown,
   context: SentryExceptionContext,
 ): void {
-  if (!initializeSentry(config)) return
+  try {
+    if (!initializeSentry(config)) return
 
-  withScope((scope) => {
-    scope.setTag('openshop.operation', context.operation)
-    for (const [key, value] of Object.entries(context.tags ?? {})) {
-      if (value !== undefined) scope.setTag(`openshop.${key}`, value)
-    }
-    if (context.extra) scope.setContext('openshop', context.extra)
-    captureException(error)
-  })
+    withScope((scope) => {
+      scope.setTag('openshop.operation', context.operation)
+      for (const [key, value] of Object.entries(context.tags ?? {})) {
+        if (value !== undefined) scope.setTag(`openshop.${key}`, value)
+      }
+      if (context.extra) scope.setContext('openshop', context.extra)
+      captureException(error)
+    })
+  } catch (sentryError) {
+    getRuntimeLogger().warn('[openshop] Failed to report an error to Sentry', { error: sentryError })
+  }
 }
 
 /** Flush queued events during graceful process shutdown. */

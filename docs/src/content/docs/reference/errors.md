@@ -35,7 +35,23 @@ machine-readable code unless the endpoint documents one.
 
 ## Application error hook
 
-Configure `onError` for centralized reporting:
+For Sentry, use the native backend integration:
+
+```ts
+export default app.defineConfig({
+  flows,
+  sentry: {
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV,
+  },
+})
+```
+
+OpenShop reports uncaught HTTP errors and caught flow, worker, scheduler, and
+`onError` hook failures. Canceled and sleeping flows are lifecycle outcomes and are
+not reported. Retried flow failures are reported on every failed attempt.
+
+For another reporter or application-specific side effects, configure `onError`:
 
 ```ts
 export default app.defineConfig({
@@ -49,5 +65,6 @@ export default app.defineConfig({
 })
 ```
 
-The hook supplements stored logs. It does not replace throwing errors from
-failed provider or Shopify operations.
+The hook runs after native Sentry capture and supplements stored logs. It does not
+replace throwing errors from failed provider or Shopify operations. If the hook
+itself throws, OpenShop captures that error in Sentry without crashing the worker.

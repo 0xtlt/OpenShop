@@ -25,6 +25,10 @@ const openshop = app.defineConfig({
     backoffCoefficient: 2,
     maxIntervalMs: 30000,
   },
+  sentry: {
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV,
+  },
   onError(error, context) {
     console.error('[openshop:error]', context, error)
   },
@@ -49,11 +53,42 @@ work. `openshop.dispatchFlow()` captures the active config, restricts
 | `webhooks` | `Record<string, WebhookDefinition>` | No | `{}` |
 | `crons` | `CronEntry[]` | No | `[]` |
 | `pages` | `AdminPagesConfig` | No | Every admin page `visible` |
+| `sentry` | `SentryConfig` (`@sentry/node` options) | No | Sentry is not initialized |
 | `worker` | `Partial<WorkerConfig>` | No | See [Worker defaults](#worker-defaults) |
 | `retryPolicy` | `Partial<RetryPolicy>` | No | See [Retry defaults](#retry-defaults) |
 | `onError` | `(error, context?) => void \| Promise<void>` | No | No hook |
 
 `providers` and `flows` are always present, even when empty. `defineOpenShop({ providers })` supplies the provider registry to `app.defineConfig()`.
+
+## Sentry
+
+Set `sentry` to opt the backend into Sentry. OpenShop initializes the Node SDK in
+web, worker, and scheduler processes, instruments Hono requests, captures uncaught
+HTTP failures and caught flow/worker/cron failures, and flushes queued events during
+graceful shutdown.
+
+```ts
+export default app.defineConfig({
+  flows: { syncOrders },
+  sentry: {
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV,
+    release: process.env.APP_RELEASE,
+    tracesSampleRate: 0.1,
+    sendDefaultPii: false,
+  },
+})
+```
+
+The object accepts standard `@sentry/node` options. Omitting `sentry` means OpenShop
+does not initialize the SDK, even when `SENTRY_DSN` exists. You can set defaults in
+`defineOpenShop({ sentry })` and override the whole options object in
+`app.defineConfig()`.
+
+Captured framework events include operation, flow, run, Shopify app, shop, attempt,
+and retry tags when available. A shop domain is tenant-identifying data; configure
+Sentry retention and access accordingly. Flow retries create one event for each
+failed attempt.
 
 ## Shopify
 
@@ -228,5 +263,6 @@ Retry delay is `initialIntervalMs * backoffCoefficient^(attempt - 1)`, capped by
 | `PGPOOL_IDLE_TIMEOUT_MS` | `30000` | Idle PostgreSQL connection timeout. |
 | `PGPOOL_CONNECTION_TIMEOUT_MS` | `5000` | PostgreSQL connection timeout. |
 | `NODE_ENV` | — | Enables production encryption and migration-generation safeguards when set to `production`. |
+| `SENTRY_DSN` | — | Application-defined Sentry DSN commonly passed to the optional `sentry.dsn` config field. It does not activate Sentry by itself. |
 
 Generate a production encryption key with `openssl rand -hex 32`. Keep the same key across deploys: changing or losing it prevents existing encrypted provider configurations and Shopify tokens from being decrypted.

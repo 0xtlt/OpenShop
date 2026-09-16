@@ -77,6 +77,11 @@ Operational signals:
 | Many `failed` runs | Provider, Shopify, validation, or deployment regression | Filter logs by error and compare the first failure time with deployments. |
 | Cron absent | Bad schedule, disabled per-shop override, or web process down | Check config, cron toggle, and web/scheduler process. |
 
+When the optional `sentry` config is present, OpenShop also reports backend HTTP,
+flow, worker, and scheduler errors with operation and run context. Because each
+failed retry attempt is a separate event, use Sentry grouping and alerts that match
+your retry policy.
+
 ## 4. Scale workers
 
 Start additional identical worker processes against the same database. Workers use
@@ -165,7 +170,8 @@ export const refreshCatalog = app.defineFlow({
 
 The worker stops claiming new runs on shutdown and waits up to its lease duration
 for active runs. If a process dies, its leases eventually expire and another worker
-can reclaim the runs.
+can reclaim the runs. Web and worker shutdown paths flush Sentry events for up to
+two seconds after runtime work stops.
 
 ## Backups and incident data
 

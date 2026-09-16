@@ -5,6 +5,7 @@ import { getDb } from '#db/client'
 import { flowRuns } from '#db/schema'
 import { runFlow } from '#engine/runner'
 import { getRuntimeLogger } from '../runtime/logger.ts'
+import { captureSentryException, flushSentry, initializeSentry } from '../runtime/sentry.ts'
 import type { OpenShopConfig, WorkerConfig } from '#types'
 
 const inputSchema = type('Record<string, unknown>')
@@ -35,9 +36,17 @@ export class Worker {
   get activeCount() { return this.#activeRuns.size }
 
   async start(): Promise<void> {
+    initializeSentry(this.#openshopConfig)
     this.#running = true
     getRuntimeLogger().info(`[openshop] Worker started (id=${this.#workerId.slice(0, 8)}, concurrency=${this.#config.concurrency})`)
-    this.#loopPromise = this.#runLoop()
+    this.#loopPromise = this.#runLoop().catch((error) => {
+      this.#running = false
+      getRuntimeLogger().error('[openshop] Worker loop failed', { error })
+      captureSentryException(this.#openshopConfig, error, {
+        operation: 'worker',
+        tags: { worker_id: this.#workerId },
+      })
+    })
   }
 
   async stop(): Promise<void> {
@@ -49,6 +58,7 @@ export class Worker {
       await new Promise((r) => setTimeout(r, 200))
     }
     getRuntimeLogger().info('[openshop] Worker stopped')
+    await flushSentry(this.#openshopConfig)
   }
 
   updateConfig(config: OpenShopConfig): void {
@@ -138,9 +148,20 @@ export class Worker {
     try {
       const flow = this.#openshopConfig.flows[claimed.flowName]
       if (!flow) {
+        const error = new Error(`Flow "${claimed.flowName}" not registered`)
         await db.update(flowRuns)
-          .set({ status: 'failed', error: `Flow "${claimed.flowName}" not registered`, workerId: null, completedAt: new Date() })
+          .set({ status: 'failed', error: error.message, workerId: null, completedAt: new Date() })
           .where(eq(flowRuns.id, claimed.id))
+        captureSentryException(this.#openshopConfig, error, {
+          operation: 'worker',
+          tags: {
+            flow: claimed.flowName,
+            run_id: claimed.id,
+            app_handle: claimed.shopifyApp,
+            shop: claimed.shop,
+            worker_id: this.#workerId,
+          },
+        })
         return
       }
 
@@ -164,6 +185,17 @@ export class Worker {
         attempt: claimed.attempt,
       })
     } catch (error) {
+      captureSentryException(this.#openshopConfig, error, {
+        operation: 'worker',
+        tags: {
+          flow: claimed.flowName,
+          run_id: claimed.id,
+          app_handle: claimed.shopifyApp,
+          shop: claimed.shop,
+          worker_id: this.#workerId,
+          attempt: claimed.attempt,
+        },
+      })
       try {
         await db.update(flowRuns)
           .set({ status: 'failed', error: `Worker error: ${error instanceof Error ? error.message : String(error)}`, workerId: null, completedAt: new Date() })

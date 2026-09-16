@@ -2,6 +2,7 @@ import { resolve } from 'node:path'
 import { existsSync } from 'node:fs'
 import { loadBuiltConfig, resolveBuiltConfig, resolveBuiltProxyDir, resolveBuiltRoutesDir } from './app-build.ts'
 import { closeHttpServer } from '#server/http'
+import { flushSentry } from '../runtime/sentry.ts'
 
 export async function startProd() {
   const cwd = process.cwd()
@@ -42,13 +43,16 @@ export async function startProd() {
 
   const shutdown = async () => {
     console.log('[openshop] Shutting down...')
+    let exitCode = 0
     try {
       await closeHttpServer(server)
       stopScheduler()
-      process.exit(0)
     } catch (error) {
       console.error('[openshop] Failed to close HTTP server:', error)
-      process.exit(1)
+      exitCode = 1
+    } finally {
+      await flushSentry(config)
+      process.exit(exitCode)
     }
   }
   process.on('SIGTERM', () => { void shutdown() })

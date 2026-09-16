@@ -20,6 +20,7 @@ import { installations } from '#db/schema'
 import type { OpenShopConfig } from '#types'
 import { adminPageFromApiPath, resolveAdminPages } from '../config/pages.ts'
 import { getRuntimeLogger } from '../runtime/logger.ts'
+import { installSentryMiddleware } from '../runtime/sentry.ts'
 
 export type ConfigGetter = () => OpenShopConfig
 export interface ServerOptions {
@@ -90,6 +91,7 @@ async function isInstalledShop(shopifyApp: string, shop: string): Promise<boolea
 
 export async function createServer(getConfig: ConfigGetter, options?: ServerOptions) {
   const app = new Hono()
+  installSentryMiddleware(app, getConfig())
 
   app.use('*', async (c, next) => {
     c.header('X-Robots-Tag', robotsHeader)

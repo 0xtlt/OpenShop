@@ -5,6 +5,7 @@ interface CreateApiShutdownHandlerOptions {
   server: ServerType
   stopScheduler: () => void
   stopWorker: () => Promise<void>
+  flushErrorReporter?: () => Promise<unknown>
   notifyListenerClosed?: () => void
   listenerCloseTimeoutMs?: number
 }
@@ -16,10 +17,14 @@ export function createApiShutdownHandler(options: CreateApiShutdownHandlerOption
     if (shutdownPromise) return shutdownPromise
 
     shutdownPromise = (async () => {
-      await closeHttpServer(options.server, options.listenerCloseTimeoutMs)
-      options.notifyListenerClosed?.()
-      options.stopScheduler()
-      await options.stopWorker()
+      try {
+        await closeHttpServer(options.server, options.listenerCloseTimeoutMs)
+        options.notifyListenerClosed?.()
+        options.stopScheduler()
+        await options.stopWorker()
+      } finally {
+        await options.flushErrorReporter?.()
+      }
     })()
 
     return shutdownPromise

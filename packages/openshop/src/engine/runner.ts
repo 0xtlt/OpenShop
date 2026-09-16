@@ -5,10 +5,11 @@ import { flowRuns, logs } from '#db/schema'
 import { createStepExecutor } from '#engine/step'
 import { registerAbort, cleanupAbort } from '#engine/abort'
 import { computeNextRetryAt } from '#engine/backoff'
-import { FlowCanceledError, FlowTimeoutError, SleepSignal } from '#engine/errors'
+import { FlowCanceledError, FlowTimeoutError, SleepSignal, StepTimeoutError } from '#engine/errors'
 import { buildConnectors, type RuntimeConnectors } from '#server/connectors'
 import { createShopifyClient } from '../shopify/client.ts'
 import { getRuntimeLogger } from '../runtime/logger.ts'
+import { captureSentryException } from '../runtime/sentry.ts'
 import { DEFAULT_SHOPIFY_APP_HANDLE } from '#server/shopify-apps'
 import type { OpenShopConfig, Logger, RetryPolicy } from '#types'
 
@@ -114,6 +115,7 @@ export async function runFlow(opts: RunFlowOptions): Promise<RunFlowResult> {
     }
 
     const errorMessage = error instanceof Error ? error.message : String(error)
+    const stepName = error instanceof StepTimeoutError ? error.stepName : undefined
 
     const [run] = await db.select({ attempts: flowRuns.attempts, deadlineAt: flowRuns.deadlineAt, retryPolicy: flowRuns.retryPolicy })
       .from(flowRuns)
@@ -145,10 +147,28 @@ export async function runFlow(opts: RunFlowOptions): Promise<RunFlowResult> {
 
     logger.error({ flowName, error: errorMessage, willRetry }, `Flow "${flowName}" failed: ${errorMessage}`)
 
+    captureSentryException(config, error, {
+      operation: 'flow',
+      tags: {
+        flow: flowName,
+        run_id: runId,
+        app_handle: shopifyApp,
+        shop,
+        step: stepName,
+        attempt,
+        will_retry: willRetry,
+      },
+    })
+
     if (config.onError) {
       try {
-        await config.onError(error instanceof Error ? error : new Error(errorMessage), { flow: flowName })
-      } catch { /* Don't crash */ }
+        await config.onError(error instanceof Error ? error : new Error(errorMessage), { flow: flowName, step: stepName })
+      } catch (hookError) {
+        captureSentryException(config, hookError, {
+          operation: 'error-hook',
+          tags: { flow: flowName, run_id: runId, app_handle: shopifyApp, shop, step: stepName },
+        })
+      }
     }
 
     return { status: 'failed', error: errorMessage, willRetry }

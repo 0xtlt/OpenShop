@@ -8,6 +8,13 @@ import { appUninstalled } from '#webhooks/appUninstalled'
 export default app.defineConfig({
   flows: { syncOrders, countVariants },
   functions: { volumeDiscount },
+  experimental: {
+    customPages: {
+      navigation: [
+        { label: 'Reviews', path: '/reviews' },
+      ],
+    },
+  },
 
   mcp: {
     permissions: {

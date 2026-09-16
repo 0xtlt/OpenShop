@@ -13,6 +13,8 @@ The minimal OpenShop template separates framework config, providers, flows, prox
 - flows/
 - proxy/
 - routes/
+- admin/
+  - pages/
 - drizzle/
 - openshop.app.ts
 - openshop.config.ts
@@ -45,6 +47,12 @@ Contains file-based app proxy and Customer Account extension routes. Route files
 ## `routes/`
 
 Contains optional public server routes mounted under `/routes/*`. Every route must explicitly declare an authentication function or `auth: 'none'`.
+
+## `admin/pages/`
+
+Contains experimental app-owned Preact pages. A `page.tsx` file defines a
+filesystem route, while a colocated `actions.server.ts` defines authenticated,
+typed loaders and actions. See [Custom admin pages](/reference/custom-admin-pages/).
 
 ## `drizzle/`
 

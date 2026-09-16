@@ -9,6 +9,15 @@ declare global {
   interface Window {
     shopify?: {
       idToken(): Promise<string>
+      toast?: {
+        show(message: string, options?: {
+          action?: string
+          duration?: number
+          isError?: boolean
+          onAction?: () => void
+          onDismiss?: () => void
+        }): string
+      }
     }
   }
 }
@@ -135,6 +144,16 @@ export interface AdminFunctionReference<TInput, TOutput extends JsonValue> {
   readonly __output?: TOutput
 }
 
+export type AdminLoaderClient<
+  TInput,
+  TOutput extends JsonValue,
+> = AdminFunctionReference<TInput, TOutput> | AdminLoaderDefinition<TInput, TOutput>
+
+export type AdminActionClient<
+  TInput,
+  TOutput extends JsonValue,
+> = AdminFunctionReference<TInput, TOutput> | AdminActionDefinition<TInput, TOutput>
+
 export function createAdminFunctionReference<TInput, TOutput extends JsonValue>(
   reference: Omit<AdminFunctionReference<TInput, TOutput>, '__input' | '__output'>,
 ): AdminFunctionReference<TInput, TOutput> {
@@ -163,10 +182,11 @@ export class AdminRpcError extends Error {
 }
 
 async function callAdminFunction<TInput, TOutput extends JsonValue>(
-  reference: AdminFunctionReference<TInput, TOutput>,
+  reference: AdminLoaderClient<TInput, TOutput> | AdminActionClient<TInput, TOutput>,
   input: TInput,
   options?: { signal?: AbortSignal; idempotencyKey?: string },
 ): Promise<TOutput> {
+  const clientReference = reference as AdminFunctionReference<TInput, TOutput>
   const headers = new Headers({ 'content-type': 'application/json' })
   const token = await window.shopify?.idToken?.()
   if (token) headers.set('authorization', `Bearer ${token}`)
@@ -174,7 +194,7 @@ async function callAdminFunction<TInput, TOutput extends JsonValue>(
 
   const pathname = window.location.pathname.replace(/\/$/, '') || '/'
   const response = await fetch(
-    `/api/pages/custom${pathname}/_rpc/${reference.kind}/${encodeURIComponent(reference.name)}`,
+    `/api/pages/custom${pathname}/_rpc/${clientReference.kind}/${encodeURIComponent(clientReference.name)}`,
     {
       method: 'POST',
       headers,
@@ -187,9 +207,14 @@ async function callAdminFunction<TInput, TOutput extends JsonValue>(
   return payload as TOutput
 }
 
-const loaderListeners = new Map<AdminFunctionReference<unknown, JsonValue>, Set<() => void>>()
+export interface AdminLoaderHandle {
+  readonly kind: 'loader'
+}
 
-function revalidate(reference: AdminFunctionReference<unknown, JsonValue>) {
+type AnyLoaderClient = AdminLoaderHandle
+const loaderListeners = new Map<AnyLoaderClient, Set<() => void>>()
+
+function revalidate(reference: AnyLoaderClient) {
   for (const listener of loaderListeners.get(reference) ?? []) listener()
 }
 
@@ -201,7 +226,7 @@ export interface AdminLoaderState<TOutput> {
 }
 
 export function useLoader<TInput, TOutput extends JsonValue>(
-  reference: AdminFunctionReference<TInput, TOutput>,
+  reference: AdminLoaderClient<TInput, TOutput>,
   input: TInput,
 ): AdminLoaderState<TOutput> {
   const [state, setState] = useState<Omit<AdminLoaderState<TOutput>, 'revalidate'>>({ loading: true })
@@ -210,12 +235,12 @@ export function useLoader<TInput, TOutput extends JsonValue>(
   const refresh = useCallback(() => setGeneration((value) => value + 1), [])
 
   useEffect(() => {
-    const listeners = loaderListeners.get(reference as AdminFunctionReference<unknown, JsonValue>) ?? new Set()
+    const listeners = loaderListeners.get(reference as AnyLoaderClient) ?? new Set()
     listeners.add(refresh)
-    loaderListeners.set(reference as AdminFunctionReference<unknown, JsonValue>, listeners)
+    loaderListeners.set(reference as AnyLoaderClient, listeners)
     return () => {
       listeners.delete(refresh)
-      if (listeners.size === 0) loaderListeners.delete(reference as AdminFunctionReference<unknown, JsonValue>)
+      if (listeners.size === 0) loaderListeners.delete(reference as AnyLoaderClient)
     }
   }, [reference, refresh])
 
@@ -238,7 +263,7 @@ export function useLoader<TInput, TOutput extends JsonValue>(
 export interface AdminActionOptions {
   concurrency?: 'ignore' | 'allow'
   idempotencyKey?: string
-  revalidate?: AdminFunctionReference<unknown, JsonValue>[]
+  revalidate?: AnyLoaderClient[]
 }
 
 export interface AdminActionState<TInput, TOutput> {
@@ -250,7 +275,7 @@ export interface AdminActionState<TInput, TOutput> {
 }
 
 export function useAction<TInput, TOutput extends JsonValue>(
-  reference: AdminFunctionReference<TInput, TOutput>,
+  reference: AdminActionClient<TInput, TOutput>,
 ): AdminActionState<TInput, TOutput> {
   const [state, setState] = useState<Omit<AdminActionState<TInput, TOutput>, 'invoke' | 'reset'>>({ pending: false })
   const pending = useRef(false)

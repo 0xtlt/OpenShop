@@ -1,0 +1,119 @@
+---
+title: Custom admin pages
+description: Build experimental app-owned admin screens with Preact, Polaris web components, and typed server functions.
+---
+
+Custom admin pages let an OpenShop app add embedded screens without forking the
+framework UI. The API is experimental and must be enabled explicitly.
+
+```ts
+// openshop.config.ts
+export default app.defineConfig({
+  // ...
+  experimental: {
+    customPages: {
+      navigation: [{ label: 'Reviews', path: '/reviews' }],
+    },
+  },
+})
+```
+
+Navigation entries are appended after built-in links. Each path must resolve to a
+discovered static page; dynamic detail pages remain routable without appearing in
+navigation.
+
+## Page files
+
+Create `admin/pages/<route>/page.tsx`. Nested folders create nested routes and
+`[name]` folders create dynamic parameters.
+
+```tsx
+// admin/pages/reviews/page.tsx
+import { defineAdminPage, useLoader } from 'openshop'
+import { listReviews } from './actions.server.ts'
+
+function Reviews() {
+  const result = useLoader(listReviews, undefined)
+  return (
+    <s-page heading="Reviews">
+      {result.loading && <s-spinner accessibilityLabel="Loading reviews" />}
+      {result.error && <s-banner tone="critical">{result.error.message}</s-banner>}
+    </s-page>
+  )
+}
+
+export default defineAdminPage({ title: 'Reviews', component: Reviews })
+```
+
+Pages use Preact and Shopify's Polaris web components. Browser-safe dependencies
+declared by the app may be imported. OpenShop emits lazy route chunks and shares
+the Preact runtime.
+
+## Loaders and actions
+
+Put page-local server functions in `actions.server.ts`. Imports from that file are
+rewritten to typed browser stubs; the server implementation is never bundled into
+the browser.
+
+```ts
+import { type } from 'arktype'
+import { defineAdminAction, defineAdminLoader } from 'openshop'
+
+export const listReviews = defineAdminLoader({
+  handler: async ({ db, shop, shopifyApp }) => {
+    // Always filter raw Drizzle queries by trusted shop/app identity.
+    return { reviews: [] }
+  },
+})
+
+export const saveReview = defineAdminAction({
+  input: type({ title: 'string > 0' }),
+  handler: async ({ actor }, input) => ({
+    ok: true,
+    title: input.title,
+    actorId: actor.id,
+  }),
+})
+```
+
+`useLoader` loads on mount and when its JSON input changes. It discards stale
+responses and exposes `revalidate()`. `useAction` never retries automatically,
+blocks duplicate calls by default, and can explicitly revalidate loaders:
+
+```ts
+await save.invoke(input, { revalidate: [listReviews] })
+```
+
+Both use an internal `POST /api/pages/custom/*` RPC transport authenticated with a
+fresh Shopify App Bridge session token. Endpoint URLs are not a public API.
+
+## Authorization and errors
+
+Export `pageAccess` to filter navigation and guard direct page visits. Add an
+`authorize` callback to each loader or action that needs a narrower policy.
+OpenShop always evaluates page access and the function's own policy on the server.
+
+```ts
+import { defineAdminPageAccess } from 'openshop'
+
+export const pageAccess = defineAdminPageAccess(({ actor }) => actor.id !== '')
+```
+
+Throw `AdminPublicError` for failures that are safe to show. Unexpected errors are
+logged with a request ID and returned without a stack trace or secret data.
+Structured logs include identity, page/function IDs, duration, and status, but not
+request or response payloads.
+
+The server context exposes trusted `shop`, `shopifyApp`, normalized `actor`, route
+`params`, raw `db`, a Shopify client, configured connectors, and request metadata.
+Raw Drizzle access is not automatically tenant-scoped: every app query must filter
+by the trusted shop and app handle where applicable.
+
+Custom actions are synchronous and use the hosting platform's request limits. Use
+an ordinary server route or an OpenShop flow for long-running or retryable work.
+
+## Testing
+
+`openshop/test` exports `createAdminFunctionTestContext` and
+`invokeAdminFunction` for handler tests. Keep HTTP integration tests for session
+JWT validation, policies, route params, and tenant isolation.

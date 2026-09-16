@@ -1,5 +1,5 @@
 import { LocationProvider, Router, Route, useLocation } from 'preact-iso'
-import type { ComponentChildren } from 'preact'
+import type { ComponentChildren, ComponentType } from 'preact'
 import { useEffect, useState } from 'preact/hooks'
 import Home from './pages/Home'
 import Flows from './pages/Flows'
@@ -207,11 +207,11 @@ export default function App() {
                 <Route
                   key={page.id}
                   path={page.routePattern}
-                  component={(props: Record<string, string>) => (
+                  component={((props: Record<string, string>) => (
                     <CustomAdminErrorBoundary>
                       <LazyCustomAdminPage page={page} routeProps={props} />
                     </CustomAdminErrorBoundary>
-                  )}
+                  )) as ComponentType}
                 />
               ))}
             </Router>

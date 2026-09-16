@@ -198,7 +198,9 @@ export function registerCustomAdminPageRoutes(
         ...metadata,
         durationMs: Date.now() - startedAt,
       })
-      return c.json(output as JsonValue)
+      return c.body(JSON.stringify(output as JsonValue), 200, {
+        'content-type': 'application/json; charset=UTF-8',
+      })
     } catch (error) {
       if (error instanceof AdminPublicError) {
         Object.assign(metadata, { status: error.status, code: error.code })

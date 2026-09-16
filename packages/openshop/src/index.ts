@@ -262,12 +262,15 @@ export {
 } from './admin/index.ts'
 export type {
   AdminActionDefinition,
+  AdminActionClient,
   AdminActionOptions,
   AdminActionState,
   AdminActor,
   AdminAuthorize,
   AdminFunctionReference,
   AdminLoaderDefinition,
+  AdminLoaderHandle,
+  AdminLoaderClient,
   AdminLoaderState,
   AdminPageDefinition,
   AdminServerContext,

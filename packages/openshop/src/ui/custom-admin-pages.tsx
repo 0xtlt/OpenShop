@@ -37,9 +37,7 @@ export class CustomAdminErrorBoundary extends Component<
     return (
       <s-page heading="Page unavailable">
         <s-banner tone="critical">
-          {import.meta.env.DEV
-            ? this.state.error.message
-            : 'This custom page could not be displayed.'}
+          This custom page could not be displayed.
         </s-banner>
       </s-page>
     )

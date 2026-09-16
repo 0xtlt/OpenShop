@@ -20,6 +20,17 @@ function exportedFunctions(source: string): Array<{ name: string; kind: 'loader'
   return exports
 }
 
+export function renderAdminActionsClientModule(page: CustomAdminPageManifestEntry): string {
+  if (!page.serverFile) return ''
+  const definitions = exportedFunctions(readFileSync(page.serverFile, 'utf8'))
+  return [
+    `import { createAdminFunctionReference } from 'openshop/admin';`,
+    ...definitions.map(({ name, kind }) => (
+      `export const ${name} = createAdminFunctionReference({ kind: ${JSON.stringify(kind)}, name: ${JSON.stringify(name)}, pagePattern: ${JSON.stringify(page.routePattern)} });`
+    )),
+  ].join('\n')
+}
+
 export function adminPagesPlugin(
   initialPages: readonly CustomAdminPageManifestEntry[],
   options?: { cwd?: string },
@@ -57,13 +68,7 @@ export function adminPagesPlugin(
       const pageId = id.slice(actionPrefix.length)
       const page = pages.find((entry) => entry.id === pageId)
       if (!page?.serverFile) return null
-      const definitions = exportedFunctions(readFileSync(page.serverFile, 'utf8'))
-      return [
-        `import { createAdminFunctionReference } from 'openshop/admin';`,
-        ...definitions.map(({ name, kind }) => (
-          `export const ${name} = createAdminFunctionReference({ kind: ${JSON.stringify(kind)}, name: ${JSON.stringify(name)}, pagePattern: ${JSON.stringify(page.routePattern)} });`
-        )),
-      ].join('\n')
+      return renderAdminActionsClientModule(page)
     },
     configureServer(server) {
       const files = pages.flatMap((page) => [page.sourceFile, page.serverFile].filter(Boolean) as string[])

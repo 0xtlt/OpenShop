@@ -15,6 +15,7 @@ import type {
   ServerRouteRequestContext,
 } from '#types'
 import { getRuntimeLogger } from '../runtime/logger.ts'
+import { captureException } from '../sentry/reporter.ts'
 
 const methods = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] as const
 type ServerRouteMethod = typeof methods[number]
@@ -132,6 +133,7 @@ export async function createServerRoutes(
           auth = result
         } catch (error) {
           logger.error(`[openshop] Server route authentication error for ${method} ${routePath}`, { error })
+          captureException(error, { mechanism: 'route', route: routePath, method })
           return internalError()
         }
       }
@@ -143,11 +145,17 @@ export async function createServerRoutes(
         })
         if (!(response instanceof Response)) {
           logger.error(`[openshop] Server route ${method} ${routePath} did not return a Response`)
+          captureException(new Error(`Server route ${method} ${routePath} did not return a Response`), {
+            mechanism: 'route',
+            route: routePath,
+            method,
+          })
           return internalError()
         }
         return response
       } catch (error) {
         logger.error(`[openshop] Server route error for ${method} ${routePath}`, { error })
+        captureException(error, { mechanism: 'route', route: routePath, method })
         return internalError()
       }
     })

@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { hasConfiguredShopifyAppSecret, resolveShopifyAppByWebhookHmac } from '#server/shopify-apps'
 import type { OpenShopConfig } from '#types'
 import { getRuntimeLogger } from '../runtime/logger.ts'
+import { captureException } from '../sentry/reporter.ts'
 
 /**
  * Creates webhook routes from the config's webhook definitions.
@@ -52,6 +53,12 @@ export function createWebhookRoutes(getConfig: () => OpenShopConfig) {
       await handler.run({ topic, shop, shopifyApp: shopifyApp.handle, payload, apiVersion })
     } catch (error) {
       logger.error(`[openshop] Webhook handler error for "${topic}"`, { error })
+      captureException(error, {
+        mechanism: 'webhook',
+        topic,
+        shop,
+        shopifyApp: shopifyApp.handle,
+      })
       // Still return 200 — don't let Shopify retry on handler errors
     }
 

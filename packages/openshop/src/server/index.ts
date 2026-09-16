@@ -20,6 +20,8 @@ import { installations } from '#db/schema'
 import type { OpenShopConfig } from '#types'
 import { adminPageFromApiPath, resolveAdminPages } from '../config/pages.ts'
 import { getRuntimeLogger } from '../runtime/logger.ts'
+import { applySentryConfig } from '../sentry/init.ts'
+import { sentryIsolationMiddleware, sentryUnhandledErrorHandler } from '../sentry/http.ts'
 
 export type ConfigGetter = () => OpenShopConfig
 export interface ServerOptions {
@@ -90,6 +92,12 @@ async function isInstalledShop(shopifyApp: string, shop: string): Promise<boolea
 
 export async function createServer(getConfig: ConfigGetter, options?: ServerOptions) {
   const app = new Hono()
+  applySentryConfig(getConfig().sentry)
+  app.use('*', sentryIsolationMiddleware())
+  app.onError((error, c) => {
+    sentryUnhandledErrorHandler(error, c.req.path)
+    return c.json({ error: 'Internal server error' }, 500)
+  })
 
   app.use('*', async (c, next) => {
     c.header('X-Robots-Tag', robotsHeader)

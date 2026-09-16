@@ -5,9 +5,11 @@
 import { resolve } from 'node:path'
 import { createApiShutdownHandler } from './api-lifecycle.ts'
 import { loadEnvFile } from './env.ts'
+import { initOpenShopSentry } from '../sentry/init.ts'
 
 const cwd = process.cwd()
 loadEnvFile(cwd)
+await initOpenShopSentry({ process: 'dev' })
 
 const apiPort = Number(process.env.OPENSHOP_API_PORT) || 3001
 process.env.DATABASE_URL ??= 'postgresql://openshop:openshop@localhost:5432/openshop'

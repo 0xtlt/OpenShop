@@ -1,4 +1,4 @@
-import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ProviderFieldDefinitions, ProviderMethod, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, AnyFunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders, McpConfig, AdminPagesConfig, AuthenticatedServerRouteDefinition, UnauthenticatedServerRouteDefinition } from './types.ts'
+import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ProviderFieldDefinitions, ProviderMethod, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, AnyFunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders, McpConfig, SentryConfig, AdminPagesConfig, AuthenticatedServerRouteDefinition, UnauthenticatedServerRouteDefinition } from './types.ts'
 import type { Type } from 'arktype'
 import type { StandardCRON } from 'ts-cron-validator'
 import { validateOpenShopConfig, validatePagesConfig } from './config/validate.ts'
@@ -12,6 +12,7 @@ interface OpenShopAppBase<TProviders extends Record<string, ProviderDefinition>>
   shopify?: ShopifyConfig
   providers: TProviders
   mcp?: McpConfig
+  sentry?: SentryConfig
   pages?: AdminPagesConfig
   worker?: Partial<WorkerConfig>
   retryPolicy?: Partial<RetryPolicy>
@@ -42,6 +43,7 @@ interface OpenShopConfigInput<
   flows: TFlows
   functions?: TFunctions
   mcp?: McpConfig
+  sentry?: SentryConfig
   webhooks?: Record<string, WebhookDefinition>
   crons?: CronEntryFor<TFlows>[]
   pages?: AdminPagesConfig
@@ -138,6 +140,7 @@ export function defineOpenShop<const TProviders extends Record<string, ProviderD
         shopify: config.shopify ?? app.shopify,
         providers: app.providers,
         mcp: config.mcp ?? app.mcp,
+        sentry: config.sentry ?? app.sentry,
         pages: app.pages === undefined && config.pages === undefined
           ? undefined
           : { ...app.pages, ...config.pages },
@@ -221,6 +224,7 @@ export type {
   AuthenticatedServerRouteDefinition,
   UnauthenticatedServerRouteDefinition,
   McpConfig,
+  SentryConfig,
   AdminPageId,
   AdminPageMode,
   AdminPagesConfig,
@@ -241,3 +245,10 @@ export { defineModel } from './db/schema.ts'
 export { getDb } from './db/client.ts'
 export { createShopifyClient } from './shopify/client.ts'
 export { setRuntimeLogger, getRuntimeLogger, type RuntimeLogger } from './runtime/logger.ts'
+export {
+  initOpenShopSentry,
+  flushOpenShopSentry,
+  applySentryConfig,
+  isOpenShopSentryEnabled,
+} from './sentry/init.ts'
+export { captureOpenShopException } from './sentry/reporter.ts'

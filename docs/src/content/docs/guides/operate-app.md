@@ -74,7 +74,7 @@ Operational signals:
 | Growing `pending` count | No worker, saturated concurrency, or DB failure | Check worker processes and database connectivity; then scale workers. |
 | Old `running` runs | Worker crash or a long step | Check worker logs and step timeout; expired leases allow another worker to reclaim work. |
 | Repeated `sleeping` runs | Retrying failures or explicit `step.sleep` | Inspect run logs and `availableAt`. |
-| Many `failed` runs | Provider, Shopify, validation, or deployment regression | Filter logs by error and compare the first failure time with deployments. |
+| Many `failed` runs | Provider, Shopify, validation, or deployment regression | Filter logs by error and compare the first failure time with deployments. When `SENTRY_DSN` is set, inspect the matching Sentry issue. |
 | Cron absent | Bad schedule, disabled per-shop override, or web process down | Check config, cron toggle, and web/scheduler process. |
 
 ## 4. Scale workers
@@ -112,6 +112,13 @@ worker process count × concurrency per worker
 ```
 
 Also budget PostgreSQL connections per process using `PGPOOL_MAX`.
+
+## External error reporting
+
+Set `SENTRY_DSN` on web and worker processes to capture flow failures, HTTP
+500s, webhook handler errors, and unhandled exceptions. See
+[Sentry](/reference/sentry/). Flow logs in PostgreSQL remain the source of
+truth for a single run; Sentry is the cross-run alerting surface.
 
 ## Retry and idempotency
 

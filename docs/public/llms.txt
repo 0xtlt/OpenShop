@@ -39,6 +39,7 @@ PostgreSQL state, an embedded admin UI, and MCP capabilities.
 - [MCP](https://docs.openshop.run/reference/mcp/)
 - [CLI commands](https://docs.openshop.run/reference/cli/)
 - [Logging](https://docs.openshop.run/reference/logging/)
+- [Sentry](https://docs.openshop.run/reference/sentry/)
 - [Errors](https://docs.openshop.run/reference/errors/)
 - [Security](https://docs.openshop.run/reference/security/)
 - [Versioning](https://docs.openshop.run/reference/versioning/)

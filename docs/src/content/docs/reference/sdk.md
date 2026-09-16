@@ -14,6 +14,7 @@ import {
   defineProvider,
   getDb,
   getRuntimeLogger,
+  initOpenShopSentry,
   setRuntimeLogger,
 } from 'openshop'
 ```
@@ -48,6 +49,7 @@ Parameters:
 - `worker`: partial worker defaults.
 - `retryPolicy`: partial flow retry defaults.
 - `onError`: application error hook.
+- `sentry`: optional Sentry tags and kill-switch. DSN and sample rates come from environment variables.
 
 The returned object exposes:
 
@@ -267,9 +269,21 @@ setRuntimeLogger(previous)
 This logger handles framework/process messages. Flow code should normally use
 `ctx.logger`, which persists records in the run log.
 
+## Sentry
+
+`initOpenShopSentry({ process })` initializes the bundled Sentry Node SDK when
+`SENTRY_DSN` is set. The CLI calls it before loading application config.
+`flushOpenShopSentry()` drains events on shutdown.
+`captureOpenShopException(error, context)` reports extra application errors.
+`applySentryConfig(config.sentry)` applies optional tags or disables Sentry
+after config load.
+
+See [Sentry](/reference/sentry/) for environment variables and captured
+surfaces.
+
 ## Public type exports
 
 The package root exports types for configuration, flows, providers, webhooks,
-proxies, Shopify Functions, MCP, workers, retry and dispatch options, the Shopify
+proxies, Shopify Functions, MCP, Sentry, workers, retry and dispatch options, the Shopify
 client, and runtime logging. Prefer importing those types from `openshop` instead
 of source paths.

@@ -1,9 +1,11 @@
 import { loadBuiltConfig, resolveBuiltConfig } from './app-build.ts'
+import { captureException, flushOpenShopSentry, initOpenShopSentry } from '../sentry/init.ts'
 
 export async function startWorker(opts: { concurrency?: number } = {}) {
   const cwd = process.cwd()
 
   console.log('[openshop] Starting worker...')
+  await initOpenShopSentry({ process: 'worker' })
 
   process.env.DATABASE_URL ??= 'postgresql://openshop:openshop@localhost:5432/openshop'
   console.log('[openshop] Database migrations are manual. Run `openshop migrate` before starting production processes.')
@@ -14,6 +16,8 @@ export async function startWorker(opts: { concurrency?: number } = {}) {
   } catch (error) {
     console.error(`[openshop] Failed to load ${resolveBuiltConfig(cwd)}`)
     console.error(error)
+    captureException(error, { mechanism: 'cli' })
+    await flushOpenShopSentry()
     process.exit(1)
   }
 
@@ -25,6 +29,7 @@ export async function startWorker(opts: { concurrency?: number } = {}) {
 
   const shutdown = async () => {
     await worker.stop()
+    await flushOpenShopSentry()
     process.exit(0)
   }
   process.on('SIGINT', shutdown)

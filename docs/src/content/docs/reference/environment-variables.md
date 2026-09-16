@@ -24,6 +24,11 @@ manager or deployment platform to inject their environment.
 | `PGPOOL_IDLE_TIMEOUT_MS` | No | `30000` | Idle PostgreSQL connection timeout |
 | `PGPOOL_CONNECTION_TIMEOUT_MS` | No | `5000` | PostgreSQL connection acquisition timeout |
 | `NODE_ENV` | No | Command/runtime dependent | Production safety checks and encryption enforcement |
+| `SENTRY_DSN` | No | Empty | Enables native Sentry in web, worker, and `openshop dev` processes |
+| `SENTRY_ENVIRONMENT` | No | `NODE_ENV`, then `development` | Sentry environment tag |
+| `SENTRY_RELEASE` | No | Empty | Sentry release identifier |
+| `SENTRY_TRACES_SAMPLE_RATE` | No | `0` | Fraction of traces to send, from `0` to `1` |
+| `SENTRY_ENABLED` | No | Enabled when `SENTRY_DSN` is set | Set `false` to skip Sentry initialization |
 
 `OPENSHOP_API_PORT` is an implementation detail of `openshop dev`. Do not set it in
 normal production deployments.
@@ -129,3 +134,5 @@ and administration.
   code.
 - Give the web and worker processes the same database, encryption key, app
   configuration, and application build.
+- If `SENTRY_DSN` is set, give web and worker the same DSN, environment, and
+  release. See [Sentry](/reference/sentry/).

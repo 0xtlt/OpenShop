@@ -65,6 +65,9 @@ Call `setRuntimeLogger()` before starting OpenShop processes in an embedded
 runtime. `getRuntimeLogger()` returns the active adapter. The CLI uses the
 default console-backed logger unless application bootstrap replaces it.
 
+Runtime logs are not sent to Sentry. Exception reporting is a separate
+surface; see [Sentry](/reference/sentry/).
+
 ## Retention and export
 
 OpenShop does not currently apply an automatic retention policy to flow logs.

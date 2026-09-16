@@ -41,7 +41,8 @@ database:
 
 The web and worker processes use the same built `openshop.config.ts` and
 `DATABASE_URL`. The web process does not execute flows. A deployment therefore
-needs at least one instance of each process.
+needs at least one instance of each process. When `SENTRY_DSN` is set, both
+process types initialize Sentry independently; see [Sentry](/reference/sentry/).
 
 ## Request lifecycle
 

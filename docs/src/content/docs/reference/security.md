@@ -56,6 +56,13 @@ and duration; they do not replace external security monitoring.
 - Trust the verified context identity, not duplicated query/body fields.
 - Do not return secrets or raw upstream error bodies to clients.
 
+## Third-party error reporting
+
+`SENTRY_DSN` sends exception payloads to Sentry. Treat the DSN as a secret,
+keep `sendDefaultPii` off (OpenShop does), and do not put access tokens,
+encryption keys, or session tokens in custom Sentry tags. See
+[Sentry](/reference/sentry/).
+
 ## Embedded admin exposure
 
 The production UI shell requires a valid installed shop launch. Responses carry

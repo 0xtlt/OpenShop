@@ -52,6 +52,7 @@ work. `openshop.dispatchFlow()` captures the active config, restricts
 | `worker` | `Partial<WorkerConfig>` | No | See [Worker defaults](#worker-defaults) |
 | `retryPolicy` | `Partial<RetryPolicy>` | No | See [Retry defaults](#retry-defaults) |
 | `onError` | `(error, context?) => void \| Promise<void>` | No | No hook |
+| `sentry` | `SentryConfig` | No | Enabled when `SENTRY_DSN` is set; see [Sentry](/reference/sentry/) |
 
 `providers` and `flows` are always present, even when empty. `defineOpenShop({ providers })` supplies the provider registry to `app.defineConfig()`.
 

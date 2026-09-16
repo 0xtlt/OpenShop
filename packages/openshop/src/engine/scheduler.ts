@@ -4,6 +4,7 @@ import { getDb } from '#db/client'
 import { installations, cronOverrides } from '#db/schema'
 import { dispatchFlow } from '#engine/dispatch'
 import { getRuntimeLogger } from '../runtime/logger.ts'
+import { captureException } from '../sentry/reporter.ts'
 import { DEFAULT_SHOPIFY_APP_HANDLE } from '#server/shopify-apps'
 import type { OpenShopConfig, CronEntry } from '#types'
 
@@ -103,6 +104,7 @@ export function startScheduler(config: OpenShopConfig) {
           await dispatchFlow({ flowName: flow, input: inputRecord(entry.input), config, shopifyApp, shop })
         } catch (error) {
           logger.error(`[openshop] Cron flow "${flow}" failed for ${shop}`, { error })
+          captureException(error, { mechanism: 'scheduler', flow, shop, shopifyApp })
         }
       }
     })

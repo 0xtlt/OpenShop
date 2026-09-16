@@ -9,6 +9,7 @@ import { FlowCanceledError, FlowTimeoutError, SleepSignal } from '#engine/errors
 import { buildConnectors, type RuntimeConnectors } from '#server/connectors'
 import { createShopifyClient } from '../shopify/client.ts'
 import { getRuntimeLogger } from '../runtime/logger.ts'
+import { captureException } from '../sentry/reporter.ts'
 import { DEFAULT_SHOPIFY_APP_HANDLE } from '#server/shopify-apps'
 import type { OpenShopConfig, Logger, RetryPolicy } from '#types'
 
@@ -144,6 +145,13 @@ export async function runFlow(opts: RunFlowOptions): Promise<RunFlowResult> {
     }
 
     logger.error({ flowName, error: errorMessage, willRetry }, `Flow "${flowName}" failed: ${errorMessage}`)
+    captureException(error, {
+      mechanism: 'flow',
+      flow: flowName,
+      shop,
+      shopifyApp,
+      willRetry,
+    })
 
     if (config.onError) {
       try {

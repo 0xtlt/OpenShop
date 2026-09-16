@@ -29,7 +29,7 @@ Create `admin/pages/<route>/page.tsx`. Nested folders create nested routes and
 
 ```tsx
 // admin/pages/reviews/page.tsx
-import { defineAdminPage, useLoader } from 'openshop'
+import { defineAdminPage, useLoader } from 'openshop/admin'
 import { listReviews } from './actions.server.ts'
 
 function Reviews() {
@@ -57,7 +57,7 @@ the browser.
 
 ```ts
 import { type } from 'arktype'
-import { defineAdminAction, defineAdminLoader } from 'openshop'
+import { defineAdminAction, defineAdminLoader } from 'openshop/admin'
 
 export const listReviews = defineAdminLoader({
   handler: async ({ db, shop, shopifyApp }) => {
@@ -94,7 +94,7 @@ Export `pageAccess` to filter navigation and guard direct page visits. Add an
 OpenShop always evaluates page access and the function's own policy on the server.
 
 ```ts
-import { defineAdminPageAccess } from 'openshop'
+import { defineAdminPageAccess } from 'openshop/admin'
 
 export const pageAccess = defineAdminPageAccess(({ actor }) => actor.id !== '')
 ```

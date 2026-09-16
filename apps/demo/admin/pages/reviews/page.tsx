@@ -1,4 +1,4 @@
-import { defineAdminPage, useAction, useLoader } from 'openshop'
+import { defineAdminPage, useAction, useLoader } from 'openshop/admin'
 import { listReviews, saveReview } from './actions.server.ts'
 
 function ReviewsPage() {

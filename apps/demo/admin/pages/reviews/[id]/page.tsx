@@ -1,4 +1,4 @@
-import { defineAdminPage, useLoader } from 'openshop'
+import { defineAdminPage, useLoader } from 'openshop/admin'
 import { reviewDetails } from './actions.server.ts'
 
 function ReviewDetailsPage({ id }: { id: string }) {

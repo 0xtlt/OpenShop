@@ -3,7 +3,7 @@ import {
   defineAdminAction,
   defineAdminLoader,
   defineAdminPageAccess,
-} from 'openshop'
+} from 'openshop/admin'
 
 export const pageAccess = defineAdminPageAccess(({ actor }) => actor.id.length > 0)
 

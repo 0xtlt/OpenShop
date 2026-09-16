@@ -1,4 +1,4 @@
-import { defineAdminLoader } from 'openshop'
+import { defineAdminLoader } from 'openshop/admin'
 
 export const reviewDetails = defineAdminLoader({
   handler: ({ params, shop }) => ({

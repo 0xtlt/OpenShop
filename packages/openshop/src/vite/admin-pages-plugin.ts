@@ -59,7 +59,7 @@ export function adminPagesPlugin(
       if (!page?.serverFile) return null
       const definitions = exportedFunctions(readFileSync(page.serverFile, 'utf8'))
       return [
-        `import { createAdminFunctionReference } from 'openshop';`,
+        `import { createAdminFunctionReference } from 'openshop/admin';`,
         ...definitions.map(({ name, kind }) => (
           `export const ${name} = createAdminFunctionReference({ kind: ${JSON.stringify(kind)}, name: ${JSON.stringify(name)}, pagePattern: ${JSON.stringify(page.routePattern)} });`
         )),

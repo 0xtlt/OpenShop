@@ -2,7 +2,11 @@ import { test } from '@japa/runner'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { renderAdminActionsClientModule } from '../../../src/vite/admin-pages-plugin.ts'
+import {
+  adminPagesPlugin,
+  isServerOnlyAdminPageImport,
+  renderAdminActionsClientModule,
+} from '../../../src/vite/admin-pages-plugin.ts'
 
 test('renders typed client references without server handler code', ({ assert }) => {
   const directory = mkdtempSync(join(tmpdir(), 'openshop-admin-plugin-'))
@@ -29,6 +33,42 @@ test('renders typed client references without server handler code', ({ assert })
     assert.include(result, 'export const save = createAdminFunctionReference({ kind: "action"')
     assert.notInclude(result, 'process.env.SECRET')
     assert.notInclude(result, 'handler:')
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('rejects server-only page imports and rewrites local actions', ({ assert }) => {
+  const directory = mkdtempSync(join(tmpdir(), 'openshop-admin-plugin-'))
+  try {
+    const sourceFile = join(directory, 'admin', 'pages', 'reviews', 'page.tsx')
+    const serverFile = join(directory, 'admin', 'pages', 'reviews', 'actions.server.ts')
+    const page = {
+      id: 'reviews',
+      path: '/reviews',
+      routePattern: '/reviews',
+      sourceFile,
+      serverFile,
+    }
+    const plugin = adminPagesPlugin([page])
+    const resolveId = plugin.resolveId
+    if (typeof resolveId !== 'function') assert.fail('Expected a resolveId hook')
+    const resolveImport = (source: string) => resolveId.call(
+      {} as never,
+      source,
+      sourceFile,
+      {} as never,
+    )
+
+    for (const source of ['#db/client', 'openshop', 'node:fs']) {
+      assert.isTrue(isServerOnlyAdminPageImport(source))
+      assert.throws(
+        () => resolveImport(source),
+        `Server-only import "${source}" is not allowed`,
+      )
+    }
+    assert.equal(resolveImport('./actions.server.ts'), '\0virtual:openshop-admin-actions:reviews')
+    assert.isFalse(isServerOnlyAdminPageImport('openshop/admin'))
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

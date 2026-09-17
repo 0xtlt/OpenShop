@@ -24,6 +24,11 @@ import {
 } from './custom-admin-pages'
 
 const pagesRefreshMs = 10_000
+const emptyCustomPages: CustomAdminPagesResponse = { navigation: [], pages: [] }
+
+function loadCustomAdminPages(): Promise<CustomAdminPagesResponse> {
+  return apiJson<CustomAdminPagesResponse>('/api/pages/custom').catch(() => emptyCustomPages)
+}
 
 function NavMenu() {
   const { url } = useLocation()
@@ -93,7 +98,7 @@ function AuthGate({ children }: { children: ComponentChildren }) {
 
         const [data, customData] = await Promise.all([
           apiJson<ResolvedAdminPages>('/api/pages'),
-          apiJson<CustomAdminPagesResponse>('/api/pages/custom'),
+          loadCustomAdminPages(),
         ])
         if (active) {
           setPages(data)
@@ -116,7 +121,7 @@ function AuthGate({ children }: { children: ComponentChildren }) {
     const refresh = () => {
       void Promise.all([
         apiJson<ResolvedAdminPages>('/api/pages'),
-        apiJson<CustomAdminPagesResponse>('/api/pages/custom'),
+        loadCustomAdminPages(),
       ])
         .then(([data, customData]) => {
           if (!active) return

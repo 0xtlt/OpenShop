@@ -46,8 +46,11 @@ export default defineAdminPage({ title: 'Reviews', component: Reviews })
 ```
 
 Pages use Preact and Shopify's Polaris web components. Browser-safe dependencies
-declared by the app may be imported. OpenShop emits lazy route chunks and shares
-the Preact runtime.
+declared by the app may be imported. Page modules cannot import server-only
+modules such as `#db/*`, `#engine/*`, `#shopify/*`, `#server/*`, the `openshop`
+root entry point, Node built-ins, or other `*.server.ts` files. Import page-local
+`actions.server.ts` functions instead; OpenShop rewrites those imports to browser
+stubs. OpenShop emits lazy route chunks and shares the Preact runtime.
 
 ## Loaders and actions
 
@@ -91,7 +94,8 @@ fresh Shopify App Bridge session token. Endpoint URLs are not a public API.
 
 Export `pageAccess` to filter navigation and guard direct page visits. Add an
 `authorize` callback to each loader or action that needs a narrower policy.
-OpenShop always evaluates page access and the function's own policy on the server.
+OpenShop evaluates the page's policy, every existing parent page's policy, and
+the function's own policy on the server. All policies must allow the request.
 
 ```ts
 import { defineAdminPageAccess } from 'openshop/admin'

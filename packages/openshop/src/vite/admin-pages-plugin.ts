@@ -8,6 +8,17 @@ const manifestId = 'virtual:openshop-admin-pages'
 const resolvedManifestId = '\0virtual:openshop-admin-pages'
 const actionPrefix = '\0virtual:openshop-admin-actions:'
 
+export function isServerOnlyAdminPageImport(source: string): boolean {
+  return /(?:^|\/)[^/]+\.server\.(?:ts|js)$/.test(source)
+    || source.startsWith('#db/')
+    || source.startsWith('#engine/')
+    || source.startsWith('#shopify/')
+    || source.startsWith('#server/')
+    || source === 'openshop'
+    || source.startsWith('node:')
+    || source.includes('/server/')
+}
+
 function exportedFunctions(source: string): Array<{ name: string; kind: 'loader' | 'action' }> {
   const exports: Array<{ name: string; kind: 'loader' | 'action' }> = []
   const expression = /export\s+const\s+([A-Za-z_$][\w$]*)(?:\s*:[^=\n]+)?\s*=\s*defineAdmin(Loader|Action)\b/g
@@ -54,11 +65,7 @@ export function adminPagesPlugin(
       if (!isActionsFile) {
         const importerPath = importer.split('?')[0]!
         const appPage = importerPath.includes(`${sep}admin${sep}pages${sep}`)
-        if (appPage && (
-          /(?:^|\/)[^/]+\.server\.(?:ts|js)$/.test(source)
-          || source.startsWith('#server/')
-          || source.includes('/server/')
-        )) {
+        if (appPage && isServerOnlyAdminPageImport(source)) {
           throw new Error(`[openshop] Server-only import "${source}" is not allowed in a custom admin page`)
         }
         return null

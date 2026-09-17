@@ -34,6 +34,7 @@ function jwt(sub = '123') {
 test.group('custom admin page RPC', (group) => {
   let directory: string
   let app: Awaited<ReturnType<typeof createServer>>
+  let config: OpenShopConfig
 
   group.each.setup(async () => {
     await truncateAll()
@@ -45,9 +46,12 @@ test.group('custom admin page RPC', (group) => {
     })
 
     directory = mkdtempSync(join(tmpdir(), 'openshop-admin-rpc-'))
-    const serverFile = join(directory, 'reviews.actions.js')
-    writeFileSync(serverFile, `
+    const parentServerFile = join(directory, 'reviews.actions.js')
+    writeFileSync(parentServerFile, `
       export const pageAccess = ({ actor }) => actor.id === '123'
+    `)
+    const childServerFile = join(directory, 'review-details.actions.js')
+    writeFileSync(childServerFile, `
       export const details = {
         kind: 'loader',
         handler: ({ params, actor, shop, shopifyApp }) => ({
@@ -58,20 +62,29 @@ test.group('custom admin page RPC', (group) => {
         }),
       }
     `)
-    writeFileSync(join(directory, 'admin-pages.json'), JSON.stringify([{
-      id: 'reviews/[id]',
-      path: '/reviews/[id]',
-      routePattern: '/reviews/:id',
-      sourceFile: 'page.tsx',
-      serverFile: pathToFileURL(serverFile).pathname,
-    }]))
+    writeFileSync(join(directory, 'admin-pages.json'), JSON.stringify([
+      {
+        id: 'reviews',
+        path: '/reviews',
+        routePattern: '/reviews',
+        sourceFile: 'reviews/page.tsx',
+        serverFile: pathToFileURL(parentServerFile).pathname,
+      },
+      {
+        id: 'reviews/[id]',
+        path: '/reviews/[id]',
+        routePattern: '/reviews/:id',
+        sourceFile: 'reviews/[id]/page.tsx',
+        serverFile: pathToFileURL(childServerFile).pathname,
+      },
+    ]))
 
-    const config: OpenShopConfig = {
+    config = {
       providers: {},
       flows: {},
       experimental: {
         customPages: {
-          navigation: [{ label: 'Reviews', path: '/reviews/example' }],
+          navigation: [{ label: 'Reviews', path: '/reviews' }],
         },
       },
     }
@@ -87,12 +100,16 @@ test.group('custom admin page RPC', (group) => {
   }
 
   test('passes trusted identity and dynamic params to a loader', async ({ assert }) => {
-    const response = await request(
-      '/api/pages/custom/reviews/42/_rpc/loader/details',
+    const invoke = (id: string) => request(
+      `/api/pages/custom/reviews/${id}/_rpc/loader/details`,
       '123',
       { method: 'POST', body: JSON.stringify({ input: null }) },
     )
+    const firstResponse = await invoke('41')
+    const response = await invoke('42')
 
+    assert.equal(firstResponse.status, 200)
+    assert.equal((await firstResponse.json() as { id: string }).id, '41')
     assert.equal(response.status, 200)
     assert.deepEqual(await response.json(), {
       id: '42',
@@ -102,7 +119,7 @@ test.group('custom admin page RPC', (group) => {
     })
   })
 
-  test('enforces page policy for direct access and RPC', async ({ assert }) => {
+  test('inherits parent page policy for child direct access and RPC', async ({ assert }) => {
     const access = await request('/api/pages/custom/access?path=%2Freviews%2F42', '456')
     assert.equal(access.status, 200)
     assert.deepEqual(await access.json(), { allowed: false })
@@ -113,5 +130,28 @@ test.group('custom admin page RPC', (group) => {
       { method: 'POST', body: JSON.stringify({ input: null }) },
     )
     assert.equal(rpc.status, 403)
+  })
+
+  test('degrades invalid custom navigation without blocking built-in pages', async ({ assert }) => {
+    config.experimental = {
+      customPages: {
+        navigation: [{ label: 'Missing', path: '/missing' }],
+      },
+    }
+
+    const customPages = await request('/api/pages/custom')
+    assert.equal(customPages.status, 200)
+    assert.deepEqual(await customPages.json(), { navigation: [], pages: [] })
+
+    const builtInPages = await request('/api/pages')
+    assert.equal(builtInPages.status, 200)
+  })
+
+  test('rejects RPC requests without a session token', async ({ assert }) => {
+    const response = await app.request(
+      '/api/pages/custom/reviews/42/_rpc/loader/details',
+      { method: 'POST', body: JSON.stringify({ input: null }) },
+    )
+    assert.equal(response.status, 401)
   })
 })

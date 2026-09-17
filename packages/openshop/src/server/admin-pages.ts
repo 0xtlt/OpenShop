@@ -50,6 +50,16 @@ async function loadServerModule(page: CustomAdminPageManifestEntry): Promise<Adm
   return import(pathToFileURL(page.serverFile).href) as Promise<AdminServerModule>
 }
 
+async function loadServerModules(
+  pages: readonly CustomAdminPageManifestEntry[],
+  page: CustomAdminPageManifestEntry,
+): Promise<AdminServerModule[]> {
+  const ancestors = pages.filter((candidate) => (
+    candidate.id === page.id || page.id.startsWith(`${candidate.id}/`)
+  ))
+  return Promise.all(ancestors.map(loadServerModule))
+}
+
 function extractParams(pattern: string, pathname: string): Record<string, string> | null {
   if (!matchCustomAdminPath(pattern, pathname)) return null
   const params: Record<string, string> = {}
@@ -83,26 +93,29 @@ async function createContext(
 }
 
 async function isAllowed(
-  module: AdminServerModule,
+  modules: readonly AdminServerModule[],
   context: AdminServerContext,
   authorize?: AdminAuthorize,
 ): Promise<boolean> {
-  if (module.pageAccess && !(await module.pageAccess(context))) return false
+  for (const module of modules) {
+    if (module.pageAccess && !(await module.pageAccess(context))) return false
+  }
   return authorize ? authorize(context) : true
 }
 
 async function pageIsAllowed(
   c: Context,
   config: OpenShopConfig,
+  pages: readonly CustomAdminPageManifestEntry[],
   page: CustomAdminPageManifestEntry,
   pathname: string,
 ): Promise<boolean> {
   try {
     const params = extractParams(page.routePattern, pathname)
     if (!params) return false
-    const module = await loadServerModule(page)
+    const modules = await loadServerModules(pages, page)
     const context = await createContext(c, config, params, randomUUID())
-    return isAllowed(module, context)
+    return isAllowed(modules, context)
   } catch (error) {
     getRuntimeLogger().warn('[openshop] Custom admin page access check failed', {
       pageId: page.id,
@@ -129,27 +142,35 @@ export function registerCustomAdminPageRoutes(
   api.get('/pages/custom', async (c) => {
     const config = getConfig()
     if (!customPagesEnabled(config.experimental)) return c.json({ navigation: [], pages: [] })
-    const pages = runtimePages(directory)
-    const navigation = validateCustomAdminNavigation(
-      customPagesConfig(config.experimental)?.navigation,
-      pages,
-    )
-    const access = await Promise.all(pages.map(async (page) => ({
-      id: page.id,
-      path: page.routePattern,
-      allowed: page.routePattern.includes(':')
-        ? false
-        : await pageIsAllowed(c, config, page, page.path),
-    })))
-    const authorizedNavigation = await Promise.all(navigation.map(async (item) => {
-      const page = pages.find((candidate) => matchCustomAdminPath(candidate.routePattern, item.path))
-      return page && await pageIsAllowed(c, config, page, item.path) ? item : null
-    }))
-    const response: CustomAdminPagesResponse = {
-      navigation: authorizedNavigation.filter((item): item is NonNullable<typeof item> => Boolean(item)),
-      pages: access,
+    try {
+      const pages = runtimePages(directory)
+      const navigation = validateCustomAdminNavigation(
+        customPagesConfig(config.experimental)?.navigation,
+        pages,
+      )
+      const access = await Promise.all(pages.map(async (page) => ({
+        id: page.id,
+        path: page.routePattern,
+        allowed: page.routePattern.includes(':')
+          ? false
+          : await pageIsAllowed(c, config, pages, page, page.path),
+      })))
+      const authorizedNavigation = await Promise.all(navigation.map(async (item) => {
+        const page = pages.find((candidate) => matchCustomAdminPath(candidate.routePattern, item.path))
+        return page && await pageIsAllowed(c, config, pages, page, item.path) ? item : null
+      }))
+      const response: CustomAdminPagesResponse = {
+        navigation: authorizedNavigation.filter((item): item is NonNullable<typeof item> => Boolean(item)),
+        pages: access,
+      }
+      return c.json(response)
+    } catch (error) {
+      getRuntimeLogger().warn('[openshop] Custom admin page bootstrap failed; using built-in pages only', {
+        directory,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return c.json({ navigation: [], pages: [] } satisfies CustomAdminPagesResponse)
     }
-    return c.json(response)
   })
 
   api.get('/pages/custom/access', async (c) => {
@@ -158,10 +179,10 @@ export function registerCustomAdminPageRoutes(
     if (!customPagesEnabled(config.experimental) || !pathname) {
       return c.json({ allowed: false }, 404)
     }
-    const page = runtimePages(directory)
-      .find((candidate) => matchCustomAdminPath(candidate.routePattern, pathname))
+    const pages = runtimePages(directory)
+    const page = pages.find((candidate) => matchCustomAdminPath(candidate.routePattern, pathname))
     if (!page) return c.json({ allowed: false }, 404)
-    return c.json({ allowed: await pageIsAllowed(c, config, page, pathname) })
+    return c.json({ allowed: await pageIsAllowed(c, config, pages, page, pathname) })
   })
 
   api.post('/pages/custom/*', async (c) => {
@@ -195,13 +216,14 @@ export function registerCustomAdminPageRoutes(
       if (!page) throw new AdminPublicError('NOT_FOUND', 'Not found', { status: 404 })
       const params = extractParams(page.routePattern, pagePath)
       if (!params) throw new AdminPublicError('NOT_FOUND', 'Not found', { status: 404 })
+      const modules = await loadServerModules(pages, page)
       const module = await loadServerModule(page)
       const definition = module[name] as AnyAdminFunctionDefinition | undefined
       if (!definition || definition.kind !== kind || typeof definition.handler !== 'function') {
         throw new AdminPublicError('NOT_FOUND', 'Not found', { status: 404 })
       }
       const context = await createContext(c, config, params, requestId)
-      if (!(await isAllowed(module, context, definition.authorize))) {
+      if (!(await isAllowed(modules, context, definition.authorize))) {
         throw new AdminPublicError('FORBIDDEN', 'Forbidden', { status: 403 })
       }
 

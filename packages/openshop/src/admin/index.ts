@@ -4,6 +4,7 @@ import type { Type } from 'arktype'
 import type { RuntimeConnectors } from '../server/connectors.ts'
 import type { ShopifyClient } from '../shopify/client.ts'
 import type { getDb } from '../db/client.ts'
+import { buildAdminFunctionRpcUrl } from './rpc.ts'
 
 declare global {
   interface Window {
@@ -184,7 +185,7 @@ export class AdminRpcError extends Error {
 async function callAdminFunction<TInput, TOutput extends JsonValue>(
   reference: AdminLoaderClient<TInput, TOutput> | AdminActionClient<TInput, TOutput>,
   input: TInput,
-  options?: { signal?: AbortSignal; idempotencyKey?: string },
+  options?: { signal?: AbortSignal; idempotencyKey?: string; pathname?: string },
 ): Promise<TOutput> {
   const clientReference = reference as AdminFunctionReference<TInput, TOutput>
   const headers = new Headers({ 'content-type': 'application/json' })
@@ -192,9 +193,12 @@ async function callAdminFunction<TInput, TOutput extends JsonValue>(
   if (token) headers.set('authorization', `Bearer ${token}`)
   if (options?.idempotencyKey) headers.set('idempotency-key', options.idempotencyKey)
 
-  const pathname = window.location.pathname.replace(/\/$/, '') || '/'
   const response = await fetch(
-    `/api/pages/custom${pathname}/_rpc/${clientReference.kind}/${encodeURIComponent(clientReference.name)}`,
+    buildAdminFunctionRpcUrl(
+      clientReference.kind,
+      clientReference.name,
+      options?.pathname ?? window.location.pathname,
+    ),
     {
       method: 'POST',
       headers,
@@ -232,6 +236,7 @@ export function useLoader<TInput, TOutput extends JsonValue>(
   const [state, setState] = useState<Omit<AdminLoaderState<TOutput>, 'revalidate'>>({ loading: true })
   const [generation, setGeneration] = useState(0)
   const serializedInput = JSON.stringify(input ?? null)
+  const pathname = window.location.pathname
   const refresh = useCallback(() => setGeneration((value) => value + 1), [])
 
   useEffect(() => {
@@ -247,7 +252,10 @@ export function useLoader<TInput, TOutput extends JsonValue>(
   useEffect(() => {
     const controller = new AbortController()
     setState((current) => ({ ...current, loading: true, error: undefined }))
-    void callAdminFunction(reference, JSON.parse(serializedInput) as TInput, { signal: controller.signal })
+    void callAdminFunction(reference, JSON.parse(serializedInput) as TInput, {
+      signal: controller.signal,
+      pathname,
+    })
       .then((data) => setState({ data, loading: false }))
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
@@ -255,7 +263,7 @@ export function useLoader<TInput, TOutput extends JsonValue>(
         }
       })
     return () => controller.abort()
-  }, [reference, serializedInput, generation])
+  }, [reference, serializedInput, pathname, generation])
 
   return { ...state, revalidate: refresh }
 }

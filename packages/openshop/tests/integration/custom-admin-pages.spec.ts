@@ -132,6 +132,35 @@ test.group('custom admin page RPC', (group) => {
     assert.equal(rpc.status, 403)
   })
 
+  test('fails closed when multiple pages match the same pathname', async ({ assert }) => {
+    writeFileSync(join(directory, 'admin-pages.json'), JSON.stringify([
+      {
+        id: 'reviews/[id]',
+        path: '/reviews/[id]',
+        routePattern: '/reviews/:id',
+        sourceFile: 'reviews/[id]/page.tsx',
+      },
+      {
+        id: 'reviews/[slug]',
+        path: '/reviews/[slug]',
+        routePattern: '/reviews/:slug',
+        sourceFile: 'reviews/[slug]/page.tsx',
+      },
+    ]))
+
+    const access = await request('/api/pages/custom/access?path=%2Freviews%2F42')
+    assert.equal(access.status, 404)
+    assert.deepEqual(await access.json(), { allowed: false })
+
+    const rpc = await request(
+      '/api/pages/custom/reviews/42/_rpc/loader/details',
+      '123',
+      { method: 'POST', body: JSON.stringify({ input: null }) },
+    )
+    assert.equal(rpc.status, 404)
+    assert.equal((await rpc.json() as { code: string }).code, 'NOT_FOUND')
+  })
+
   test('degrades invalid custom navigation without blocking built-in pages', async ({ assert }) => {
     config.experimental = {
       customPages: {

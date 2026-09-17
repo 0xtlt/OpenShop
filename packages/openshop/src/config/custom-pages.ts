@@ -82,3 +82,11 @@ export function matchCustomAdminPath(pattern: string, pathname: string): boolean
       segment.startsWith(':') || segment === pathSegments[index]
     ))
 }
+
+export function customAdminRouteShapeKey(pattern: string): string {
+  return pattern
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => segment.startsWith(':') ? ':' : `s:${segment}`)
+    .join('/')
+}

@@ -71,6 +71,14 @@ function extractParams(pattern: string, pathname: string): Record<string, string
   return params
 }
 
+function findMatchingPage(
+  pages: readonly CustomAdminPageManifestEntry[],
+  pathname: string,
+): CustomAdminPageManifestEntry | undefined {
+  const matches = pages.filter((page) => matchCustomAdminPath(page.routePattern, pathname))
+  return matches.length === 1 ? matches[0] : undefined
+}
+
 async function createContext(
   c: Context,
   config: OpenShopConfig,
@@ -156,7 +164,7 @@ export function registerCustomAdminPageRoutes(
           : await pageIsAllowed(c, config, pages, page, page.path),
       })))
       const authorizedNavigation = await Promise.all(navigation.map(async (item) => {
-        const page = pages.find((candidate) => matchCustomAdminPath(candidate.routePattern, item.path))
+        const page = findMatchingPage(pages, item.path)
         return page && await pageIsAllowed(c, config, pages, page, item.path) ? item : null
       }))
       const response: CustomAdminPagesResponse = {
@@ -180,7 +188,7 @@ export function registerCustomAdminPageRoutes(
       return c.json({ allowed: false }, 404)
     }
     const pages = runtimePages(directory)
-    const page = pages.find((candidate) => matchCustomAdminPath(candidate.routePattern, pathname))
+    const page = findMatchingPage(pages, pathname)
     if (!page) return c.json({ allowed: false }, 404)
     return c.json({ allowed: await pageIsAllowed(c, config, pages, page, pathname) })
   })
@@ -212,7 +220,7 @@ export function registerCustomAdminPageRoutes(
       }
       const name = decodeURIComponent(encodedName)
       const pages = runtimePages(directory)
-      const page = pages.find((candidate) => matchCustomAdminPath(candidate.routePattern, pagePath))
+      const page = findMatchingPage(pages, pagePath)
       if (!page) throw new AdminPublicError('NOT_FOUND', 'Not found', { status: 404 })
       const params = extractParams(page.routePattern, pagePath)
       if (!params) throw new AdminPublicError('NOT_FOUND', 'Not found', { status: 404 })

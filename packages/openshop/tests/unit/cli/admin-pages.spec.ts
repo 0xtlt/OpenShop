@@ -6,6 +6,22 @@ import {
   discoverCustomAdminPages,
   validateCustomAdminNavigation,
 } from '../../../src/cli/admin-pages.ts'
+import { customAdminRouteShapeKey } from '../../../src/config/custom-pages.ts'
+
+test('custom admin route shape ignores dynamic parameter names', ({ assert }) => {
+  assert.equal(
+    customAdminRouteShapeKey('/orders/:id/items/:itemId'),
+    customAdminRouteShapeKey('/orders/:orderId/items/:sku'),
+  )
+  assert.notEqual(
+    customAdminRouteShapeKey('/reviews/:id'),
+    customAdminRouteShapeKey('/products/:id'),
+  )
+  assert.notEqual(
+    customAdminRouteShapeKey('/reviews'),
+    customAdminRouteShapeKey('/reviews/:id'),
+  )
+})
 
 test.group('custom admin page discovery', (group) => {
   let cwd: string
@@ -36,6 +52,18 @@ test.group('custom admin page discovery', (group) => {
       routePattern: '/reviews/:id',
     })
     assert.equal(listPage?.serverFile, join(cwd, 'admin/pages/reviews/actions.server.ts'))
+  })
+
+  test('rejects routes that differ only by dynamic parameter names', ({ assert }) => {
+    mkdirSync(join(cwd, 'admin/pages/reviews/[id]'), { recursive: true })
+    mkdirSync(join(cwd, 'admin/pages/reviews/[slug]'), { recursive: true })
+    writeFileSync(join(cwd, 'admin/pages/reviews/[id]/page.tsx'), 'export default {}')
+    writeFileSync(join(cwd, 'admin/pages/reviews/[slug]/page.tsx'), 'export default {}')
+
+    assert.throws(
+      () => discoverCustomAdminPages(cwd),
+      /routes "\/reviews\/:id" and "\/reviews\/:slug" have the same route shape/,
+    )
   })
 
   test('rejects built-in and reserved routes', ({ assert }) => {

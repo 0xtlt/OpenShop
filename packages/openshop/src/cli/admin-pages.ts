@@ -5,6 +5,7 @@ import type {
   CustomAdminPageManifestEntry,
 } from '../config/custom-pages.ts'
 import {
+  customAdminRouteShapeKey,
   customPagesConfig,
   customPagesEnabled,
   isSafeCustomAdminPath,
@@ -86,12 +87,16 @@ export function discoverCustomAdminPages(cwd = process.cwd()): CustomAdminPageMa
     return 0
   })
 
-  const seen = new Set<string>()
+  const routesByShape = new Map<string, string>()
   for (const page of pages) {
-    if (seen.has(page.routePattern)) {
-      throw new Error(`[openshop] Duplicate custom admin page route "${page.routePattern}"`)
+    const shape = customAdminRouteShapeKey(page.routePattern)
+    const existingRoute = routesByShape.get(shape)
+    if (existingRoute) {
+      throw new Error(
+        `[openshop] Custom admin page routes "${existingRoute}" and "${page.routePattern}" have the same route shape`,
+      )
     }
-    seen.add(page.routePattern)
+    routesByShape.set(shape, page.routePattern)
   }
   return pages
 }

@@ -60,7 +60,7 @@ test('rejects server-only page imports and rewrites local actions', ({ assert })
       {} as never,
     )
 
-    for (const source of ['#db/client', 'openshop', 'node:fs']) {
+    for (const source of ['#db/client', 'openshop', 'node:fs', '../other/actions.server.ts']) {
       assert.isTrue(isServerOnlyAdminPageImport(source))
       assert.throws(
         () => resolveImport(source),

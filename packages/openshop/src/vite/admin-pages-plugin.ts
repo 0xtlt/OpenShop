@@ -61,19 +61,19 @@ export function adminPagesPlugin(
     resolveId(source, importer) {
       if (source === manifestId) return resolvedManifestId
       if (!importer) return null
+      const importerPath = importer.split('?')[0]!
+      const appPage = importerPath.includes(`${sep}admin${sep}pages${sep}`)
       const isActionsFile = /(?:^|\/)actions\.server\.(?:ts|js)$/.test(source)
-      if (!isActionsFile) {
-        const importerPath = importer.split('?')[0]!
-        const appPage = importerPath.includes(`${sep}admin${sep}pages${sep}`)
-        if (appPage && isServerOnlyAdminPageImport(source)) {
-          throw new Error(`[openshop] Server-only import "${source}" is not allowed in a custom admin page`)
-        }
-        return null
+      if (isActionsFile) {
+        const absolute = resolve(dirname(importerPath), source)
+        const candidates = [absolute, `${absolute}.ts`, `${absolute}.js`]
+        const page = candidates.map((candidate) => byServerFile.get(candidate)).find(Boolean)
+        if (page) return `${actionPrefix}${page.id}`
       }
-      const absolute = resolve(dirname(importer.split('?')[0]!), source)
-      const candidates = [absolute, `${absolute}.ts`, `${absolute}.js`]
-      const page = candidates.map((candidate) => byServerFile.get(candidate)).find(Boolean)
-      return page ? `${actionPrefix}${page.id}` : null
+      if (appPage && isServerOnlyAdminPageImport(source)) {
+        throw new Error(`[openshop] Server-only import "${source}" is not allowed in a custom admin page`)
+      }
+      return null
     },
     load(id) {
       if (id === resolvedManifestId) {

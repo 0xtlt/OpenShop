@@ -16,6 +16,12 @@ All notable changes to OpenShop will be documented in this file.
   `custom-admin-pages.mdx`, and tests covering discovery, routing,
   authorization, RPC, and admin function helpers.
 
+### Fixed
+
+- Upgraded the documentation site to Astro 7.3.3 and Starlight 0.42.1 so
+  the lockfile resolves `devalue` 5.9.2 and `pnpm audit --audit-level moderate`
+  no longer fails on GHSA-9rgm-9g3h-6x36.
+
 ## [0.0.4-beta.0] - 2026-08-12
 
 ### Changed

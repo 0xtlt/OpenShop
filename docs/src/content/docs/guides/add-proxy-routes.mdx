@@ -5,6 +5,10 @@ description: Create authenticated app proxy and Customer Account extension endpo
 
 import { FileTree } from '@astrojs/starlight/components';
 
+Use this guide to add an endpoint to an existing app for a storefront or Customer
+Account extension. Have the app installed on a development store. For callers
+outside Shopify, use [Add a server route](/guides/add-server-route/).
+
 OpenShop discovers route handlers in `proxy/` and mounts each one under both
 `/proxy/*` and `/ext/*`.
 
@@ -57,9 +61,20 @@ Only `.ts` and `.js` route files are loaded.
 
 ## 3. Configure the Shopify app proxy
 
-In the Shopify app configuration, point the app proxy destination at the public
-OpenShop `/proxy/...` route. Shopify owns the storefront prefix, subpath, and
-TOML schema; use the fields supported by your Shopify CLI version.
+In the linked Shopify app TOML, configure the destination and storefront path:
+
+```toml
+[app_proxy]
+url = "/proxy"
+prefix = "apps"
+subpath = "openshop"
+```
+
+Include Shopify's required `write_app_proxy` permission in the app's requested scopes and complete renewed
+scope authorization when required. With this mapping, the route from step 1 is
+reachable through `https://<shop>/apps/openshop/api/reviews`. Verify the fields
+against Shopify's [app proxy configuration](https://shopify.dev/docs/apps/build/online-store/app-proxies)
+for your app configuration version.
 
 Deploy the configuration:
 
@@ -109,3 +124,11 @@ Handler exceptions are logged and return
 `{ "error": "Internal proxy error" }` with HTTP 500. A successful handler value
 is always HTTP 200; the current proxy API does not expose custom status or
 response headers.
+
+## 6. Verify the endpoint
+
+Open `/apps/openshop/api/reviews?page=2` on the development storefront. Expect a
+JSON response with the verified shop and `page: 2`. An unauthenticated request
+directly to the OpenShop `/proxy/api/reviews` URL should return 401. Run
+`pnpm run lint` before deploying. See the [proxy reference](/reference/proxy-routes/)
+for all methods and response limitations.

@@ -1,23 +1,28 @@
 ---
 title: Build your first OpenShop app
-description: Create a new OpenShop app, run it locally, and verify the generated flow and provider setup.
+description: Create an app, install it on a Shopify development store, and run the sample order integration.
 ---
 
-import { FileTree } from '@astrojs/starlight/components';
+In this lesson, we will create an embedded Shopify app and run `syncOrders`.
+The flow will read orders from a development store and pass them to a sample
+warehouse provider. The sample logs the records; it does not send them to a real
+warehouse.
 
-This tutorial starts PostgreSQL, creates an OpenShop app from the minimal template, installs it on a development store, and runs the generated flow.
+## Before you start
 
-## Prerequisites
+Have these ready:
 
-- Node.js `>=26 <27`
-- pnpm `>=11 <12`
-- Docker, or another PostgreSQL 17 instance
-- [Shopify CLI](https://shopify.dev/docs/api/shopify-cli)
-- A Shopify Partner account with a development store
+- Node.js **26** and pnpm **11**. Check with `node --version` and `pnpm --version`.
+- Docker with its daemon running. We will use a PostgreSQL **17** container.
+- [Shopify CLI](https://shopify.dev/docs/api/shopify-cli) installed and available as `shopify`.
+- A Shopify development store and an account allowed to create and install an app on it.
+- Basic familiarity with TypeScript and running commands in a terminal.
 
-## Start PostgreSQL
+Use a development store throughout this lesson. An empty order list is fine.
+If you already run PostgreSQL on port 5432, use a dedicated database there and
+substitute its connection URL in the database steps below.
 
-Create a local database container:
+## 1. Start the database
 
 ```bash
 docker run --name openshop-postgres \
@@ -28,9 +33,16 @@ docker run --name openshop-postgres \
   -d postgres:17-alpine
 ```
 
-On later sessions, restart the same container with `docker start openshop-postgres`.
+Wait until this command reports that PostgreSQL is accepting connections:
 
-## Create the app
+```bash
+docker exec openshop-postgres pg_isready -U openshop -d openshop
+```
+
+On later sessions, reuse the container with `docker start openshop-postgres`.
+The username and password above are local development values.
+
+## 2. Create the project
 
 ```bash
 pnpm dlx openshop init my-app
@@ -38,100 +50,139 @@ cd my-app
 pnpm install
 ```
 
-The template pins the same OpenShop version used to generate it. It also contains the app definition, config, sample provider, sample flow, Shopify TOML files, Drizzle config, and an initial migration.
+The CLI prints `Created my-app`. Keep this terminal in `my-app` for the remaining
+commands. The generated project pins the OpenShop version that created it.
 
-<FileTree>
+Open these three files:
 
-- providers/
-- flows/
-- proxy/
-- routes/
-- drizzle/
-- openshop.app.ts
-- openshop.config.ts
-- drizzle.config.ts
-- shopify.app.toml
-- shopify.web.toml
+| File | What it contains |
+| --- | --- |
+| `openshop.app.ts` | The registered `warehouse` provider |
+| `flows/syncOrders.ts` | The sample flow with `fetch-orders` and `send-to-warehouse` steps |
+| `openshop.config.ts` | The flow registry and a sample cron schedule |
 
-</FileTree>
+There is also a `drizzle/` directory containing the initial database migration.
+The [project structure reference](/reference/project-structure/) describes the
+other files when you need them.
 
-The template also defines `package.json#imports` aliases so app code can use package-private imports such as `#app`, `#flows/syncOrders`, `#providers/warehouse`, and `#routes/ping` instead of `../` paths.
+## 3. Configure local storage
 
-## Configure the local environment
+Create `.env` in `my-app` with this content:
 
-Create `.env` in the generated project:
-
-```bash
-printf '%s\n' \
-  'DATABASE_URL=postgresql://openshop:openshop@localhost:5432/openshop' \
-  > .env
+```dotenv
+DATABASE_URL=postgresql://openshop:openshop@localhost:5432/openshop
 ```
 
-`openshop dev` loads this file without replacing variables already supplied by the process. `.env` is ignored by the generated Git configuration.
-
-Apply the initial migration and confirm that no migration remains pending:
+Append a new encryption key once:
 
 ```bash
+printf 'ENCRYPTION_KEY=%s\n' "$(openssl rand -hex 32)" >> .env
+```
+
+Keep this key for subsequent sessions. The generated `.gitignore` excludes
+`.env`. `openshop dev` reads it automatically.
+
+Migration commands use the process environment, so export the database URL in
+this terminal before applying the initial migration:
+
+```bash
+export DATABASE_URL=postgresql://openshop:openshop@localhost:5432/openshop
 pnpm run db:migrate
 pnpm run db:status
 ```
 
-## Log in and link the Shopify app
+The status output should report no pending migration. If the database connection
+fails, check that the container is ready and that the exported URL matches it.
 
-Authenticate Shopify CLI:
+## 4. Keep the first run manual
+
+Replace `openshop.config.ts` with:
+
+```ts
+import { app } from '#app'
+import { syncOrders } from '#flows/syncOrders'
+
+export default app.defineConfig({
+  flows: { syncOrders },
+  crons: [],
+})
+```
+
+We will run the flow from the admin UI after saving its provider credentials.
+This removes the generated schedule for now. The
+[flow guide](/guides/define-flow/#3-schedule-the-flow-for-installed-shops) adds a
+schedule that explicitly targets installed shops.
+
+## 5. Link and start the Shopify app
 
 ```bash
 shopify auth login
-```
-
-Link `shopify.app.toml` to an existing Partner Dashboard app, or create one when Shopify CLI prompts:
-
-```bash
 shopify app config link
 ```
 
-Select or create the app and organization you want to use. The generated TOML requests `read_products` and `read_orders`; Shopify CLI keeps the linked app configuration for later runs.
-
-## Start Shopify development
+Follow the prompts to select your organization and create or select a development
+app. Check that the linked Shopify app configuration requests `read_products`
+and `read_orders`, as the template does. Then start development:
 
 ```bash
 pnpm run shopify
 ```
 
-This is the only development command needed for the embedded app. It runs `shopify app dev`, creates the development tunnel, updates the development URLs, and invokes `pnpm run dev` from `[commands]` in `shopify.web.toml`.
+Follow Shopify CLI's prompts to select your development store. This command
+starts the tunnel and OpenShop together. OpenShop generates GraphQL types,
+synchronizes the local database schema, and starts the API, admin UI, scheduler,
+and worker. Leave it running.
 
-In turn, `openshop dev`:
+Open the preview URL printed by Shopify CLI (or press `p`) and install the app.
+You should see the OpenShop home page **inside Shopify admin**. Opening
+`http://localhost:3000` directly does not provide the Shopify session the
+embedded UI needs.
 
-1. runs optional GraphQL code generation;
-2. pushes the development schema;
-3. starts the API, admin UI, worker, and cron scheduler;
-4. reloads the API when app files change.
+## 6. Configure the sample provider
 
-Use `pnpm run dev` directly only when you deliberately do not need the Shopify tunnel, OAuth installation, or embedded admin context.
+In **Providers**, open `warehouse` and save:
 
-## Verify it worked
+| Field | Development value |
+| --- | --- |
+| API URL | `https://example.com` |
+| API Key | `development-only` |
 
-1. Press `p` in Shopify CLI, or open the preview URL it prints.
-2. Install the app on the selected development store.
-3. In **Providers**, configure `warehouse` with `https://example.com` and any non-empty development API key. The generated provider only logs its push, so this smoke value does not call that URL.
-4. In **Flows**, run `syncOrders` with:
+Run the provider check. It should succeed: the generated checker only verifies
+that both values are present. The generated `push` method only logs a message;
+these placeholder credentials never contact `example.com`.
+
+## 7. Run the integration
+
+In **Flows**, open `syncOrders`, trigger a run, and enter:
 
 ```json
 { "limit": 10 }
 ```
 
-The run should move from `pending` or `running` to `completed`. Its logs should contain “Orders synced”. A failure is also visible on the run page with its step logs; common causes are a missing app installation or the `read_orders` scope not being granted.
+Open the run. It should reach `completed` and show two completed steps:
+`fetch-orders` and `send-to-warehouse`. Its logs should include **Orders synced**.
+The count may be zero on a new development store.
 
-Run the project checks:
+If it fails, open the failed step and its logs. A Shopify authorization error
+usually means the app installation or `read_orders` permission needs attention;
+see [troubleshooting](/guides/troubleshooting/). A run that stays `pending`
+needs a running worker; in this lesson, `pnpm run shopify` starts it for you.
+
+In a second terminal, from `my-app`, check the project:
 
 ```bash
 pnpm run lint
 ```
 
-The generated template runs GraphQL codegen before TypeScript and ESLint checks.
+This generates GraphQL types, checks TypeScript, and runs ESLint.
 
-## Next steps
+## What you built
 
-- Edit the sample provider in `providers/warehouse.ts`.
-- Edit the sample flow in `flows/syncOrders.ts`.
-- Read [Define a provider](/guides/define-provider/) and [Define a flow](/guides/define-flow/).
+You now have an installed app, saved provider configuration, and a completed
+background job with inspectable steps. Continue with
+[Build a checkpointed flow](/tutorials/checkpointed-flow/) to write a small flow
+of your own and watch it resume after a pause.
+
+When you finish the session, stop Shopify CLI with `Ctrl+C`. You can stop the
+local database with `docker stop openshop-postgres` and start the same container
+next time without recreating it.

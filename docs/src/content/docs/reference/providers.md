@@ -3,9 +3,14 @@ title: Providers
 description: Provider fields, transformation, validation, checks, and secrets.
 ---
 
+To add a service, see [Connect an external service](/guides/define-provider/).
+
+
 Providers describe external services used by flows.
 
 ```ts
+import { defineProvider } from 'openshop'
+
 export const warehouse = defineProvider({
   name: 'warehouse',
   ui: {

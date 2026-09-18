@@ -21,33 +21,54 @@ The minimal template exposes OpenShop commands through package scripts.
 | `pnpm run test` | `openshop test` | Run OpenShop app tests. |
 | `pnpm run lint` | `pnpm run codegen && tsc --noEmit && eslint .` | Validate generated types, TypeScript, and lint rules. |
 
-## Development process
-
-`pnpm run shopify` executes Shopify CLI. Shopify CLI reads `[commands].dev = "pnpm run dev"` from `shopify.web.toml`, so it also starts OpenShop. Do not start a second `pnpm run dev` process.
-
-When run directly, `openshop dev` starts the API, admin UI, worker, and cron scheduler in one development process. It also runs optional codegen and pushes the local schema before listening.
-
-## Production build and migration
-
-Run finite setup commands in this order:
+## Scaffold a project
 
 ```bash
-pnpm install --frozen-lockfile
-pnpm run build
-pnpm exec openshop migrate
+pnpm dlx openshop init my-app
 ```
 
-`openshop migrate` applies committed SQL from `./drizzle`; it does not generate migrations. Run `openshop migrate generate` during development, then review and commit the SQL.
+`init <dir>` requires an empty or nonexistent target directory. It copies the
+bundled minimal template, pins the generating package version, and generates the
+initial migration. It does not update an existing app. See the
+[first-app tutorial](/tutorials/first-app/) for the full setup.
 
-## Production processes
+## Command behavior
 
-After the build and migration complete, configure two independently supervised long-running services:
+Run commands from the app root unless scaffolding a new project.
 
-| Service | Command | Responsibility |
+| Command | Input or flags | Behavior |
 | --- | --- | --- |
-| Web | `pnpm exec openshop start` | HTTP API, admin UI, webhooks, OAuth, and cron dispatch |
-| Worker | `pnpm exec openshop worker --concurrency=5` | Claim and execute queued flow runs |
+| `dev` | Process environment and `.env` | Codegen, development schema push, API, UI, worker, scheduler, and reloads |
+| `build` | Process environment | Creates `dist/ui` and `dist/openshop/server` |
+| `start` | Process environment | Serves the built app and starts cron dispatch; no worker or migrations |
+| `worker` | `--concurrency=N` | Executes queued runs from the built config; the current CLI defaults the flag to `5` |
+| `migrate` | Committed `drizzle/` directory | Applies SQL; does not run generation tooling |
+| `migrate generate` | Extra arguments forwarded to Drizzle Kit, such as `--name=add-reviews` | Generates app-owned migration files; blocked in production by default |
+| `migrate check` | Project Drizzle config and migrations | Checks history and detects schema changes not covered by committed migrations |
+| `migrate status` | Database and committed migrations | Prints applied and pending migration counts |
+| `codegen` | App GraphQL config | Generates operation types once |
+| `codegen:watch` | App GraphQL config | Regenerates types when documents change |
+| `test` | Remaining arguments forwarded to `tests/bootstrap.ts` | Attempts a development schema push, then runs the app-owned bootstrap |
 
-Do not put both commands sequentially in one shell script: `openshop start` keeps running, so the shell never reaches the worker command. The generated `ecosystem.config.cjs` provides both process definitions for PM2-based deployments.
+The built server is required by both `start` and `worker`. Neither command
+builds or migrates the application automatically. See
+[Deploy to production](/guides/deploy-production/) for the sequence.
 
-Each service needs `DATABASE_URL` and the same OpenShop/Shopify configuration. Run at least one worker; the web process queues runs but does not execute them.
+## Development process
+
+`pnpm run shopify` executes Shopify CLI, which invokes the OpenShop development
+command from the generated web configuration. Do not start a second `pnpm run dev`
+process alongside it.
+
+Only `dev` loads the project-root `.env` file. Set variables explicitly for build,
+migration, test, and production commands. Existing process variables take
+precedence over `.env` in development. See
+[Environment variables](/reference/environment-variables/).
+
+## Test bootstrap
+
+The generated project includes the `test` package script but no test suite.
+`openshop test` exits with an error if `tests/bootstrap.ts` is missing. The
+bootstrap owns test discovery, runner choice, and any suite arguments; the CLI
+does not implement a fixed list of test suites. Follow [Test an app](/guides/test-app/)
+to add one.

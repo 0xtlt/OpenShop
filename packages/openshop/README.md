@@ -2,157 +2,62 @@
 
 [![npm version](https://img.shields.io/npm/v/openshop.svg?logo=npm)](https://www.npmjs.com/package/openshop)
 
-OpenShop is a Shopify integration framework for apps that need typed flows, provider configuration, background workers, and an embedded admin UI.
+Build Shopify integrations in TypeScript with background flows, configurable
+service providers, and an embedded admin UI.
 
-- Website: https://openshop.run/
-- Documentation: https://docs.openshop.run/
+[Documentation](https://docs.openshop.run/) · [Website](https://openshop.run/) ·
+[Changelog](https://github.com/0xtlt/OpenShop/blob/main/CHANGELOG.md)
 
-OpenShop is in beta. APIs, generated files, and documented workflows may change before a stable `1.0` release.
+OpenShop is in beta. APIs, generated files, and workflows may change before `1.0`.
 
-## Create an app
+## Start here
 
-Generate a new OpenShop app instead of cloning the framework repository:
+Follow [Build your first app](https://docs.openshop.run/tutorials/first-app/) to
+set up PostgreSQL, create a project, install it on a Shopify development store,
+and run the sample integration. You will need Node.js 26, pnpm 11, PostgreSQL 17,
+Shopify CLI, and access to a development store.
+
+Create an application from the published template:
 
 ```bash
 pnpm dlx openshop init my-app
 cd my-app
 pnpm install
-pnpm run shopify
 ```
 
-The generated app includes Shopify TOML files, Drizzle configuration, package scripts, a sample provider, and a sample flow.
+Continue with the tutorial to configure storage and link the Shopify app before
+running `pnpm run shopify`.
 
-## Project structure
+## How it fits together
 
-```txt
-my-app/
-├─ flows/
-├─ providers/
-├─ proxy/
-├─ routes/
-├─ webhooks/
-├─ drizzle/
-├─ openshop.app.ts
-├─ openshop.config.ts
-├─ drizzle.config.ts
-├─ shopify.app.toml
-├─ shopify.web.toml
-├─ package.json
-```
+- **Providers** define external API methods and credential fields. OpenShop builds
+  a configuration form for each shop and supplies configured connectors at runtime.
+- **Flows** define background work in named steps. OpenShop queues runs, stores
+  checkpoints, applies retry policies, and exposes execution logs.
+- **App configuration** registers flows, providers, schedules, and HTTP features.
+  Shopify OAuth and the embedded admin are handled by the framework.
 
-The generated `package.json` defines aliases such as `#app`, `#flows/*`, `#providers/*`, and `#routes/*`, so app code does not need `../` imports.
+In production, a web service accepts requests and queues work; a separate worker
+executes it. PostgreSQL stores installations, credentials, runs, and checkpoints.
+See [Architecture](https://docs.openshop.run/concepts/architecture/) for the model
+and [Deploy to production](https://docs.openshop.run/guides/deploy-production/)
+for build, migration, and process setup.
 
-## Define a provider
+## Find the right documentation
 
-```ts
-import { type } from 'arktype'
-import { defineProvider } from 'openshop'
+| Your goal | Start here |
+| --- | --- |
+| Learn OpenShop by building something | [Tutorials](https://docs.openshop.run/tutorials/) |
+| Connect a service, extend an app, test, or deploy | [How-to guides](https://docs.openshop.run/guides/) |
+| Look up APIs, configuration, or CLI commands | [Reference](https://docs.openshop.run/reference/) |
+| Understand retries, architecture, or shop isolation | [Explanation](https://docs.openshop.run/concepts/) |
+| Diagnose a problem | [Troubleshooting](https://docs.openshop.run/guides/troubleshooting/) |
 
-export const warehouse = defineProvider({
-  name: 'warehouse',
-  ui: {
-    fields: {
-      apiUrl: { type: 'text', label: 'API URL', validate: type('string.url') },
-      apiKey: { type: 'password', label: 'API key', validate: type('string > 0') },
-    },
-  },
-  methods: {
-    async push(config, rows: unknown[]) {
-      await fetch(`${config.apiUrl}/orders`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${config.apiKey}` },
-        body: JSON.stringify(rows),
-      })
-    },
-  },
-})
-```
+## Contribute
 
-## Define a flow
-
-```ts
-import { app } from '#app'
-
-export const syncOrders = app.defineFlow({
-  name: 'syncOrders',
-  async run({ step, connectors }) {
-    const orders = await step('fetch-orders', async () => [])
-    await step('push-orders', async () => connectors.warehouse.push(orders))
-  },
-})
-```
-
-Register flows and crons in `openshop.config.ts`:
-
-```ts
-import { app } from '#app'
-import { syncOrders } from '#flows/syncOrders'
-
-export default app.defineConfig({
-  flows: { syncOrders },
-  crons: [{ schedule: '*/5 * * * *', flow: 'syncOrders', shops: 'all' }],
-})
-```
-
-## Production
-
-Generate, review, and commit client-owned Drizzle migrations in development or CI:
-
-```bash
-pnpm exec openshop migrate generate
-pnpm exec openshop migrate check
-```
-
-Apply committed migrations before starting production processes:
-
-```bash
-pnpm exec openshop migrate
-```
-
-Run the web server and worker separately:
-
-```bash
-pnpm exec openshop start
-pnpm exec openshop worker --concurrency=5
-```
-
-`openshop start` and `openshop worker` do not run migrations.
-
-Set `ENCRYPTION_KEY` in production to encrypt provider credentials and Shopify access tokens:
-
-```bash
-openssl rand -hex 32
-```
-
-## Multiple Shopify apps
-
-OpenShop can serve several Shopify apps from one production instance when the apps share the same scopes:
-
-```ts
-import { defineOpenShop } from 'openshop'
-
-const app = defineOpenShop({ providers: {} })
-
-export default app.defineConfig({
-  shopify: {
-    scopes: 'read_products,write_products',
-    apps: {
-      clientA: {
-        toml: 'shopify.app.client-a.toml',
-        apiSecret: process.env.SHOPIFY_CLIENT_A_API_SECRET!,
-      },
-      clientB: {
-        apiKey: process.env.SHOPIFY_CLIENT_B_API_KEY!,
-        apiSecret: process.env.SHOPIFY_CLIENT_B_API_SECRET!,
-        appUrl: 'https://openshop.example.com',
-      },
-    },
-  },
-  flows: {},
-})
-```
-
-Installations and shop-scoped data are isolated by `(appHandle, shop)`. If you use several Shopify TOML files, deploy each one with Shopify CLI, for example `shopify app deploy --config shopify.app.client-a.toml`.
+See the [contributor guide](https://github.com/0xtlt/OpenShop/blob/main/CONTRIBUTING.md)
+and [documentation writing guide](https://github.com/0xtlt/OpenShop/blob/main/docs/README.md)
+in the framework repository.
 
 ## License
 
@@ -160,4 +65,4 @@ OpenShop is source-available under the Elastic License 2.0.
 
 You may use, modify, and redistribute OpenShop, including for internal production use and client projects. You may not provide OpenShop to third parties as a hosted or managed service where users get access to a substantial set of OpenShop's features.
 
-Read the LICENSE file for the full terms.
+Read the [LICENSE](https://github.com/0xtlt/OpenShop/blob/main/LICENSE) for the full terms.

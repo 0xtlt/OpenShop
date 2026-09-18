@@ -1,308 +1,136 @@
 ---
-title: Test an OpenShop app
-description: Test flows, proxy routes, and API requests with OpenShop test helpers.
+title: Test an app
+description: Set up a test database and Node.js test runner, then verify an authenticated API request and a flow with faked services.
 ---
 
-OpenShop exposes its test API from `openshop/test`. The context uses your configured
-PostgreSQL database and starts a real local HTTP server; it does not create an
-isolated database automatically.
+Use this guide for a generated app with the sample `syncOrders` flow and
+`warehouse` provider. It uses Node.js's built-in test runner, a real local HTTP
+server, a dedicated PostgreSQL database, and fake external responses.
 
-## Install a test lifecycle
+The minimal template includes `pnpm run test` but no `tests/bootstrap.ts`.
+Create that file below before running the command.
+
+## 1. Prepare a test database
+
+For the local container from the first-app tutorial, create a separate database
+once:
+
+```bash
+docker exec openshop-postgres createdb -U openshop openshop_test
+```
+
+If you use another PostgreSQL instance, create a dedicated database there.
+Export its URL in the terminal used for tests and apply the committed schema:
+
+```bash
+export DATABASE_URL=postgresql://openshop:openshop@localhost:5432/openshop_test
+pnpm run db:migrate
+```
+
+`openshop test` also attempts to push the development schema. Always provide the
+test URL explicitly: the CLI otherwise defaults to the local `openshop` database.
+
+## 2. Add the test runner
+
+Create `tests/bootstrap.ts`:
 
 ```ts
-import { afterEach, beforeEach, describe, it } from 'node:test'
+import { spawnSync } from 'node:child_process'
+
+const result = spawnSync(process.execPath, [
+  '--test',
+  '--test-force-exit',
+  'tests/app.test.ts',
+], { stdio: 'inherit', env: process.env })
+
+if (result.error) throw result.error
+process.exitCode = result.status ?? 1
+```
+
+The force-exit option ends the test process after the tests finish, including any
+idle database pool connections. Tests must still close their HTTP contexts and
+restore mocks in teardown.
+
+## 3. Test a flow and an authenticated request
+
+Create `tests/app.test.ts`:
+
+```ts
 import assert from 'node:assert/strict'
+import { test } from 'node:test'
 import { createTestContext } from 'openshop/test'
-import type { TestContext } from 'openshop/test'
 
-describe('OpenShop app', () => {
-  let ctx: TestContext
-
-  beforeEach(async () => {
-    ctx = await createTestContext({
-      configPath: new URL('../../openshop.config.ts', import.meta.url).pathname,
-      accessToken: 'test-access-token',
-    })
+test('syncs an order with fake external services', async (t) => {
+  const ctx = await createTestContext({
+    shop: 'docs-test.myshopify.com',
+    accessToken: 'test-access-token',
   })
+  t.after(() => ctx.shutdown())
 
-  afterEach(async () => {
-    await ctx.shutdown()
-  })
-
-  it('serves health', async () => {
-    const response = await fetch(`${ctx.url}/health`)
-    assert.equal(response.status, 200)
-  })
-})
-```
-
-`shutdown()` closes the server and destroys factory-created Shopify resources.
-Always call it in teardown, even after a failed assertion.
-
-## `TestOptions`
-
-| Option | Default | Purpose |
-| --- | --- | --- |
-| `configPath` | `<cwd>/openshop.config.ts` | Absolute or importable path to the config module. |
-| `port` | Random `40000`–`49999` | Local HTTP port. Set one only when another tool needs a stable port. |
-| `shop` | `test.myshopify.com` | Default shop for flows, proxy signatures, tokens, and factories. |
-| `secret` | `SHOPIFY_API_SECRET` or `test-secret` | Signs proxy requests and session tokens. |
-| `apiKey` | `SHOPIFY_API_KEY` or `test-app` | Session-token audience. |
-| `accessToken` | None | Inserts/updates an installation so Shopify client calls and factories can run. |
-
-The helper sets `SHOPIFY_API_SECRET` and `SHOPIFY_API_KEY` in the current process.
-Use separate test processes if suites require different global credentials.
-
-## Test a flow
-
-```ts
-import assert from 'node:assert/strict'
-
-ctx.fakes.warehouse.push.returns(true)
-
-const realFetch = globalThis.fetch
-globalThis.fetch = async (input, init) => {
-  if (String(input).includes('/admin/api/')) {
-    return new Response(JSON.stringify({
-      data: {
-        orders: {
-          edges: [{ node: { id: 'gid://shopify/Order/1', name: '#1001' } }],
-        },
-      },
-    }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    })
-  }
-  return realFetch(input, init)
-}
-
-let result
-try {
-  result = await ctx.runFlow(
-    'syncOrders',
-    { limit: 10 },
-    'test.myshopify.com',
-  )
-} finally {
-  globalThis.fetch = realFetch
-}
-
-assert.equal(result.status, 'completed')
-assert.equal(ctx.fakes.warehouse.push.called, true)
-assert.equal(ctx.fakes.warehouse.push.callCount, 1)
-assert.equal(Array.isArray(ctx.fakes.warehouse.push.lastCall?.args[0]), true)
-```
-
-`runFlow(flowName, input?, shop?)` inserts a running row and executes the flow
-immediately with fake provider connectors. It does not require a worker.
-Shopify GraphQL calls are not faked automatically. The example temporarily
-stubs `globalThis.fetch`; larger suites should use a request-mocking library and
-restore it in teardown.
-
-Use `dispatchFlow(flowName, input?, shop?)` to test queueing:
-
-```ts
-import assert from 'node:assert/strict'
-import { eq } from 'drizzle-orm'
-import { flowRuns } from 'openshop/schema'
-
-const { runId } = await ctx.dispatchFlow('syncOrders', { limit: 10 })
-
-const [run] = await ctx.db
-  .select()
-  .from(flowRuns)
-  .where(eq(flowRuns.id, runId))
-
-assert.equal(run.status, 'pending')
-```
-
-`dispatchFlow` only queues the run. `createTestContext` does not start a worker.
-
-## Configure provider fakes
-
-Every configured provider method becomes a typed async fake:
-
-```ts
-const push = ctx.fakes.warehouse.push
-
-push.returns({ accepted: true })
-push.rejects(new Error('warehouse offline'))
-push.onCall(0).returns({ accepted: true })
-push.onCall(1).rejects(new Error('rate limited'))
-push.impl(async (orderId) => ({ accepted: orderId.length > 0 }))
-
-console.log(push.called)
-console.log(push.callCount)
-console.log(push.calls)
-console.log(push.lastCall)
-
-push.reset()
-ctx.resetFakes()
-```
-
-Each call record contains `args`, `returnedValue`, `thrownError`, and `timestamp`.
-`reset()` clears behavior and history for one method; `ctx.resetFakes()` resets every
-provider fake.
-
-The module also exports `createFakeProviders(config.providers)` and
-`resetFakeProviders(fakes)` for tests that do not need an HTTP context.
-
-## Test a proxy route
-
-The proxy client signs app proxy HMAC parameters automatically:
-
-```ts
-import assert from 'node:assert/strict'
-import { type } from 'arktype'
-
-const res = await ctx.proxy
-  .get('/reviews')
-  .asCustomer('123')
-  .qs({ page: '1' })
-  .header('X-Test-Request', 'proxy-spec')
-  .expect(type({
-    reviews: [{ id: 'string', rating: 'number' }],
-  }))
-  .send()
-
-assert.equal(res.status, 200)
-assert.match(res.contentType, /json/)
-assert.equal(res.body.reviews[0]?.rating, 5)
-```
-
-Available builders are `get`, `post`, `put`, `delete`, and `patch`. Chain:
-
-- `asCustomer(id)` to set `logged_in_customer_id`;
-- `qs({ ... })` to add signed query parameters;
-- `json(value)` to send JSON and set its content type;
-- `header(name, value)` to add a header;
-- `expect(arktypeSchema)` to validate and type the decoded response;
-- `send()` to receive `{ status, headers, body, text, contentType }`.
-
-## Test the Admin API
-
-Use `ctx.authorizationHeader()` to create a signed Shopify session token:
-
-```ts
-import assert from 'node:assert/strict'
-
-const response = await fetch(`${ctx.url}/api/runs`, {
-  headers: { Authorization: ctx.authorizationHeader() },
-})
-
-assert.equal(response.status, 200)
-assert.equal(Array.isArray(await response.json()), true)
-```
-
-For custom claims, `ctx.sessionToken(shop?, sub?)` returns the raw JWT and
-`ctx.authorizationHeader(shop?, sub?)` returns `Bearer <jwt>`.
-
-## Use factories and automatic cleanup
-
-Factories create real Shopify resources when the context has an installation and
-access token:
-
-```ts
-import { defineFactory } from 'openshop/test'
-
-interface Customer {
-  id: string
-  email: string
-}
-
-interface CustomerOverrides {
-  email: string
-}
-
-export const customerFactory = defineFactory<Customer, CustomerOverrides>({
-  async create(shopify, overrides) {
-    const email = overrides?.email ?? `test-${Date.now()}@example.com`
-    const data = await shopify.graphql(`#graphql
-      mutation CreateCustomer($input: CustomerInput!) {
-        customerCreate(input: $input) {
-          customer { id email }
-          userErrors { message }
-        }
-      }
-    `, {
-      variables: { input: { email } },
-    }) as {
-      customerCreate: {
-        customer: Customer
-        userErrors: Array<{ message: string }>
-      }
+  const originalFetch = globalThis.fetch
+  t.mock.method(globalThis, 'fetch', async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => {
+    const url = input instanceof Request ? input.url : String(input)
+    if (url.startsWith('https://docs-test.myshopify.com/admin/api/')) {
+      const order = { id: 'gid://shopify/Order/1', name: '#1001' }
+      return Response.json({
+        data: { orders: { edges: [{ node: order }], nodes: [order] } },
+      })
     }
+    return originalFetch(input, init)
+  })
 
-    if (data.customerCreate.userErrors.length) {
-      throw new Error(data.customerCreate.userErrors[0]!.message)
-    }
-    return data.customerCreate.customer
-  },
-  async destroy(shopify, customer) {
-    await shopify.graphql(`#graphql
-      mutation DeleteCustomer($id: ID!) {
-        customerDelete(input: { id: $id }) {
-          deletedCustomerId
-          userErrors { message }
-        }
-      }
-    `, {
-      variables: { id: customer.id },
-    })
-  },
+  ctx.fakes.warehouse.push.returns(true)
+  const run = await ctx.runFlow('syncOrders', { limit: 10 })
+
+  assert.equal(run.status, 'completed')
+  assert.equal(ctx.fakes.warehouse.push.callCount, 1)
+  assert.deepEqual(ctx.fakes.warehouse.push.lastCall?.args[0], [
+    { id: 'gid://shopify/Order/1', name: '#1001' },
+  ])
+
+  const response = await fetch(`${ctx.url}/api/runs`, {
+    headers: { Authorization: ctx.authorizationHeader() },
+  })
+  assert.equal(response.status, 200)
+  assert.ok(Array.isArray(await response.json()))
 })
 ```
 
-Create and track a resource:
+The fixture supports both the template's `edges` query and the flow guide's
+`nodes` query. Update it when your flow requests different fields.
+`runFlow()` executes immediately with fake provider methods; it does not need a
+worker. Shopify requests must be mocked separately, as above. Node's test context
+restores the fetch mock after the test.
 
-```ts
-const customer = await ctx.create(customerFactory, {
-  email: 'flow-test@example.com',
-})
-```
+## 4. Run and inspect the result
 
-`ctx.cleanup()` destroys tracked resources in last-in, first-out order. Cleanup
-continues after a destroy error and logs the failure. `ctx.shutdown()` calls cleanup
-again safely before closing the server.
-
-For manual lifecycle control, `openshop/test` also exports `FactoryScope`. Construct
-it with a `ShopifyClient`, call `scope.create(factory, overrides)`, inspect
-`scope.size`, and call `scope.cleanup()` in teardown.
-
-Without `accessToken`, `ctx.create()` throws because no Shopify client can be
-constructed. Prefer a dedicated development shop and never run destructive
-factories against a production shop.
-
-## Query the database
-
-`ctx.db` is the shared Drizzle client:
-
-```ts
-import assert from 'node:assert/strict'
-import { eq } from 'drizzle-orm'
-import { flowRuns } from 'openshop/schema'
-
-const rows = await ctx.db
-  .select()
-  .from(flowRuns)
-  .where(eq(flowRuns.shop, 'test.myshopify.com'))
-
-assert.equal(rows.every((run) => run.shop === 'test.myshopify.com'), true)
-```
-
-The context does not truncate tables. Use a separate test database, generate unique
-test data, and delete application-owned rows in teardown.
-
-## Run the tests
-
-Set a test database and run the application test command:
+From the project root:
 
 ```bash
 DATABASE_URL=postgresql://openshop:openshop@localhost:5432/openshop_test \
 pnpm run test
 ```
 
-Use `runFlow` for fast flow behavior, `dispatchFlow` for queue contracts, the proxy
-client for signed HTTP contracts, and factories only when the test must verify
-Shopify itself.
+The runner should report one passing test. A failed assertion must produce a
+nonzero exit code. If schema tables are missing, confirm that migrations were
+applied to this same test database.
+
+The context does not truncate tables or isolate data between tests. Use distinct
+shops or identifiers and clean up app-owned rows as your suite grows. Keep test
+credentials and factories away from production shops.
+
+## Add other coverage
+
+- Use [dispatchFlow](/reference/testing/#test-a-flow) to assert queue insertion;
+  the test context does not start a worker.
+- Use the [proxy test client](/reference/testing/#test-a-proxy-route) for signed
+  storefront requests.
+- Use [factories](/reference/testing/#use-factories-and-automatic-cleanup) only
+  when a test must create real Shopify resources.
+- See [custom admin page testing](/reference/custom-admin-pages/#testing) for
+  loader and action helpers.
+
+All helper options and cleanup contracts are in the [testing reference](/reference/testing/).

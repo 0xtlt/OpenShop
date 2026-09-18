@@ -1,100 +1,58 @@
 ---
-title: OpenShop
-description: Build Shopify integrations with typed flows, provider configuration, background workers, and an embedded admin UI.
+title: OpenShop documentation
+description: Learn to build a Shopify integration, solve a specific task, look up an API, or understand how OpenShop works.
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-[![npm version](https://img.shields.io/npm/v/openshop.svg?logo=npm)](https://www.npmjs.com/package/openshop)
-
-OpenShop is a Shopify integration framework for building apps that need background jobs, provider credentials, scheduled work, app proxy endpoints, Shopify Admin GraphQL calls, and an embedded admin UI.
-
-Use OpenShop when you want the application code to own the integration logic while the framework handles the repetitive operational surface: OAuth installs, stored shop access, provider configuration, flow runs, step checkpoints, logs, migrations, and workers.
+OpenShop is a TypeScript framework for Shopify integrations. Write the code that
+moves data between Shopify and your services; OpenShop provides the embedded
+admin UI, saved provider credentials, background workers, schedules, and run logs.
 
 :::caution[Beta]
-OpenShop is currently in beta. APIs, configuration shape, generated files, and documented workflows can change before a stable `1.0` release.
+APIs, generated files, and workflows may change before `1.0`. These docs describe
+the current repository. Check [versioning](/reference/versioning/) when working
+with an older package.
 :::
 
-## What you build
-
-An OpenShop app usually contains:
-
-- providers for external systems such as warehouses, ERPs, CRMs, or analytics tools;
-- flows for background work such as syncing orders or reconciling inventory;
-- proxy routes for storefront app proxy and Customer Account extension requests;
-- webhooks for Shopify event handlers;
-- optional Shopify Function management UI definitions;
-- migrations and app models for PostgreSQL-backed state.
-
-## First read
+## Find the help you need
 
 <CardGrid>
-	<Card title="Build your first app" icon="rocket" href="/tutorials/first-app/">
-		Create a new OpenShop project, run it locally, and verify the generated app works.
-	</Card>
-	<Card title="Define a provider" icon="setting" href="/guides/define-provider/">
-		Add a typed connector with config fields, validation, and a health check.
-	</Card>
-	<Card title="Define a flow" icon="code-branch" href="/guides/define-flow/">
-		Create a checkpointed background job that calls Shopify and a provider.
-	</Card>
-	<Card title="Deploy to production" icon="server" href="/guides/deploy-production/">
-		Build the app, apply committed migrations, and run web and worker processes.
-	</Card>
-	<Card title="Understand the architecture" icon="diagram-project" href="/concepts/architecture/">
-		See how Shopify, the web process, workers, PostgreSQL, and providers interact.
-	</Card>
-	<Card title="Operate and troubleshoot" icon="wrench" href="/guides/operate-app/">
-		Monitor runs, search logs, recover failures, and keep production healthy.
-	</Card>
+  <LinkCard title="Tutorials" href="/tutorials/" description="Learn by building an app and observing a checkpointed flow." />
+  <LinkCard title="How-to guides" href="/guides/" description="Connect services, add endpoints, test, deploy, and recover failed runs." />
+  <LinkCard title="Reference" href="/reference/" description="Look up configuration, CLI commands, APIs, defaults, and constraints." />
+  <LinkCard title="Explanation" href="/concepts/" description="Understand the runtime, retries, and shop isolation." />
 </CardGrid>
 
-## Core example
+## New to OpenShop?
 
-```ts
-import { defineOpenShop, defineProvider } from 'openshop'
+[Build your first app](/tutorials/first-app/) to create a project, install it on a
+Shopify development store, and run its sample integration. You will need Node.js
+26, pnpm 11, PostgreSQL 17, and Shopify CLI.
 
-const warehouse = defineProvider({
-  name: 'warehouse',
-  ui: {
-    fields: {
-      apiUrl: { type: 'text', label: 'API URL' },
-      apiKey: { type: 'password', label: 'API key' },
-    },
-  },
-  methods: {
-    async push(config, rows: unknown[]) {
-      await fetch(`${config.apiUrl}/orders`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${config.apiKey}` },
-        body: JSON.stringify(rows),
-      })
-    },
-  },
-})
+A typical integration has three parts:
 
-const app = defineOpenShop({
-  providers: { warehouse },
-})
+| Part | What you write | What OpenShop provides |
+| --- | --- | --- |
+| **Provider** | Methods for calling an external service, such as a warehouse | A configuration form and saved credentials for each shop |
+| **Flow** | A background job, split into named steps | Queueing, checkpoints, retries, and execution logs |
+| **App configuration** | The providers, flows, and schedules to enable | An embedded Shopify admin to configure and operate them |
 
-const syncOrders = app.defineFlow({
-  name: 'syncOrders',
-  async run({ step, connectors }) {
-    const orders = await step('fetch-orders', async () => [])
-    await step('push-orders', async () => connectors.warehouse.push(orders))
-  },
-})
+For example, an order-sync flow reads orders from Shopify and calls a warehouse
+provider. A merchant configures the warehouse credentials in **Providers** and
+inspects each execution in **Flows**. See [the building blocks](/concepts/building-blocks/)
+for how the files and runtime objects connect.
 
-export default app.defineConfig({
-  flows: { syncOrders },
-  crons: [{ schedule: '*/5 * * * *', flow: 'syncOrders', shops: 'all' }],
-})
-```
+## Common tasks
 
-## How these docs are organized
+- **Connect an external service:** [Add a provider](/guides/define-provider/).
+- **Run background work:** [Sync orders with a flow](/guides/define-flow/).
+- **Extend the app:** [Add a storefront endpoint](/guides/add-proxy-routes/),
+  [a server endpoint](/guides/add-server-route/), or
+  [a custom admin page](/guides/add-admin-page/).
+- **Ship an app:** [Deploy to production](/guides/deploy-production/), then
+  [monitor and recover runs](/guides/operate-app/).
+- **Fix a problem:** Start with [troubleshooting](/guides/troubleshooting/).
 
-Tutorials teach a complete first success path. Guides solve one task. Reference
-pages list exact APIs, options, defaults, constraints, and failure modes. Start
-with [Architecture](/concepts/architecture/) for the runtime model, then use the
-[Admin API](/reference/admin-api/) and [Public SDK](/reference/sdk/) references
-when integrating OpenShop into application code.
+Contributing to the framework or these docs? See the
+[contributor guide](https://github.com/0xtlt/OpenShop/blob/main/CONTRIBUTING.md).

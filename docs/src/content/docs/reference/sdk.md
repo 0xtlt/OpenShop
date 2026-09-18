@@ -21,6 +21,19 @@ import {
 The exports documented on this page are public. Files below `openshop/src/` and
 package-internal `#server/*`, `#engine/*`, and `#db/*` imports are not public APIs.
 
+## Package entry points
+
+| Import | Purpose | Detailed contract |
+| --- | --- | --- |
+| `openshop` | App definitions, dispatch, Shopify client, database, and runtime logging | This page |
+| `openshop/schema` | Framework tables, models, column builders, and query operators | [Database](/reference/database/) |
+| `openshop/drizzle` | `frameworkSchemaPath` for migration generation | [Migrations](/guides/manage-migrations/) |
+| `openshop/graphql` | Codegen configuration and typed operation helpers | [GraphQL codegen](/reference/graphql-codegen/) |
+| `openshop/test` | Contexts, provider fakes, factories, and admin function helpers | [Testing](/reference/testing/) |
+| `openshop/admin` | Experimental pages, loaders, actions, and browser hooks | [Custom admin pages](/reference/custom-admin-pages/) |
+| `openshop/eslint` | App ESLint configuration | Generated `eslint.config.js` |
+| `openshop/vite` | OpenShop codegen Vite plugin | [GraphQL codegen](/reference/graphql-codegen/) |
+
 ## `defineOpenShop(app)`
 
 Creates an app-scoped definition API and carries provider types into flows.
@@ -44,6 +57,7 @@ Parameters:
 - `providers`: provider definitions keyed by the connector name used in flows.
 - `shopify`: optional single-app or multi-app Shopify configuration.
 - `mcp`: optional MCP capabilities and permissions.
+- `experimental`: optional feature flags, including `customPages`.
 - `pages`: optional admin page visibility (`visible`, `hidden`, or `disabled` per screen).
 - `worker`: partial worker defaults.
 - `retryPolicy`: partial flow retry defaults.
@@ -197,12 +211,16 @@ const data = await shopify.graphql(`#graphql
 Returns the shared Drizzle PostgreSQL client, initialized from `DATABASE_URL`.
 
 ```ts
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { getDb } from 'openshop'
 import { reviews } from './models/review.ts'
 
 const db = getDb()
-const rows = await db.select().from(reviews).where(eq(reviews.rating, 5))
+// `shop` must come from a verified runtime context.
+const rows = await db.select().from(reviews).where(and(
+  eq(reviews.shop, shop),
+  eq(reviews.rating, 5),
+))
 ```
 
 Framework tables are available through `openshop/schema`; application models should

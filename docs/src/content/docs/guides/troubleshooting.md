@@ -3,12 +3,17 @@ title: Troubleshooting
 description: Diagnose common OpenShop setup, authentication, migration, worker, GraphQL, and proxy failures.
 ---
 
-Start with the process that owns the failed surface, then verify PostgreSQL:
+Find your symptom below. Run CLI commands from the app root with `DATABASE_URL`
+exported for the intended environment. Start by checking migration status and
+whether the HTTP process responds:
 
 ```bash
 pnpm exec openshop migrate status
 curl -i http://localhost:3000/health
 ```
+
+The health endpoint does not check the database or worker. For a complete
+verification, [run a smoke flow](/guides/operate-app/#2-check-health-and-run-a-smoke-flow).
 
 ## The app does not install
 
@@ -85,3 +90,15 @@ Password fields are intentionally write-only. An empty password submitted from
 the admin keeps the current value. To replace it, submit a new value. If the
 `ENCRYPTION_KEY` changed, restore the original key; existing ciphertext cannot
 be decrypted with a replacement.
+
+## The test command cannot find a bootstrap
+
+The minimal template defines the test script but does not create a test suite.
+Follow [Test an app](/guides/test-app/) to add `tests/bootstrap.ts` and a dedicated
+test database.
+
+## Still stuck?
+
+Collect the OpenShop version, failing command or URL, run ID, and relevant web or
+worker error message. Remove credentials and customer data, then
+[open an issue](https://github.com/0xtlt/OpenShop/issues) with a minimal reproduction.

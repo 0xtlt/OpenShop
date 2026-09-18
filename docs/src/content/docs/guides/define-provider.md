@@ -1,9 +1,15 @@
 ---
-title: Define a provider
+title: Connect an external service
 description: Add a typed connector with normalization, validation, and a health check.
 ---
 
-Providers own the configuration and methods for an external service.
+Use this guide to add a warehouse connector whose credentials are editable in
+Shopify admin. Start with an existing OpenShop app and a warehouse API that
+accepts authenticated `GET /health` and `POST /orders` requests. Adapt those two
+paths and the authorization header to your service's API.
+
+The generated tutorial provider is a logging stub. Replacing it with this code
+makes real HTTP requests. Use the service's development credentials first.
 
 ## 1. Create the provider
 
@@ -64,9 +70,9 @@ export const warehouse = defineProvider({
 })
 ```
 
-Save processing is ordered: password preservation, coercion, required checks,
-`transformer`, required checks again, then ArkType validation. A transformer
-must return an object.
+The transformer removes a trailing slash from the URL. The field schemas reject
+invalid URLs and empty API keys before configuration is saved. For the full save
+pipeline and optional fields, see [Providers](/reference/providers/).
 
 ## 2. Register it
 
@@ -93,18 +99,26 @@ Returning `false` records an unsuccessful check; throwing returns HTTP 500.
 
 ## 4. Call the connector
 
+Call the method inside a flow's `run({ connectors, step })` callback:
+
 ```ts
-await connectors.warehouse.push([{ id: 'order-1' }])
+await step('push-orders', async () => {
+  await connectors.warehouse.push([{ id: 'order-1' }])
+})
 ```
 
 The provider method receives saved config as its first argument, but the flow
 connector omits it. If `connectors.warehouse` is missing, check registration in
 `defineOpenShop()`.
 
-## 5. Verify production secrets
+## 5. Verify the integration
 
-Set a stable, 64-hex-character `ENCRYPTION_KEY` in production before saving
-credentials. Production throws when it is missing; development logs a warning
-and stores plaintext. Passwords are omitted from API reads, but storage
-encryption depends on that key. Rotating it without a data migration makes
-existing encrypted configs unreadable.
+Run `pnpm run lint`, then use [Sync orders with a flow](/guides/define-flow/) to
+call the connector. Confirm the provider check succeeds, the flow completes, and
+the warehouse receives the expected records. A non-2xx warehouse response throws
+and can trigger a flow retry, so make writes idempotent.
+
+Before saving production credentials, configure the persistent encryption key
+as described in [Deploy to production](/guides/deploy-production/). See
+[provider secret behavior](/reference/providers/#secret-behavior) for storage and
+password-update rules.

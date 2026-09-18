@@ -3,6 +3,9 @@ title: Database and migrations
 description: PostgreSQL connections, Drizzle models, indexes, transactions, and migrations.
 ---
 
+To change a schema, see [Manage migrations](/guides/manage-migrations/). For tenant boundaries, read [Shop and app isolation](/concepts/shop-isolation/).
+
+
 OpenShop uses PostgreSQL through Drizzle and `node-postgres`.
 
 ## Connection

@@ -8,7 +8,7 @@ forward one surface's credential to another.
 
 | Surface | Credential | Verification | Trusted identity |
 | --- | --- | --- | --- |
-| Embedded admin and `/api/*` | Shopify session token in `Authorization: Bearer …` | HMAC JWT signature, audience, time claims, and destination | `shop`, `shopifyApp`, customer `sub` |
+| Embedded admin and `/api/*` | Shopify session token in `Authorization: Bearer …` | HMAC JWT signature, audience, time claims, and destination | `shop`, `shopifyApp`, staff user subject (`sub`) |
 | OAuth start `/auth` | Shop domain and optional configured app handle | Shop normalization and configured app lookup | requested shop and app |
 | OAuth callback | Signed Shopify query plus OAuth `state` | Shopify HMAC and stored nonce | verified shop and app |
 | `/webhooks/*` | `X-Shopify-Hmac-Sha256` | HMAC over the raw request body | shop and app selected by the matching secret |
@@ -62,3 +62,18 @@ reflected in CORS responses.
 
 See [Security](/reference/security/) for secret handling and deployment
 requirements.
+
+## App selection
+
+| Request | App resolution |
+| --- | --- |
+| Manual OAuth start | `?app=<handle>`; optional when exactly one app exists |
+| Signed admin launch or OAuth callback | Query HMAC matches exactly one app secret |
+| App proxy | Query signature matches exactly one app secret |
+| Webhook | Raw-body HMAC matches exactly one app secret |
+| App Bridge or Customer Account JWT | Audience matches exactly one API key, then signature verification |
+
+Zero or ambiguous matches fail authentication. Configured API keys must be
+unique, and each app should use its own secret. See
+[Configure Shopify apps](/guides/configure-shopify-apps/) for setup and
+[Shop and app isolation](/concepts/shop-isolation/) for the data boundary.

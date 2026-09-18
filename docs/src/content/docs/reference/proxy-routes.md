@@ -3,6 +3,9 @@ title: Proxy routes
 description: File routing, methods, authentication, responses, CORS, and errors.
 ---
 
+To add a storefront endpoint, see [Add proxy routes](/guides/add-proxy-routes/).
+
+
 Proxy routes live in `proxy/` and default-export `app.defineProxy()`.
 
 ```ts

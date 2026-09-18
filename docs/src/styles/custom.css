@@ -1,0 +1,5 @@
+/* Nested groups share the link size, leaving the main sections more prominent. */
+.sidebar-content .top-level ul .group-label > .large {
+	font-size: var(--sl-text-sm);
+	font-weight: 500;
+}

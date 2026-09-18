@@ -2,6 +2,20 @@
 
 All notable changes to OpenShop will be documented in this file.
 
+## [0.0.11-beta.0] - 2026-09-18
+
+### Added
+
+- Added experimental custom admin pages (opt-in via
+  `experimental.customPages`). Apps can add Preact screens under
+  `admin/pages`; OpenShop discovers them from the filesystem and bundles
+  them into the embedded admin UI.
+- Added typed loader and action contracts with authenticated custom-page
+  RPC, authorization, navigation, and lifecycle hooks via `openshop/admin`.
+- Added demo reviews pages, reference documentation in
+  `custom-admin-pages.mdx`, and tests covering discovery, routing,
+  authorization, RPC, and admin function helpers.
+
 ## [0.0.4-beta.0] - 2026-08-12
 
 ### Changed

@@ -1,44 +1,66 @@
 # OpenShop documentation
 
-OpenShop is a Shopify integration framework for typed providers, checkpointed
-background flows, Shopify Admin GraphQL, proxy routes, webhooks, Functions,
-PostgreSQL state, an embedded admin UI, and MCP capabilities.
+OpenShop is a TypeScript framework for Shopify integrations with providers,
+checkpointed background flows, PostgreSQL storage, and an embedded admin UI.
 
-## Start here
+The documentation separates guided tutorials, task-focused how-to guides,
+API reference, and conceptual explanation. OpenShop is currently in beta.
 
-- [Overview](https://docs.openshop.run/)
-- [Build your first app](https://docs.openshop.run/tutorials/first-app/)
-- [Architecture](https://docs.openshop.run/concepts/architecture/)
+- [OpenShop documentation](https://docs.openshop.run/): Learn to build a Shopify integration, solve a specific task, look up an API, or understand how OpenShop works.
 
-## Guides
+## Tutorials
 
-- [Configure Shopify apps](https://docs.openshop.run/guides/configure-shopify-apps/)
-- [Define a provider](https://docs.openshop.run/guides/define-provider/)
-- [Define a flow](https://docs.openshop.run/guides/define-flow/)
-- [Add proxy routes](https://docs.openshop.run/guides/add-proxy-routes/)
-- [Test an app](https://docs.openshop.run/guides/test-app/)
-- [Operate an app](https://docs.openshop.run/guides/operate-app/)
-- [Deploy to production](https://docs.openshop.run/guides/deploy-production/)
-- [Troubleshooting](https://docs.openshop.run/guides/troubleshooting/)
-- [Upgrade OpenShop](https://docs.openshop.run/guides/upgrade/)
+- [Tutorials](https://docs.openshop.run/tutorials/): Guided lessons that take you from a new project to a running Shopify integration.
+- [Build your first OpenShop app](https://docs.openshop.run/tutorials/first-app/): Create an app, install it on a Shopify development store, and run the sample order integration.
+- [Build a checkpointed flow](https://docs.openshop.run/tutorials/checkpointed-flow/): Write a flow that saves a result, pauses, and resumes using the original checkpoint.
+
+## How-to guides
+
+- [How-to guides](https://docs.openshop.run/guides/): Task-focused instructions for building, testing, deploying, and operating an existing OpenShop app.
+- [Configure Shopify apps](https://docs.openshop.run/guides/configure-shopify-apps/): Configure a single Shopify app or several apps sharing one OpenShop deployment.
+- [Connect an external service](https://docs.openshop.run/guides/define-provider/): Add a typed connector with normalization, validation, and a health check.
+- [Sync orders with a flow](https://docs.openshop.run/guides/define-flow/): Read Shopify orders, send them to a provider, and schedule the job for installed shops.
+- [Handle a Shopify webhook](https://docs.openshop.run/guides/handle-webhooks/): Register an OpenShop handler and a Shopify subscription, then verify a signed delivery.
+- [Add proxy routes](https://docs.openshop.run/guides/add-proxy-routes/): Create authenticated app proxy and Customer Account extension endpoints.
+- [Add a server route](https://docs.openshop.run/guides/add-server-route/): Expose a service-to-service endpoint with explicit authentication and a standard HTTP response.
+- [Add a custom admin page](https://docs.openshop.run/guides/add-admin-page/): Add an experimental embedded admin screen with a typed server loader.
+- [Test an app](https://docs.openshop.run/guides/test-app/): Set up a test database and Node.js test runner, then verify an authenticated API request and a flow with faked services.
+- [Manage migrations](https://docs.openshop.run/guides/manage-migrations/): Generate, review, commit, and apply app-owned Drizzle migrations before starting production processes.
+- [Deploy to production](https://docs.openshop.run/guides/deploy-production/): Prepare a build, configure production secrets, apply committed migrations, and verify separate web and worker services.
+- [Operate an OpenShop app](https://docs.openshop.run/guides/operate-app/): Run, monitor, scale, and safely stop OpenShop web and worker processes.
+- [Troubleshooting](https://docs.openshop.run/guides/troubleshooting/): Diagnose common OpenShop setup, authentication, migration, worker, GraphQL, and proxy failures.
+- [Upgrade OpenShop](https://docs.openshop.run/guides/upgrade/): Upgrade the OpenShop package, generated files, and database schema safely.
 
 ## Reference
 
-- [Configuration](https://docs.openshop.run/reference/configuration/)
-- [Environment variables](https://docs.openshop.run/reference/environment-variables/)
-- [Authentication](https://docs.openshop.run/reference/authentication/)
-- [Public SDK](https://docs.openshop.run/reference/sdk/)
-- [Admin API](https://docs.openshop.run/reference/admin-api/)
-- [Flows](https://docs.openshop.run/reference/flows/)
-- [Providers](https://docs.openshop.run/reference/providers/)
-- [Database and migrations](https://docs.openshop.run/reference/database/)
-- [GraphQL codegen](https://docs.openshop.run/reference/graphql-codegen/)
-- [Proxy routes](https://docs.openshop.run/reference/proxy-routes/)
-- [Webhooks](https://docs.openshop.run/reference/webhooks/)
-- [Shopify Functions](https://docs.openshop.run/reference/shopify-functions/)
-- [MCP](https://docs.openshop.run/reference/mcp/)
-- [CLI commands](https://docs.openshop.run/reference/cli/)
-- [Logging](https://docs.openshop.run/reference/logging/)
-- [Errors](https://docs.openshop.run/reference/errors/)
-- [Security](https://docs.openshop.run/reference/security/)
-- [Versioning](https://docs.openshop.run/reference/versioning/)
+- [Reference](https://docs.openshop.run/reference/): API contracts, configuration options, command syntax, and runtime constraints for OpenShop.
+- [Project structure](https://docs.openshop.run/reference/project-structure/): Files generated by the OpenShop minimal template and what each one owns.
+- [Configuration](https://docs.openshop.run/reference/configuration/): Registries and runtime options accepted by defineOpenShop() and app.defineConfig().
+- [Environment variables](https://docs.openshop.run/reference/environment-variables/): Runtime, database, Shopify, encryption, and process environment variables used by OpenShop.
+- [CLI commands](https://docs.openshop.run/reference/cli/): Commands exposed by the OpenShop template and CLI.
+- [Public SDK](https://docs.openshop.run/reference/sdk/): Runtime exports from the openshop package, their parameters, and stability.
+- [Flows](https://docs.openshop.run/reference/flows/): Flow options, retries, cancellation, and checkpointed steps.
+- [Providers](https://docs.openshop.run/reference/providers/): Provider fields, transformation, validation, checks, and secrets.
+- [Database and migrations](https://docs.openshop.run/reference/database/): PostgreSQL connections, Drizzle models, indexes, transactions, and migrations.
+- [Logging](https://docs.openshop.run/reference/logging/): Structured flow logs, runtime logs, filtering, export, and custom runtime logger integration.
+- [Errors](https://docs.openshop.run/reference/errors/): OpenShop error classes, HTTP failures, flow outcomes, and recovery actions.
+- [Testing](https://docs.openshop.run/reference/testing/): Test context options, provider fakes, signed requests, factories, and cleanup contracts.
+- [Authentication](https://docs.openshop.run/reference/authentication/): Authentication used by the embedded admin, OAuth, webhooks, proxy routes, Customer Account extensions, and MCP.
+- [Admin API](https://docs.openshop.run/reference/admin-api/): Authentication and endpoint contracts for the embedded OpenShop admin UI.
+- [GraphQL codegen](https://docs.openshop.run/reference/graphql-codegen/): Generate typed Shopify Admin GraphQL operations and understand runtime errors.
+- [Proxy routes](https://docs.openshop.run/reference/proxy-routes/): File routing, methods, authentication, responses, CORS, and errors.
+- [Public server routes](https://docs.openshop.run/reference/server-routes/): Expose HTTP endpoints with explicit authentication and optional shop-scoped provider connectors.
+- [Webhooks](https://docs.openshop.run/reference/webhooks/): Define, register, authenticate, and safely process Shopify webhooks.
+- [Shopify Functions](https://docs.openshop.run/reference/shopify-functions/): Define management metadata and understand the supported instance lifecycle.
+- [Custom admin pages](https://docs.openshop.run/reference/custom-admin-pages/): Build experimental app-owned admin screens with Preact, Polaris web components, and typed server functions.
+- [MCP](https://docs.openshop.run/reference/mcp/): JSON-RPC endpoint, tokens, permissions, tools, resources, and errors.
+- [Security](https://docs.openshop.run/reference/security/): Secret storage, authentication boundaries, tenancy, CORS, database access, and deployment hardening.
+- [Versioning](https://docs.openshop.run/reference/versioning/): Beta compatibility expectations for OpenShop packages, templates, configuration, and migrations.
+
+## Explanation
+
+- [Explanation](https://docs.openshop.run/concepts/): Understand OpenShop's building blocks, process architecture, retry model, and tenant boundaries.
+- [Building blocks](https://docs.openshop.run/concepts/building-blocks/): How app definitions, providers, connectors, flows, and configuration relate to each other.
+- [Architecture](https://docs.openshop.run/concepts/architecture/): How the OpenShop web process, scheduler, workers, PostgreSQL, Shopify, and providers fit together.
+- [Checkpoints and retries](https://docs.openshop.run/concepts/checkpoints-and-retries/): Understand replay, persisted step output, retries, sleeps, and the limits of checkpoint guarantees.
+- [Shop and app isolation](https://docs.openshop.run/concepts/shop-isolation/): Understand the distinction between a Shopify app, a shop, an installation, and application-owned data.

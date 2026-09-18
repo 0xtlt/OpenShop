@@ -1,14 +1,16 @@
 ---
-title: Define a flow
-description: Add a validated, checkpointed background job with retries and cancellation.
+title: Sync orders with a flow
+description: Read Shopify orders, send them to a provider, and schedule the job for installed shops.
 ---
 
-Flows run in workers. Use them for integration work that should be retried,
-logged, scheduled, or resumed after a delay.
+Use this guide to send recent orders to a warehouse in a background job.
+Before starting, have an installed development app with `read_orders` access and
+a registered, configured `warehouse` provider exposing `push(rows)`. Follow
+[Connect an external service](/guides/define-provider/) if you need that provider.
 
 ## 1. Create the flow
 
-Create `flows/syncOrders.ts`:
+Create or replace `flows/syncOrders.ts`:
 
 ```ts
 import { type } from 'arktype'
@@ -19,39 +21,40 @@ export const syncOrders = app.defineFlow({
   input: type({ limit: 'number.integer > 0' }),
   timeout: 60_000,
   stepTimeout: 15_000,
-  concurrency: 'reject',
 
-  async run({ input, shop, shopify, connectors, step, logger, signal }) {
+  async run({ input, shopify, connectors, step, logger, signal }) {
     const orders = await step('fetch-orders', async () => {
-      logger.info({ shop, limit: input.limit }, 'Fetching orders')
-
-      return shopify.graphql(`#graphql
-        query GetOrders($first: Int!) {
-          orders(first: $first) {
-            nodes {
-              id
-              name
-            }
+      const data = await shopify.graphql(`#graphql
+        query SyncOrders($first: Int!) {
+          orders(first: $first, sortKey: CREATED_AT, reverse: true) {
+            nodes { id name }
           }
         }
       `, { variables: { first: input.limit } })
+
+      return data.orders.nodes
     })
 
     await step('push-orders', async () => {
-      if (signal.aborted) return
-      await connectors.warehouse.push(orders.orders.nodes)
+      signal.throwIfAborted()
+      await connectors.warehouse.push(orders)
+      logger.info({ count: orders.length }, 'Orders synced')
     })
   },
 })
 ```
 
-`shopify.graphql()` already returns the GraphQL `data` object. The correct path
-is `orders.orders.nodes`, not `orders.data.orders.nodes`.
+`shopify.graphql()` returns the GraphQL data object, so the order list is
+`data.orders.nodes`. The saved checkpoint contains only that JSON array.
 
-## 2. Register the flow
+This fetches one recent batch. For a complete historical sync, add pagination and
+a durable cursor appropriate to your integration.
+
+## 2. Register and run it
+
+Add the flow to the existing `flows` registry in `openshop.config.ts`:
 
 ```ts
-// openshop.config.ts
 import { app } from '#app'
 import { syncOrders } from '#flows/syncOrders'
 
@@ -60,63 +63,50 @@ export default app.defineConfig({
 })
 ```
 
-The template defines package-private aliases such as `#app`, `#flows/*`, and
-`#providers/*` in `package.json`.
+Preserve any other registered flows and app options. Generate the query types and
+check the app:
 
-## 3. Choose retry and concurrency behavior
-
-The default retry policy makes three total attempts with delays of 1 and 2
-seconds. Override only what this flow needs:
-
-```ts
-retryPolicy: {
-  maxAttempts: 5,
-  initialIntervalMs: 2_000,
-  backoffCoefficient: 2,
-  maxIntervalMs: 60_000,
-},
+```bash
+pnpm run lint
 ```
 
-`concurrency: 'reject'` prevents another active run for the same app, shop, and
-flow. Dispatch throws `FlowConcurrencyError` and includes the active run ID.
-Choose `'allow'` only when overlapping side effects are safe.
+With `pnpm run shopify` running, save the warehouse configuration in **Providers**,
+then trigger `syncOrders` in **Flows** with `{ "limit": 10 }`. Confirm that both
+steps complete and **Orders synced** appears in the logs. Development already
+starts a worker. Production needs a [separate worker service](/guides/deploy-production/).
 
-## 4. Add an optional schedule
+## 3. Schedule the flow for installed shops
+
+Add `crons` to the same config:
 
 ```ts
-import { cron } from 'openshop'
-
 export default app.defineConfig({
   flows: { syncOrders },
-  crons: [
-    {
-      name: 'Sync orders',
-      schedule: cron('*/5 * * * *'),
-      flow: 'syncOrders',
-      input: { limit: 100 },
-      shops: 'all',
-    },
-  ],
+  crons: [{
+    name: 'Sync recent orders',
+    schedule: '*/5 * * * *',
+    flow: 'syncOrders',
+    input: { limit: 10 },
+    shops: 'all',
+  }],
 })
 ```
 
-An unknown flow name fails config validation. `shops` defaults to `global`,
-which dispatches once with the synthetic shop `__global__` and default app
-handle. Shopify/provider flows should usually target `all`, one installed shop
-domain, or an installed-shop array.
+`shops: 'all'` dispatches for each installed app/shop pair. Omitting `shops` uses
+the synthetic `__global__` shop, which has no ordinary Shopify installation.
+For a shop-specific integration, set the target explicitly. Configure credentials
+for every targeted shop before enabling the schedule.
 
-## 5. Verify
+Verify a new run appears after the next five-minute boundary. The default
+concurrency policy rejects a second active run for the same app, shop, and flow.
 
-```bash
-pnpm run codegen
-pnpm run lint
-pnpm exec openshop worker
-```
+## 4. Make repeated writes safe
 
-Trigger the flow from the embedded admin UI and confirm both steps appear.
-Completed step output is cached, so a retry skips `fetch-orders` and reuses its
-stored JSON result.
+Each scheduled run can include orders sent by an earlier run. Make the warehouse
+write an upsert keyed by the Shopify order ID, or use the warehouse's idempotency
+mechanism. Completed checkpoints are reused within one run; separate scheduled
+runs do not share them.
 
-For delayed continuation, use `await step.sleep(name, milliseconds)`. It releases
-the worker slot. For cancellation, pass `signal` to `fetch` and other abortable
-APIs; OpenShop cannot forcibly stop code that ignores it.
+If you need a different retry policy, set `retryPolicy` on this flow and consult
+the [flow reference](/reference/flows/#retry-precedence-and-defaults). For the
+failure model, read [Checkpoints and retries](/concepts/checkpoints-and-retries/).

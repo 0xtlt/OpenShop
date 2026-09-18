@@ -3,6 +3,9 @@ title: Public server routes
 description: Expose HTTP endpoints with explicit authentication and optional shop-scoped provider connectors.
 ---
 
+To add an endpoint, see [Add a server route](/guides/add-server-route/).
+
+
 Files under `routes/` are mounted under `/routes/*`. They use Web standard
 `Request` and `Response` objects and do not require Shopify authentication.
 

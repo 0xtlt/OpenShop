@@ -1,93 +1,125 @@
 ---
 title: Deploy to production
-description: Build an OpenShop app, apply migrations, and run web and worker processes.
+description: Prepare a build, configure production secrets, apply committed migrations, and verify separate web and worker services.
 ---
 
-import { FileTree } from '@astrojs/starlight/components';
+Use this guide for an app that already works on a development store. You need a
+production PostgreSQL database, an HTTPS app origin, a process supervisor or
+hosting platform, and the credentials for the Shopify app being deployed.
 
-Production deployments should build the app, apply committed migrations, then run the web server and at least one worker.
+A deployment has three stages: build, apply migrations once, then start the web
+and worker services. Run app commands from the project root.
 
-## Build
+## 1. Prepare the release
+
+With development dependencies installed in development or CI:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm run lint
+pnpm exec openshop migrate generate
+pnpm exec openshop migrate check
+```
+
+Run your app's tests if you have [set up a test suite](/guides/test-app/).
+Review and commit any generated files in `drizzle/`. Test the migrations against
+a separate database before applying them to production; see
+[Manage migrations](/guides/manage-migrations/).
+
+## 2. Configure the environment
+
+Inject these into the production services using your platform's secret settings:
+
+```dotenv
+NODE_ENV=production
+DATABASE_URL=postgresql://user:password@database:5432/openshop
+SHOPIFY_API_KEY=your-client-id
+SHOPIFY_API_SECRET=your-client-secret
+HOST=https://your-app.example.com
+ENCRYPTION_KEY=replace-with-64-hex-characters
+```
+
+Generate `ENCRYPTION_KEY` once with `openssl rand -hex 32`, store it securely, and
+reuse it across deployments. Both services need the same key, database, and
+Shopify configuration. Production commands do not load `.env` automatically.
+For multiple apps, use [Configure Shopify apps](/guides/configure-shopify-apps/).
+
+## 3. Build the artifact
+
+Provide the app's build environment, including `SHOPIFY_API_KEY` for single-app
+App Bridge configuration, then run:
 
 ```bash
 pnpm run build
 ```
 
-The build creates:
+The output contains `dist/ui/` and `dist/openshop/server/`. Deploy them together
+with the production dependencies, `drizzle/`, package metadata, and any referenced
+Shopify TOML files. The generated `Dockerfile` and `ecosystem.config.cjs` provide
+a starting point for a container running both services.
 
-<FileTree>
+## 4. Apply migrations
 
-- dist/
-  - ui/
-  - openshop/
-    - server/
-
-</FileTree>
-
-## Configure environment
-
-Single-app deployments usually need:
-
-```bash
-DATABASE_URL=postgresql://...
-SHOPIFY_API_KEY=...
-SHOPIFY_API_SECRET=...
-HOST=https://your-app.example.com
-ENCRYPTION_KEY=<64 hex characters>
-```
-
-Generate an encryption key:
-
-```bash
-openssl rand -hex 32
-```
-
-`ENCRYPTION_KEY` protects provider credentials and Shopify access tokens. Treat it as required in production.
-
-## Apply migrations
-
-Generate and review migrations in development or CI:
-
-```bash
-pnpm exec openshop migrate generate
-pnpm exec openshop migrate check
-```
-
-Commit the generated SQL in `./drizzle`, then apply committed migrations before starting production processes:
+Run a single release job with the target production `DATABASE_URL`:
 
 ```bash
 pnpm exec openshop migrate
+pnpm exec openshop migrate status
 ```
 
-`openshop migrate` only applies SQL from `./drizzle`. It does not run generation tooling.
+Confirm `pending: 0` before starting the new processes. This command applies
+committed SQL only. Neither the web process nor the worker migrates on startup.
 
-## Start processes
+## 5. Start both services
 
 Configure two independently supervised services from the same build:
 
-| Service | Command | Replicas |
+| Service | Command | Initial process count |
 | --- | --- | --- |
-| Web | `pnpm exec openshop start` | One or more behind your router |
-| Worker | `pnpm exec openshop worker --concurrency=5` | One or more |
+| Web | `pnpm exec openshop start` | 1 |
+| Worker | `pnpm exec openshop worker --concurrency=5` | 1 |
 
-Do not place the commands one after the other in a deploy script. Both are long-running processes, so `openshop start` would prevent the shell from ever starting the worker. Use separate platform process types, containers, system services, or the template's `ecosystem.config.cjs`.
+Both commands keep running. Put them in separate service definitions, containers,
+or process-manager entries; two sequential lines in a shell script would never
+start the worker. The web process serves HTTP and dispatches scheduled runs.
+The worker executes the queued work.
 
-`openshop start` serves HTTP traffic and dispatches cron runs. It does not execute queued flow runs. At least one worker must be running for queued runs to complete.
+Keep one web replica when using crons: every web replica starts a scheduler and
+there is no leader election. Scale workers after measuring database and provider
+capacity. See [Operate an app](/guides/operate-app/) for that procedure.
 
-Each web replica starts a scheduler. OpenShop does not currently elect one
-scheduler leader, so prefer one web replica when using `crons`, or accept and
-handle duplicate dispatch attempts. Flow concurrency can reject overlapping
-runs, but it is not a cron de-duplication guarantee.
+For PM2, the template uses `node_modules/openshop/bin/cli.js` as the script.
+Keep that path: `node_modules/.bin/openshop` can be a shell shim, which PM2 may
+try to execute as JavaScript.
 
-Every web and worker replica needs the same `DATABASE_URL`, Shopify configuration, and `ENCRYPTION_KEY`. Each process creates its own PostgreSQL pool; tune `PGPOOL_MAX` with the total replica count and database connection limit in mind.
+## 6. Release the Shopify configuration
 
-## Verify it worked
+Set the production application and callback URLs in the linked Shopify app TOML,
+then release its configuration:
 
-- The web process starts without migration errors.
-- The worker process starts and reports no database connectivity errors.
-- The embedded admin UI loads inside Shopify.
-- A test flow run moves from queued to completed or failed with logs.
+```bash
+shopify app deploy --config shopify.app.toml
+```
 
-## Rollback notes
+Repeat for every configured app. This updates Shopify-side configuration; it does
+not deploy the OpenShop server. Complete the app's installation or renewed
+scope authorization as needed.
 
-OpenShop does not apply migrations on boot. If a deploy fails before migrations are applied, roll back the app process only. If committed SQL was already applied, use your normal database rollback or forward-fix process.
+## 7. Verify the whole path
+
+1. Request `https://your-app.example.com/health` and expect HTTP 200.
+2. Open the installed app inside Shopify admin.
+3. Check a configured provider using its production credentials.
+4. Run a harmless flow and verify it reaches **completed** with the expected steps.
+5. Confirm both service logs show no database, encryption, or configuration errors.
+
+`/health` only proves the HTTP process responds. A completed smoke flow also
+exercises the queue and worker. If runs stay pending, use
+[Troubleshooting](/guides/troubleshooting/#runs-stay-pending).
+
+## Roll back a failed release
+
+Restore the previous app build only if it remains compatible with the current
+database schema. Applied SQL is not undone by rolling back a process. For an
+incompatible schema change, use a reviewed forward fix or your database restore
+procedure. Keep the original encryption key available with database backups.

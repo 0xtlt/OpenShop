@@ -3,6 +3,9 @@ title: Webhooks
 description: Define, register, authenticate, and safely process Shopify webhooks.
 ---
 
+To set up event delivery, see [Handle a Shopify webhook](/guides/handle-webhooks/).
+
+
 Webhook handlers export `app.defineWebhook()`.
 
 ```ts

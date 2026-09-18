@@ -3,7 +3,7 @@ title: Upgrade OpenShop
 description: Upgrade the OpenShop package, generated files, and database schema safely.
 ---
 
-OpenShop is beta software. Read the repository changelog and test an upgrade in
+OpenShop is beta software. Read the [repository changelog](https://github.com/0xtlt/OpenShop/blob/main/CHANGELOG.md) and test an upgrade in
 a non-production environment before changing production.
 
 ## Upgrade procedure
@@ -34,7 +34,7 @@ a non-production environment before changing production.
    pnpm exec openshop migrate generate --name=upgrade
    pnpm exec openshop migrate check
    pnpm run lint
-   pnpm run test
+   pnpm run test  # If the app has a tests/bootstrap.ts test suite
    pnpm run build
    ```
 
@@ -61,3 +61,6 @@ during rolling upgrades.
 package. It does not update existing projects. Keep local template changes
 explicit so later upgrades can distinguish application choices from generated
 defaults.
+
+For migration steps, see [Manage migrations](/guides/manage-migrations/). For the
+package compatibility policy, see [Versioning](/reference/versioning/).

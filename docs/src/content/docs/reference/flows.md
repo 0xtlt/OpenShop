@@ -3,6 +3,9 @@ title: Flows
 description: Flow options, retries, cancellation, and checkpointed steps.
 ---
 
+For a working example, see [Sync orders with a flow](/guides/define-flow/). For the replay model, read [Checkpoints and retries](/concepts/checkpoints-and-retries/).
+
+
 Flows are background jobs dispatched to an OpenShop worker.
 
 ```ts

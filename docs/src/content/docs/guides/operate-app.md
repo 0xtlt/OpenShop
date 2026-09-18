@@ -3,21 +3,9 @@ title: Operate an OpenShop app
 description: Run, monitor, scale, and safely stop OpenShop web and worker processes.
 ---
 
-Operate OpenShop as two process types connected to the same PostgreSQL database:
-
-```text
-Shopify/admin traffic -> openshop start -> PostgreSQL <- openshop worker
-                                             ^
-                                             └─ additional workers
-```
-
-The web process serves HTTP and dispatches cron/manual runs. Workers claim and
-execute queued runs. A healthy web process without a worker accumulates pending
-runs.
-
-Every web replica starts a scheduler. There is no scheduler leader election, so
-use one web replica for configured crons unless duplicate dispatch attempts are
-acceptable. Flow concurrency may reject overlap, but is not cron de-duplication.
+Use this guide after [deploying the app](/guides/deploy-production/). You need
+access to the embedded admin and to the web and worker service logs.
+For the process model, read [Architecture](/concepts/architecture/).
 
 ## 1. Start separate processes
 
@@ -37,7 +25,7 @@ Do not place the commands sequentially in one shell script: `openshop start` is
 long-running, so the worker line would never execute. Configure two services,
 containers, process-manager entries, or terminal sessions.
 
-## 2. Check readiness
+## 2. Check health and run a smoke flow
 
 The unauthenticated health endpoint confirms only that the HTTP process responds:
 
@@ -64,8 +52,8 @@ In the embedded admin UI:
 
 1. Filter runs by `pending`, `running`, `sleeping`, or `failed`.
 2. Open a run to inspect step status and structured logs.
-3. Retry a finished run in **resume** mode to keep completed steps.
-4. Use **reset** only when completed steps are safe to execute again.
+3. Select **Retry**, then **Resume** on a finished run to keep completed steps.
+4. Use **Restart** (the API's `reset` mode) only when completed steps are safe to execute again.
 
 Operational signals:
 
@@ -86,8 +74,8 @@ different runs.
 Configure defaults in `openshop.config.ts`:
 
 ```ts
-import { app } from './openshop.app.ts'
-import { syncOrders } from './flows/syncOrders.ts'
+import { app } from '#app'
+import { syncOrders } from '#flows/syncOrders'
 
 export default app.defineConfig({
   flows: { syncOrders },
@@ -101,9 +89,8 @@ export default app.defineConfig({
 })
 ```
 
-Worker defaults are concurrency `5`, poll interval `1000ms`, maximum poll interval
-`5000ms`, polling coefficient `1.5`, and lease duration `30000ms`. A CLI
-`--concurrency` override has higher priority than application config for that worker.
+A CLI `--concurrency` override wins for that worker process. The complete
+[worker defaults](/reference/configuration/#worker-defaults) are in the reference.
 
 Scale gradually. Total simultaneous flow runs are approximately:
 
@@ -113,20 +100,16 @@ worker process count × concurrency per worker
 
 Also budget PostgreSQL connections per process using `PGPOOL_MAX`.
 
-## Retry and idempotency
+## Recover failed runs
 
-The default retry policy is three attempts with `1000ms` initial delay, coefficient
-`2`, and `30000ms` maximum delay. Resolution order, from lowest to highest
-priority, is:
+1. Open the failed run and find the first failed step and its error.
+2. Correct the cause, such as invalid provider credentials or missing Shopify scopes.
+3. Select **Retry**, then **Resume** to reuse completed checkpoints.
+4. Verify the resumed run completes and check the downstream result.
 
-1. Framework defaults
-2. Application `retryPolicy`
-3. Flow `retryPolicy`
-4. Per-dispatch `options.retryPolicy`
-
-Retries can repeat code outside a completed durable step. Put each external side
-effect in a named `ctx.step`, use the provider's idempotency key when available, and
-derive stable keys from the run's business input.
+Choose **Restart** only if every side effect can safely happen again. Read
+[Checkpoints and retries](/concepts/checkpoints-and-retries/) before resetting a
+run that writes to another system.
 
 ## Cancel, retry, and delete safely
 
@@ -140,15 +123,15 @@ derive stable keys from the run's business input.
 Pass the abort signal to compatible APIs:
 
 ```ts
-import { app } from '../openshop.app.ts'
+import { app } from '#app'
 
 export const refreshCatalog = app.defineFlow({
-  name: 'Refresh catalog',
+  name: 'refreshCatalog',
   async run({ signal, step }) {
     await step('download catalog', async () => {
       const response = await fetch('https://catalog.example.com/export', { signal })
       if (!response.ok) throw new Error(`Catalog returned ${response.status}`)
-      return response.arrayBuffer()
+      return response.text()
     })
   },
 })
@@ -183,3 +166,6 @@ During an incident, preserve:
 
 Never publish exported logs without checking their structured payloads for customer
 or order data.
+
+For log queries and exports, see [Logging](/reference/logging/). For API status
+codes and retry endpoints, see [Admin API](/reference/admin-api/).

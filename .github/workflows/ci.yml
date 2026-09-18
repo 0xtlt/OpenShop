@@ -39,7 +39,7 @@ jobs:
           PGPASSWORD: openshop
       - run: pnpm --filter openshop run build:cli
       - run: pnpm --filter openshop run smoke:pack
-      - run: pnpm --filter docs run build
+      - run: pnpm --filter docs run check
       - run: pnpm run check
       - run: pnpm run coverage:unit
       - run: pnpm run coverage:integration

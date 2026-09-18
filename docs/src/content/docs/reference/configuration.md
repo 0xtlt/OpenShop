@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: Options accepted by app.defineConfig().
+description: Registries and runtime options accepted by defineOpenShop() and app.defineConfig().
 ---
 
 OpenShop apps export a configured instance from `openshop.config.ts`. The
@@ -14,7 +14,7 @@ import { syncOrders } from '#flows/syncOrders'
 const openshop = app.defineConfig({
   flows: { syncOrders },
   crons: [
-    { name: 'Quick sync', schedule: cron('*/5 * * * *'), flow: 'syncOrders', shops: 'all' },
+    { name: 'Quick sync', schedule: cron('*/5 * * * *'), flow: 'syncOrders', input: { limit: 10 }, shops: 'all' },
   ],
   worker: {
     concurrency: 5,
@@ -41,13 +41,14 @@ work. `openshop.dispatchFlow()` captures the active config, restricts
 
 | Option | Type | Required | Default |
 | --- | --- | --- | --- |
-| `providers` | `Record<string, ProviderDefinition>` | Yes | — |
+| `providers` | `Record<string, ProviderDefinition>` | In `defineOpenShop()` | Supplied by the app builder |
 | `flows` | `Record<string, FlowDefinition>` | Yes | — |
 | `shopify` | `ShopifyConfig` | No | Single app resolved from env and Shopify TOML |
 | `functions` | `Record<string, FunctionDefinition>` | No | `{}` |
 | `mcp` | `McpConfig` | No | Core MCP capabilities enabled; no custom capabilities |
 | `webhooks` | `Record<string, WebhookDefinition>` | No | `{}` |
 | `crons` | `CronEntry[]` | No | `[]` |
+| `experimental` | `OpenShopExperimentalConfig` | No | Custom pages disabled; see [Custom admin pages](/reference/custom-admin-pages/) |
 | `pages` | `AdminPagesConfig` | No | Every admin page `visible` |
 | `worker` | `Partial<WorkerConfig>` | No | See [Worker defaults](#worker-defaults) |
 | `retryPolicy` | `Partial<RetryPolicy>` | No | See [Retry defaults](#retry-defaults) |
@@ -98,19 +99,10 @@ Per-app scopes are not supported. If `shopify.scopes` is omitted, all configured
 
 ## Flows
 
-The object key is the registered flow name used by dispatch and cron configuration.
-
-| Field | Type | Default |
-| --- | --- | --- |
-| `name` | `string` | Required |
-| `input` | ArkType `Type<TInput>` | No schema validation |
-| `timeout` | positive number in milliseconds | No run deadline |
-| `stepTimeout` | positive number in milliseconds | No default step deadline |
-| `concurrency` | `'reject' \| 'allow'` | `'reject'` |
-| `retryPolicy` | `Partial<RetryPolicy>` | Inherits the app retry policy |
-| `run` | async function | Required |
-
-An individual `step(name, fn, { timeout })` can override `stepTimeout`.
+Register flow definitions under stable keys. The object key is the name used by
+dispatch and crons. Keep it equal to the definition's `name` for clear logs.
+The [flow reference](/reference/flows/) owns the definition options, context,
+checkpoint contract, and timeout behavior.
 
 ## Crons
 
@@ -196,37 +188,18 @@ Cron entries support these shop modes:
 | `pollBackoffCoefficient` | positive number | `1.5` | Multiplier applied after consecutive empty polls. |
 | `leaseDurationMs` | positive number | `30000` | Claim lease and graceful-stop deadline. Active runs refresh their lease on heartbeat. |
 
-The CLI flag `openshop worker --concurrency=N` overrides only `worker.concurrency` for that process. Run multiple worker processes to scale horizontally; PostgreSQL claims work with `FOR UPDATE SKIP LOCKED`.
+The current `openshop worker` CLI supplies concurrency `5` when its flag is omitted; set `--concurrency=N` explicitly for a different production value. Other worker settings come from config. Run multiple worker processes to scale horizontally; PostgreSQL claims work with `FOR UPDATE SKIP LOCKED`.
 
 ## Retry defaults
 
-The app-level `retryPolicy` is merged over these defaults. A flow-level policy and dispatch-level policy can override it more narrowly.
-
-| Field | Type | Default |
-| --- | --- | --- |
-| `maxAttempts` | positive integer | `3` |
-| `initialIntervalMs` | positive number | `1000` |
-| `backoffCoefficient` | positive number | `2` |
-| `maxIntervalMs` | positive number | `30000` |
-
-Retry delay is `initialIntervalMs * backoffCoefficient^(attempt - 1)`, capped by `maxIntervalMs`. No retry is scheduled after `maxAttempts`, or when the next retry would be at or beyond the flow deadline.
+App-level `retryPolicy` supplies defaults for registered flows. Flow and dispatch
+settings override it field by field. See the
+[retry defaults and precedence](/reference/flows/#retry-precedence-and-defaults)
+for the authoritative option table and deadline behavior.
 
 ## Environment variables
 
-`openshop dev` loads `.env` from the project root and preserves variables already present in the process. Production commands expect the deployment platform to inject variables.
-
-| Variable | Default | Used for |
-| --- | --- | --- |
-| `DATABASE_URL` | Local OpenShop PostgreSQL URL in CLI commands | PostgreSQL connection. Set it explicitly outside local development. |
-| `PORT` | `3000` | Development UI and production HTTP port. The dev API uses `PORT + 1`. |
-| `SHOPIFY_API_KEY` | Empty | Single-app client ID and App Bridge build value. |
-| `SHOPIFY_API_SECRET` | Empty | Single-app OAuth, webhook, proxy, and session-token verification. |
-| `HOST` | — | Preferred public app URL. |
-| `SHOPIFY_APP_URL` | — | Public app URL fallback when `HOST` is absent. |
-| `ENCRYPTION_KEY` | — | 64 hex characters (32 bytes) for AES-256-GCM encryption. Required when `NODE_ENV=production`; without it in development, secrets are stored in plaintext with a warning. |
-| `PGPOOL_MAX` | `10` | Maximum PostgreSQL pool size per process. |
-| `PGPOOL_IDLE_TIMEOUT_MS` | `30000` | Idle PostgreSQL connection timeout. |
-| `PGPOOL_CONNECTION_TIMEOUT_MS` | `5000` | PostgreSQL connection timeout. |
-| `NODE_ENV` | — | Enables production encryption and migration-generation safeguards when set to `production`. |
-
-Generate a production encryption key with `openssl rand -hex 32`. Keep the same key across deploys: changing or losing it prevents existing encrypted provider configurations and Shopify tokens from being decrypted.
+See [Environment variables](/reference/environment-variables/) for required
+values, defaults, `.env` loading, and resolution order. `openshop dev` loads the
+project-root file; build, migration, and production commands use the process
+environment.

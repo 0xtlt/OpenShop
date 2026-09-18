@@ -16,8 +16,8 @@ migrations, CLI behavior, and documented workflows.
 
 The package version used to generate a project and the dependency written into
 that project's `package.json` must refer to a published compatible release.
-OpenShop's smoke tests should scaffold into an empty directory, install, lint,
-test, and build the result before publication.
+A generated project is app-owned after creation. Updating the package does not
+rewrite its scripts, configuration, or deployment files.
 
 ## Compatibility surfaces
 

@@ -10,6 +10,7 @@ export default defineConfig({
 		sitemap(),
 		starlight({
 			title: 'OpenShop',
+			customCss: ['./src/styles/custom.css'],
 			head: [
 				{ tag: 'meta', attrs: { property: 'og:image', content: 'https://docs.openshop.run/social-card.svg' } },
 				{ tag: 'meta', attrs: { property: 'og:image:alt', content: 'OpenShop documentation' } },

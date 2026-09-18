@@ -36,6 +36,7 @@
   "dependencies": {
     "arktype": "^2.2.3",
     "openshop": "__OPENSHOP_VERSION__",
+    "preact": "^10.29.8",
     "pg": "^8.23.0",
     "pm2": "^7.0.3"
   },
@@ -45,6 +46,7 @@
     "@graphql-codegen/typescript": "6.1.0",
     "@shopify/api-codegen-preset": "3.0.0",
     "@shopify/graphql-codegen": "^0.1.0",
+    "@shopify/polaris-types": "^1.0.7",
     "@types/node": "^26.2.0",
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "0.45.2",

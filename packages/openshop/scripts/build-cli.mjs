@@ -27,6 +27,7 @@ await build({
   entryPoints: {
     cli: resolve(root, 'bin', 'cli.ts'),
     index: resolve(root, 'src', 'index.ts'),
+    admin: resolve(root, 'src', 'admin', 'index.ts'),
     vite: resolve(root, 'src', 'vite', 'codegen-plugin.ts'),
     test: resolve(root, 'src', 'test', 'index.ts'),
     schema: resolve(root, 'src', 'db', 'schema.ts'),

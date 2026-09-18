@@ -9,6 +9,7 @@ const DEFAULT_DOCUMENTS = [
   './server/**/*.{ts,tsx}',
   './queries/**/*.{ts,tsx}',
   './lib/server/**/*.{ts,tsx}',
+  './admin/pages/**/*.{ts,tsx}',
 ]
 const DEFAULT_OUTPUT_DIR = './types/generated'
 

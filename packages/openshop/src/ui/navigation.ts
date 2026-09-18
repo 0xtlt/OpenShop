@@ -28,7 +28,18 @@ function isSafeSegment(segment: string): boolean {
   return safeSegmentPattern.test(segment)
 }
 
-function isAllowedUiPath(pathname: string): boolean {
+function matchesCustomPath(pathname: string, customPatterns: readonly string[]): boolean {
+  const segments = pathname.split('/').filter(Boolean)
+  return customPatterns.some((pattern) => {
+    const patternSegments = pattern.split('/').filter(Boolean)
+    return segments.length === patternSegments.length
+      && patternSegments.every((segment, index) => (
+        segment.startsWith(':') ? isSafeSegment(segments[index] ?? '') : segment === segments[index]
+      ))
+  })
+}
+
+function isAllowedUiPath(pathname: string, customPatterns: readonly string[] = []): boolean {
   if (pathname === '/') return true
   if (isReservedPath(pathname)) return false
 
@@ -50,11 +61,15 @@ function isAllowedUiPath(pathname: string): boolean {
         || (segments.length === 2 && isSafeSegment(second!))
         || (segments.length === 3 && isSafeSegment(second!) && third!.length > 0)
     default:
-      return false
+      return matchesCustomPath(pathname, customPatterns)
   }
 }
 
-export function hrefToInternalRoute(href: string, origin: string): string | null {
+export function hrefToInternalRoute(
+  href: string,
+  origin: string,
+  customPatterns: readonly string[] = [],
+): string | null {
   let url: URL
   try {
     url = new URL(href, origin)
@@ -63,7 +78,7 @@ export function hrefToInternalRoute(href: string, origin: string): string | null
   }
 
   if (url.origin !== origin) return null
-  if (!isAllowedUiPath(url.pathname)) return null
+  if (!isAllowedUiPath(url.pathname, customPatterns)) return null
 
   return `${url.pathname}${url.search}${url.hash}`
 }
@@ -77,12 +92,16 @@ export function findShopifyNavigateHref(event: Event): string | null {
   return null
 }
 
-export function createShopifyNavigateHandler(route: RouteFn, getOrigin: OriginGetter): EventListener {
+export function createShopifyNavigateHandler(
+  route: RouteFn,
+  getOrigin: OriginGetter,
+  customPatterns: readonly string[] = [],
+): EventListener {
   return (event: Event) => {
     const href = findShopifyNavigateHref(event)
     if (!href) return
 
-    const internalRoute = hrefToInternalRoute(href, getOrigin())
+    const internalRoute = hrefToInternalRoute(href, getOrigin(), customPatterns)
     if (!internalRoute) return
 
     event.preventDefault()
@@ -94,8 +113,9 @@ export function addShopifyNavigateListener(
   route: RouteFn,
   doc: NavigateDocument = document,
   getOrigin: OriginGetter = () => window.location.origin,
+  customPatterns: readonly string[] = [],
 ): () => void {
-  const handler = createShopifyNavigateHandler(route, getOrigin)
+  const handler = createShopifyNavigateHandler(route, getOrigin, customPatterns)
   doc.addEventListener('shopify:navigate', handler)
   return () => doc.removeEventListener('shopify:navigate', handler)
 }

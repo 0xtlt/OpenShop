@@ -50,6 +50,8 @@ token or an OpenShop MCP token here.
 | Method and path | Request | Response |
 | --- | --- | --- |
 | `GET /api/pages` | — | Resolved visibility for `flows`, `providers`, `crons`, `functions`, and `mcp`. |
+| `GET /api/pages/custom` | — | Authorized experimental custom-page routes and navigation. |
+| `POST /api/pages/custom/<page>/_rpc/<kind>/<name>` | `{ "input": ... }` | Internal typed loader/action result. |
 
 Each value is `visible`, `hidden`, or `disabled`. Omitted config keys resolve to `visible`. This endpoint stays available even when every page is `disabled`.
 
@@ -62,6 +64,10 @@ When a page is `disabled`, its admin API group returns `404` with `{ "error": "N
 - `mcp` covers `/api/mcp`
 
 `hidden` only removes the Shopify sidebar link; the URL and admin API still work. It is not an access-control boundary. Use `disabled` when shop staff must not be able to open a page or call its admin API. Runtime endpoints such as `POST /mcp`, webhooks, and the worker are not gated by `pages`.
+
+Custom-page RPC paths are generated implementation details. Applications should
+use `useLoader` and `useAction`, not call them directly. Page and function
+authorization callbacks run independently for every request.
 
 ## Flows and runs
 

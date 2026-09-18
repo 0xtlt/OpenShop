@@ -7,12 +7,14 @@ import { encryptString } from '#server/crypto'
 import { getRuntimeLogger } from '../runtime/logger.ts'
 import { readJwtAudience, resolveShopifyAppByApiKey, type ResolvedShopifyApp } from '#server/shopify-apps'
 import type { OpenShopConfig } from '#types'
+import type { AdminActor } from '../admin/index.ts'
 
 export function createShopMiddleware(getConfig: () => OpenShopConfig) {
   return async function shopMiddleware(c: Context, next: Next) {
   let shop: string | undefined
   let sessionToken: string | undefined
   let shopifyApp: ResolvedShopifyApp | undefined
+  let actor: AdminActor | undefined
 
   const auth = c.req.header('Authorization')
   if (auth?.startsWith('Bearer ')) {
@@ -24,6 +26,7 @@ export function createShopMiddleware(getConfig: () => OpenShopConfig) {
       shopifyApp = resolveShopifyAppByApiKey(getConfig(), audience)
       const result = verifySessionToken(sessionToken, shopifyApp.apiSecret, { audience: shopifyApp.apiKey })
       shop = result.shop
+      actor = { id: result.payload.sub, sessionId: result.payload.sid }
     } catch (error) {
       return c.json({ error: 'Unauthorized: ' + (error instanceof Error ? error.message : 'Invalid token') }, 401)
     }
@@ -43,6 +46,7 @@ export function createShopMiddleware(getConfig: () => OpenShopConfig) {
 
   c.set('shop', shop)
   c.set('shopifyApp', shopifyApp.handle)
+  c.set('adminActor', actor ?? { id: 'unknown', sessionId: 'unknown' })
   await next()
   }
 }
@@ -93,4 +97,8 @@ export function getShop(c: Context): string {
 
 export function getShopifyApp(c: Context): string {
   return c.get('shopifyApp') as string
+}
+
+export function getAdminActor(c: Context): AdminActor {
+  return c.get('adminActor') as AdminActor
 }

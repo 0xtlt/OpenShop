@@ -79,7 +79,13 @@ importers:
       pg:
         specifier: ^8.23.0
         version: 8.23.0
+      preact:
+        specifier: ^10.29.8
+        version: 10.29.8(preact-render-to-string@6.7.0)
     devDependencies:
+      '@shopify/polaris-types':
+        specifier: ^1.0.7
+        version: 1.0.7
       '@types/node':
         specifier: ^26.2.0
         version: 26.2.0

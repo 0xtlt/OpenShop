@@ -48,6 +48,15 @@ test.group('hrefToInternalRoute', () => {
     assert.equal(hrefToInternalRoute('/functions/discounts/gid%3A%2F%2Fshopify%2FDiscountNode%2F1', origin), '/functions/discounts/gid%3A%2F%2Fshopify%2FDiscountNode%2F1')
   })
 
+  test('accepts only generated custom page patterns', ({ assert }) => {
+    assert.equal(
+      hrefToInternalRoute('/reviews/123', origin, ['/reviews/:id']),
+      '/reviews/123',
+    )
+    assert.isNull(hrefToInternalRoute('/reviews/123/edit', origin, ['/reviews/:id']))
+    assert.isNull(hrefToInternalRoute('/unknown', origin, ['/reviews/:id']))
+  })
+
   test('rejects external and special-scheme URLs', ({ assert }) => {
     assert.isNull(hrefToInternalRoute('https://evil.test/runs/550e8400-e29b-41d4-a716-446655440000', origin))
     assert.isNull(hrefToInternalRoute('//evil.test/runs/550e8400-e29b-41d4-a716-446655440000', origin))

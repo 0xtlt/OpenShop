@@ -1,4 +1,4 @@
-import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ProviderFieldDefinitions, ProviderMethod, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, AnyFunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders, McpConfig, AdminPagesConfig, AuthenticatedServerRouteDefinition, UnauthenticatedServerRouteDefinition } from './types.ts'
+import type { OpenShopConfig, FlowDefinition, FlowRunContext, ProviderDefinition, ProviderFieldDef, ProviderFieldDefinitions, ProviderMethod, ConfigFromFields, WebhookDefinition, CronEntryFor, RetryPolicy, WorkerConfig, FunctionDefinition, AnyFunctionDefinition, FunctionOwner, ShopifyFunctionType, DiscountMode, ProxyDefinition, ShopifyConfig, ShopifyAppConfig, ConnectorsFromProviders, McpConfig, AdminPagesConfig, OpenShopExperimentalConfig, AuthenticatedServerRouteDefinition, UnauthenticatedServerRouteDefinition } from './types.ts'
 import type { Type } from 'arktype'
 import type { StandardCRON } from 'ts-cron-validator'
 import { validateOpenShopConfig, validatePagesConfig } from './config/validate.ts'
@@ -13,6 +13,7 @@ interface OpenShopAppBase<TProviders extends Record<string, ProviderDefinition>>
   providers: TProviders
   mcp?: McpConfig
   pages?: AdminPagesConfig
+  experimental?: OpenShopExperimentalConfig
   worker?: Partial<WorkerConfig>
   retryPolicy?: Partial<RetryPolicy>
   onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void
@@ -45,6 +46,7 @@ interface OpenShopConfigInput<
   webhooks?: Record<string, WebhookDefinition>
   crons?: CronEntryFor<TFlows>[]
   pages?: AdminPagesConfig
+  experimental?: OpenShopExperimentalConfig
   worker?: Partial<WorkerConfig>
   retryPolicy?: Partial<RetryPolicy>
   onError?: (error: Error, context?: { flow?: string; step?: string }) => Promise<void> | void
@@ -141,6 +143,7 @@ export function defineOpenShop<const TProviders extends Record<string, ProviderD
         pages: app.pages === undefined && config.pages === undefined
           ? undefined
           : { ...app.pages, ...config.pages },
+        experimental: config.experimental ?? app.experimental,
         worker: config.worker ?? app.worker,
         retryPolicy: config.retryPolicy ?? app.retryPolicy,
         onError: config.onError ?? app.onError,
@@ -225,6 +228,11 @@ export type {
   AdminPageMode,
   AdminPagesConfig,
   ResolvedAdminPages,
+  CustomAdminNavigationItem,
+  CustomAdminPageManifestEntry,
+  CustomAdminPagesResponse,
+  ExperimentalCustomPagesConfig,
+  OpenShopExperimentalConfig,
   McpPermissionDefinition,
   McpToolDefinition,
   McpResourceDefinition,
@@ -241,3 +249,30 @@ export { defineModel } from './db/schema.ts'
 export { getDb } from './db/client.ts'
 export { createShopifyClient } from './shopify/client.ts'
 export { setRuntimeLogger, getRuntimeLogger, type RuntimeLogger } from './runtime/logger.ts'
+export {
+  AdminPublicError,
+  AdminRpcError,
+  createAdminFunctionReference,
+  defineAdminAction,
+  defineAdminLoader,
+  defineAdminPage,
+  defineAdminPageAccess,
+  useAction,
+  useLoader,
+} from './admin/index.ts'
+export type {
+  AdminActionDefinition,
+  AdminActionClient,
+  AdminActionOptions,
+  AdminActionState,
+  AdminActor,
+  AdminAuthorize,
+  AdminFunctionReference,
+  AdminLoaderDefinition,
+  AdminLoaderHandle,
+  AdminLoaderClient,
+  AdminLoaderState,
+  AdminPageDefinition,
+  AdminServerContext,
+  JsonValue,
+} from './admin/index.ts'

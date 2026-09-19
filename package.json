@@ -1,7 +1,7 @@
 {
   "name": "openshop-workspace",
   "private": true,
-  "license": "Elastic-2.0",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/0xtlt/OpenShop.git"

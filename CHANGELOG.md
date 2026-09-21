@@ -2,6 +2,22 @@
 
 All notable changes to OpenShop will be documented in this file.
 
+## [0.0.12-beta.0] - 2026-09-21
+
+### Changed
+
+- Rebuilt the documentation around Diátaxis: tutorials, how-to guides,
+  explanation, and reference. The README now points into those docs, and a
+  link checker covers the documentation site.
+- Relicensed OpenShop from Elastic License 2.0 to the MIT License, with
+  copyright held by Thomas Tastet (2026).
+
+### Fixed
+
+- Saved providers now show as configured before a health check runs. A
+  provider with every required field saved no longer appears as
+  "Not configured" until someone runs Test connection.
+
 ## [0.0.11-beta.0] - 2026-09-18
 
 ### Added

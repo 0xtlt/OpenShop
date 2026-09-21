@@ -4,7 +4,7 @@ import { getDb } from '#db/client'
 import { providerConfigs } from '#db/schema'
 import { getShop, getShopifyApp } from '#server/shop'
 import { encryptConfig, decryptConfig } from '#server/crypto'
-import { parseProviderConfig, providerFieldsForResponse, publicProviderConfig } from '#server/provider-config'
+import { parseProviderConfig, providerConfigIsComplete, providerFieldsForResponse, publicProviderConfig } from '#server/provider-config'
 import type { OpenShopConfig } from '#types'
 
 export function registerProviderRoutes(api: Hono, getConfig: () => OpenShopConfig) {
@@ -27,6 +27,7 @@ export function registerProviderRoutes(api: Hono, getConfig: () => OpenShopConfi
         name,
         fields: providerFieldsForResponse(provider, storedConfig),
         config: publicProviderConfig(provider, storedConfig),
+        configured: providerConfigIsComplete(provider, storedConfig),
         lastCheckedAt: stored?.lastCheckedAt ?? null,
         lastCheckOk: stored?.lastCheckOk ?? null,
       }

@@ -107,6 +107,13 @@ not automatically run `checker` before a method call.
 thrown checker error produces `{ ok: false, error }` with HTTP 500; returning
 `false` produces `{ ok: false }` with HTTP 200.
 
+`GET /api/providers` also returns `configured`. It is true when every required
+field has a saved value, including password fields that are omitted from the
+public config. The dashboard uses that flag separately from the last check:
+missing required values show **Not configured**, a complete config with no
+check yet shows **Configured**, `lastCheckOk: true` shows **Connected**, and
+`lastCheckOk: false` shows **Error**. Saving config does not run the checker.
+
 ## Secret behavior
 
 Password values are excluded from provider read responses. Their field metadata

@@ -3,6 +3,7 @@ import { useLocation } from 'preact-iso'
 import { apiJson } from '../fetch'
 import type { FlowRun, CronItem, FlowSummary, ProviderSummary } from '../types'
 import { statusTone } from '../types'
+import { providerConnectionStatus } from '../provider-status'
 import { useAdminPages } from '../admin-pages'
 
 function timeAgo(date: string | null): string {
@@ -189,19 +190,20 @@ export default function Home() {
               <s-table-header></s-table-header>
             </s-table-header-row>
             <s-table-body>
-              {providers.map((p) => (
-                <s-table-row key={p.name}>
-                  <s-table-cell><s-text type="strong">{p.name}</s-text></s-table-cell>
-                  <s-table-cell>
-                    <s-badge tone={p.lastCheckOk === true ? 'success' : p.lastCheckOk === false ? 'critical' : 'warning'}>
-                      {p.lastCheckOk === true ? 'Connected' : p.lastCheckOk === false ? 'Error' : 'Not configured'}
-                    </s-badge>
-                  </s-table-cell>
-                  <s-table-cell>
-                    <s-button variant="secondary" onClick={() => route('/providers')}>Configure</s-button>
-                  </s-table-cell>
-                </s-table-row>
-              ))}
+              {providers.map((p) => {
+                const connection = providerConnectionStatus(p)
+                return (
+                  <s-table-row key={p.name}>
+                    <s-table-cell><s-text type="strong">{p.name}</s-text></s-table-cell>
+                    <s-table-cell>
+                      <s-badge tone={connection.tone}>{connection.label}</s-badge>
+                    </s-table-cell>
+                    <s-table-cell>
+                      <s-button variant="secondary" onClick={() => route('/providers')}>Configure</s-button>
+                    </s-table-cell>
+                  </s-table-row>
+                )
+              })}
             </s-table-body>
           </s-table>
         </s-section>

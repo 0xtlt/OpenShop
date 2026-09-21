@@ -125,7 +125,7 @@ per-app, per-shop override; it does not edit `openshop.config.ts`.
 
 | Method and path | Request | Response |
 | --- | --- | --- |
-| `GET /api/providers` | — | Definitions, public config, field metadata, and last health check. |
+| `GET /api/providers` | — | Definitions, public config, `configured`, field metadata, and last health check. |
 | `PUT /api/providers/:name` | `{ "config": { ... } }` | Validates, merges masked secrets where applicable, encrypts, and stores config. |
 | `POST /api/providers/:name/check` | — | `{ ok }`, or `{ ok: false, error }` with `500`. |
 

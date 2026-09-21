@@ -22,6 +22,7 @@ test.group('Providers API', () => {
       assert.property(provider, 'name')
       assert.property(provider, 'fields')
       assert.property(provider, 'config')
+      assert.property(provider, 'configured')
     }
   })
 })

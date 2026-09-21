@@ -95,7 +95,9 @@ fields are write-only: the API returns `hasValue`, and submitting an empty
 password preserves the stored secret.
 
 The checker is manual. OpenShop does not call it before every flow method.
-Returning `false` records an unsuccessful check; throwing returns HTTP 500.
+Saving a complete config marks the provider as configured. A successful check
+then shows it as connected, and a failed check shows an error. Returning
+`false` records an unsuccessful check; throwing returns HTTP 500.
 
 ## 4. Call the connector
 

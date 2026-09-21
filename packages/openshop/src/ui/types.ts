@@ -60,6 +60,7 @@ export interface ProviderSummary {
   name: string
   fields: Record<string, ProviderFieldSummary>
   config: Record<string, unknown>
+  configured: boolean
   lastCheckedAt: string | null
   lastCheckOk: boolean | null
 }

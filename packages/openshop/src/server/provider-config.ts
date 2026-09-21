@@ -36,6 +36,18 @@ function coerceFieldValue(field: ProviderFieldDef, value: unknown): unknown {
   return value
 }
 
+export function providerConfigIsComplete(
+  provider: ProviderDefinition,
+  storedConfig: Record<string, unknown>,
+): boolean {
+  for (const [fieldName, field] of Object.entries(provider.ui.fields)) {
+    if (field.required === false) continue
+    if (isMissing(storedConfig[fieldName])) return false
+  }
+
+  return true
+}
+
 export function providerFieldsForResponse(
   provider: ProviderDefinition,
   storedConfig: Record<string, unknown>,

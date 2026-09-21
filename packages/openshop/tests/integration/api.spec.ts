@@ -302,6 +302,7 @@ test.group('API routes', (group) => {
     assert.deepInclude(data[0], {
       name: 'warehouse',
       config: {},
+      configured: false,
       lastCheckedAt: null,
       lastCheckOk: null,
     })
@@ -326,6 +327,8 @@ test.group('API routes', (group) => {
     assert.equal(provider.config.endpoint, 'https://warehouse.test')
     assert.notProperty(provider.config, 'apiKey')
     assert.isTrue(provider.fields.apiKey.hasValue)
+    assert.isTrue(provider.configured)
+    assert.isNull(provider.lastCheckOk)
 
     const updateRes = await req('/api/providers/warehouse', {
       method: 'PUT',
@@ -349,6 +352,33 @@ test.group('API routes', (group) => {
       endpoint: 'https://warehouse.test',
       apiKey: 'secret-1',
     })
+  })
+
+  test('saved provider stays configured before and after a health check', async ({ assert }) => {
+    const save = await req('/api/providers/warehouse', {
+      method: 'PUT',
+      body: JSON.stringify({
+        config: {
+          endpoint: 'https://warehouse.test',
+          apiKey: 'secret-1',
+        },
+      }),
+    })
+    assert.equal(save.status, 200)
+
+    const before = await req('/api/providers')
+    const [saved] = await before.json()
+    assert.isTrue(saved.configured)
+    assert.isNull(saved.lastCheckOk)
+
+    const check = await req('/api/providers/warehouse/check', { method: 'POST' })
+    assert.equal(check.status, 200)
+    assert.isTrue((await check.json()).ok)
+
+    const after = await req('/api/providers')
+    const [checked] = await after.json()
+    assert.isTrue(checked.configured)
+    assert.isTrue(checked.lastCheckOk)
   })
 
   test('PUT /api/providers rejects missing required fields', async ({ assert }) => {

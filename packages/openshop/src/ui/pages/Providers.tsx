@@ -3,6 +3,7 @@ import { apiFetch, apiJson } from '../fetch'
 import { eventValue } from '../events'
 import { ConfigFieldRenderer } from '../components/ConfigFieldRenderer'
 import type { BannerTone, ProviderSummary } from '../types'
+import { providerConnectionStatus } from '../provider-status'
 
 export default function Providers() {
   const [providers, setProviders] = useState<ProviderSummary[]>([])
@@ -38,6 +39,7 @@ export default function Providers() {
   }
 
   const p = providers[idx]
+  const connection = p ? providerConnectionStatus(p) : null
 
   const save = async () => {
     if (!p) return
@@ -102,6 +104,11 @@ export default function Providers() {
       )}
 
       <s-section heading={p?.name ?? 'Provider'}>
+        {connection && (
+          <s-box paddingBlockEnd="base">
+            <s-badge tone={connection.tone}>{connection.label}</s-badge>
+          </s-box>
+        )}
         {p && Object.entries(p.fields).map(([key, field]) => (
           <ConfigFieldRenderer
             key={key}

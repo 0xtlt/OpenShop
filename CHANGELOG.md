@@ -6,12 +6,20 @@ All notable changes to OpenShop will be documented in this file.
 
 ### Added
 
-- Added an opt-in client credentials token mode for development stores of the
-  app's own Shopify organization. With `SHOPIFY_CLIENT_CREDENTIALS_SHOP` set to
-  one `*.myshopify.com` domain, the default app obtains, stores, and renews its
-  Admin API token for that store without OAuth; the `__global__` shop resolves
-  to it, and opening the embedded admin no longer redirects to OAuth inside the
-  admin frame.
+- Added Shopify's client credentials grant for development stores of the
+  organization that owns the app. On an embedded admin load with a valid query
+  HMAC, or an `/api` request with a verified session token, a shop without a
+  usable token is granted one with the resolved app's own credentials before
+  falling back to OAuth or token exchange as before; a refusal is remembered in
+  memory for one hour per app and shop. Webhooks and unsigned routes never
+  start a grant.
+- Added the optional `SHOPIFY_CLIENT_CREDENTIALS_SHOP` for background work: the
+  `default` app gets a token for that one store, `__global__` maps to it, and
+  `shops: 'all'` includes it until an installation row exists for it.
+- Shopify clients and the MCP `openshop.admin.graphql` tool now renew a stored
+  token once with the grant after a `401` and retry once; a token granted by
+  the running process is renewed five minutes before it expires. Stored OAuth
+  tokens are used as before.
 
 ## [0.0.12-beta.0] - 2026-09-21
 

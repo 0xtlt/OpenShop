@@ -105,9 +105,15 @@ handle with [Authentication](/reference/authentication/) and
 
 ## Use a development store without OAuth
 
-A development store of the app's own Shopify organization can get its token
-without OAuth. Install the app on the store once, then set
-`SHOPIFY_CLIENT_CREDENTIALS_SHOP` to that store's `*.myshopify.com` domain in
-single-app mode. OpenShop then requests and renews the token itself, including
-after the database is recreated. This does not work for merchants' stores; see
-[Client credentials](/reference/authentication/#client-credentials-development-stores).
+A development store of the organization that owns the app can get its token
+without OAuth, through Shopify's client credentials grant. Install the app on
+the store once. When the store opens the app in Shopify admin, OpenShop tries
+the grant with that app's own credentials before redirecting to OAuth, in
+single-app and multi-app mode alike; a store of another organization is
+refused and keeps OAuth, and the refusal is not attempted again for an hour.
+
+For crons and `__global__` flows, which have no request from Shopify, set
+`SHOPIFY_CLIENT_CREDENTIALS_SHOP` to the store's `<name>.myshopify.com` domain.
+In multi-app mode it uses the `default` handle. OpenShop then requests and
+renews that store's token itself, including after the database is recreated.
+See [Client credentials](/reference/authentication/#client-credentials-development-stores).

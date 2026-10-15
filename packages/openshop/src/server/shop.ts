@@ -5,6 +5,7 @@ import { getDb } from '#db/client'
 import { installations } from '#db/schema'
 import { encryptString } from '#server/crypto'
 import { getRuntimeLogger } from '../runtime/logger.ts'
+import { grantForSignedRequest } from '../shopify/client-credentials.ts'
 import { readJwtAudience, resolveShopifyAppByApiKey, type ResolvedShopifyApp } from '#server/shopify-apps'
 import type { OpenShopConfig } from '#types'
 import type { AdminActor } from '../admin/index.ts'
@@ -15,6 +16,7 @@ export function createShopMiddleware(getConfig: () => OpenShopConfig) {
   let sessionToken: string | undefined
   let shopifyApp: ResolvedShopifyApp | undefined
   let actor: AdminActor | undefined
+  let destIsExactShop = false
 
   const auth = c.req.header('Authorization')
   if (auth?.startsWith('Bearer ')) {
@@ -26,6 +28,7 @@ export function createShopMiddleware(getConfig: () => OpenShopConfig) {
       shopifyApp = resolveShopifyAppByApiKey(getConfig(), audience)
       const result = verifySessionToken(sessionToken, shopifyApp.apiSecret, { audience: shopifyApp.apiKey })
       shop = result.shop
+      destIsExactShop = result.payload.dest === `https://${result.shop}`
       actor = { id: result.payload.sub, sessionId: result.payload.sid }
     } catch (error) {
       return c.json({ error: 'Unauthorized: ' + (error instanceof Error ? error.message : 'Invalid token') }, 401)
@@ -41,7 +44,7 @@ export function createShopMiddleware(getConfig: () => OpenShopConfig) {
   }
 
   if (sessionToken) {
-    try { await ensureInstallation(shopifyApp, shop, sessionToken) } catch { /* non-blocking */ }
+    try { await ensureInstallation(shopifyApp, shop, sessionToken, destIsExactShop) } catch { /* non-blocking */ }
   }
 
   c.set('shop', shop)
@@ -51,7 +54,7 @@ export function createShopMiddleware(getConfig: () => OpenShopConfig) {
   }
 }
 
-async function ensureInstallation(shopifyApp: ResolvedShopifyApp, shop: string, sessionToken: string) {
+async function ensureInstallation(shopifyApp: ResolvedShopifyApp, shop: string, sessionToken: string, destIsExactShop: boolean) {
   const db = getDb()
   const [existing] = await db.select().from(installations)
     .where(and(eq(installations.appHandle, shopifyApp.handle), eq(installations.shop, shop)))
@@ -60,6 +63,15 @@ async function ensureInstallation(shopifyApp: ResolvedShopifyApp, shop: string, 
   if (existing?.accessToken) return
 
   if (!shopifyApp.apiKey || !shopifyApp.apiSecret) return
+
+  // The verified session token's `dest` is a shop Shopify vouched for: try the
+  // client credentials grant first (it only succeeds on a store of the app's own
+  // organization), then token exchange as before.
+  if (destIsExactShop) {
+    try {
+      if (await grantForSignedRequest(shopifyApp, shop)) return
+    } catch { /* fall back to token exchange */ }
+  }
 
   try {
     const response = await fetch(`https://${shop}/admin/oauth/access_token`, {

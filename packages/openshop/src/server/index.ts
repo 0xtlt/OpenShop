@@ -13,12 +13,12 @@ import { createProxyRoutes } from '#server/proxy'
 import { createServerRoutes } from '#server/routes'
 import { createWebhookRoutes } from '#server/webhooks'
 import { createShopMiddleware } from '#server/shop'
-import { normalizeShopDomain } from '#server/shop-domain'
+import { normalizeShopDomain, strictShopDomain } from '#server/shop-domain'
 import { DEFAULT_SHOPIFY_APP_HANDLE, resolveShopifyAppBySignedQuery } from '#server/shopify-apps'
 import { getDb } from '#db/client'
 import { installations } from '#db/schema'
 import type { OpenShopConfig } from '#types'
-import { clientCredentialsShop, clientCredentialsTarget, getClientCredentialsToken } from '../shopify/client-credentials.ts'
+import { assertClientCredentialsConfig, grantForSignedRequest, useShopifyAppsConfig } from '../shopify/client-credentials.ts'
 import { adminPageFromApiPath, resolveAdminPages } from '../config/pages.ts'
 import { getRuntimeLogger } from '../runtime/logger.ts'
 
@@ -75,13 +75,6 @@ function unauthorizedUi() {
   )
 }
 
-function tokenUnavailableUi() {
-  return new Response(
-    '<!doctype html><html><body><main><h1>This store could not get an access token</h1></main></body></html>',
-    { status: 502, headers: { 'content-type': 'text/html; charset=utf-8', 'x-robots-tag': robotsHeader } },
-  )
-}
-
 async function isInstalledShop(shopifyApp: string, shop: string): Promise<boolean> {
   const [installation] = await getDb()
     .select({ id: installations.id })
@@ -97,9 +90,20 @@ async function isInstalledShop(shopifyApp: string, shop: string): Promise<boolea
   return Boolean(installation)
 }
 
+async function tryGrantForSignedRequest(shopifyApp: { handle: string; apiKey: string; apiSecret: string }, shop: string): Promise<boolean> {
+  try {
+    return await grantForSignedRequest(shopifyApp, shop)
+  } catch {
+    // Database errors may quote the query parameters, the sealed token among them.
+    getRuntimeLogger().error(`[openshop] Could not store a client credentials token for shop "${shop}"`)
+    return false
+  }
+}
+
 export async function createServer(getConfig: ConfigGetter, options?: ServerOptions) {
-  // Fail at startup, not on the first request, when the variable is malformed.
-  clientCredentialsShop()
+  // Fail at startup, not on the first request, when SHOPIFY_CLIENT_CREDENTIALS_SHOP cannot be served.
+  assertClientCredentialsConfig(getConfig())
+  useShopifyAppsConfig(getConfig)
   const app = new Hono()
 
   app.use('*', async (c, next) => {
@@ -184,15 +188,10 @@ export async function createServer(getConfig: ConfigGetter, options?: ServerOpti
       }
 
       if (!(await isInstalledShop(shopifyApp.handle, shop))) {
-        // A same-organization dev store gets its token by client credentials:
-        // redirecting to OAuth inside the admin iframe is refused by Shopify.
-        if (clientCredentialsTarget(shopifyApp.handle, shop) === shop) {
-          try {
-            await getClientCredentialsToken(shop)
-          } catch (error) {
-            getRuntimeLogger().error(error instanceof Error ? error.message : '[openshop] Client credentials grant failed')
-            return tokenUnavailableUi()
-          }
+        // Shopify signed this shop, so the resolved app may try the client
+        // credentials grant for it (it only succeeds on a store of the app's own
+        // organization). Any failure keeps the OAuth redirect below.
+        if (strictShopDomain(query.shop) === shop && await tryGrantForSignedRequest(shopifyApp, shop)) {
           ;(c as unknown as { set: (key: string, value: string) => void }).set('shopifyApiKey', shopifyApp.apiKey)
           return next()
         }

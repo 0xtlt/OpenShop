@@ -5,6 +5,7 @@ import { getDb } from '#db/client'
 import { flowRuns } from '#db/schema'
 import { runFlow } from '#engine/runner'
 import { getRuntimeLogger } from '../runtime/logger.ts'
+import { assertClientCredentialsConfig, useShopifyAppsConfig } from '../shopify/client-credentials.ts'
 import type { OpenShopConfig, WorkerConfig } from '#types'
 
 const inputSchema = type('Record<string, unknown>')
@@ -29,6 +30,8 @@ export class Worker {
     this.#config = { ...DEFAULT_WORKER_CONFIG, ...openshopConfig.worker, ...overrides }
     this.#openshopConfig = openshopConfig
     this.#workerId = randomUUID()
+    assertClientCredentialsConfig(openshopConfig)
+    useShopifyAppsConfig(() => this.#openshopConfig)
   }
 
   get isRunning() { return this.#running }

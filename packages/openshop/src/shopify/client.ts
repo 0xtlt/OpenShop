@@ -1,14 +1,6 @@
-import { and, eq } from 'drizzle-orm'
-import { getDb } from '../db/client.ts'
-import { installations } from '../db/schema.ts'
-import { decryptString } from '../server/crypto.ts'
+import { strictShopDomain } from '../server/shop-domain.ts'
 import { DEFAULT_SHOPIFY_APP_HANDLE } from '../server/shopify-apps.ts'
-import {
-  CLIENT_CREDENTIALS_RENEW_MARGIN_MS,
-  clientCredentialsTarget,
-  getClientCredentialsToken,
-  type ClientCredentialsToken,
-} from './client-credentials.ts'
+import { openAdminTokenSource, sendWithAdminToken } from './client-credentials.ts'
 
 const SHOPIFY_API_VERSION = '2026-04'
 
@@ -43,9 +35,12 @@ export interface ShopifyClient {
  * Creates a Shopify Admin API client for a specific shop.
  * Reads the access token from the installations table.
  *
- * When `SHOPIFY_CLIENT_CREDENTIALS_SHOP` names this shop (or the shop is the
- * global placeholder), the token is obtained and renewed with Shopify's client
- * credentials grant instead, and the client talks to that shop.
+ * A stored token is used as is. After a 401 from the Admin API, the token is
+ * replaced once by Shopify's client credentials grant and the call retried once;
+ * when that fails, the 401 error is thrown. When `SHOPIFY_CLIENT_CREDENTIALS_SHOP`
+ * names this shop (or the shop is the `__global__` placeholder) and the app is
+ * `default`, a missing token is obtained by that grant and the client talks to
+ * the configured shop.
  */
 export async function createShopifyClient(
   shop: string,
@@ -55,50 +50,22 @@ export async function createShopifyClient(
   const isApiVersion = /^\d{4}-\d{2}$/.test(shopifyAppOrApiVersion)
   const shopifyApp = isApiVersion ? DEFAULT_SHOPIFY_APP_HANDLE : shopifyAppOrApiVersion
   const resolvedApiVersion = isApiVersion ? shopifyAppOrApiVersion : apiVersion
-  const clientCredentialsShop = clientCredentialsTarget(shopifyApp, shop)
-
-  if (clientCredentialsShop) {
-    return createClientCredentialsClient(clientCredentialsShop, shopifyApp, resolvedApiVersion)
-  }
-
-  const db = getDb()
-  const [installation] = await db.select().from(installations)
-    .where(and(eq(installations.appHandle, shopifyApp), eq(installations.shop, shop)))
-    .limit(1)
-
-  const accessToken = decryptString(installation?.accessToken)
+  const tokens = await openAdminTokenSource(shopifyApp, shop)
 
   const graphql = async (query: string, options?: { variables?: Record<string, unknown> }) => {
-    if (!accessToken) {
-      throw new Error(`[openshop] No access token found for app "${shopifyApp}" and shop "${shop}". Is the app installed?`)
-    }
+    // The token comes first, so a shop without one keeps today's error.
+    await tokens.token()
+    const shopDomain = strictShopDomain(tokens.shop.includes('.') ? tokens.shop : `${tokens.shop}.myshopify.com`)
+    if (!shopDomain) throw new Error(`[openshop] Invalid shop domain "${tokens.shop}": expected <name>.myshopify.com`)
 
-    const shopDomain = shop.includes('.') ? shop : `${shop}.myshopify.com`
-    return readGraphqlResponse(await postGraphql(shopDomain, resolvedApiVersion, accessToken, query, options))
-  }
-
-  return { graphql, shop, shopifyApp } as ShopifyClient
-}
-
-function createClientCredentialsClient(shop: string, shopifyApp: string, apiVersion: string): ShopifyClient {
-  let token: ClientCredentialsToken | null = null
-
-  const graphql = async (query: string, options?: { variables?: Record<string, unknown> }) => {
-    if (!token || token.expiresAt.getTime() - CLIENT_CREDENTIALS_RENEW_MARGIN_MS <= Date.now()) {
-      token = await getClientCredentialsToken(shop)
-    }
-
-    let response = await postGraphql(shop, apiVersion, token.accessToken, query, options)
-    if (response.status === 401) {
-      await response.body?.cancel()
-      token = await getClientCredentialsToken(shop, { rejected: token.accessToken })
-      response = await postGraphql(shop, apiVersion, token.accessToken, query, options)
-    }
-
+    const response = await sendWithAdminToken(
+      tokens,
+      (accessToken) => postGraphql(shopDomain, resolvedApiVersion, accessToken, query, options),
+    )
     return readGraphqlResponse(response)
   }
 
-  return { graphql, shop, shopifyApp } as ShopifyClient
+  return { graphql, shop: tokens.shop, shopifyApp } as ShopifyClient
 }
 
 function postGraphql(

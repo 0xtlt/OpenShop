@@ -8,7 +8,7 @@ import { dispatchFlow } from '#engine/dispatch'
 import { runFlow } from '#engine/runner'
 import { encryptString } from '#server/crypto'
 import { resetClientCredentialsState } from '../../src/shopify/client-credentials.ts'
-import { createConfig, truncateAll, TEST_SHOP } from './helpers.ts'
+import { createConfig, truncateAll, TEST_SHOP, refuseShopifyTokenRequests, CLIENT_CREDENTIALS_GRANT, TOKEN_EXCHANGE_GRANT, type ShopifyTokenEndpoints } from './helpers.ts'
 
 const SECRET = process.env.SHOPIFY_API_SECRET!
 const SHOP_B = 'mcp-other.myshopify.com'
@@ -49,6 +49,8 @@ async function createLoggedRun(shop = TEST_SHOP) {
 
 let app: Awaited<ReturnType<typeof createServer>>
 
+let tokenEndpoints: ShopifyTokenEndpoints
+
 test.group('MCP', (group) => {
   group.setup(async () => {
     const config = createConfig({ 'log-flow': logFlow }, {
@@ -77,7 +79,11 @@ test.group('MCP', (group) => {
     app = await createServer(() => config)
   })
 
-  group.each.setup(() => truncateAll())
+  group.each.setup(async () => {
+    await truncateAll()
+    tokenEndpoints = refuseShopifyTokenRequests()
+    return () => tokenEndpoints.restore()
+  })
 
   const adminReq = (path: string, opts: RequestInit = {}, shop = TEST_SHOP) => {
     const headers = new Headers(opts.headers)
@@ -113,6 +119,12 @@ test.group('MCP', (group) => {
     assert.notProperty(list[0], 'token')
     assert.equal(list[0].tokenId, data.item.tokenId)
     assert.equal(new Date(list[0].expiresAt).getTime() > Date.now(), true)
+    // The refused grant is remembered: the second request only tries token exchange.
+    assert.deepEqual(tokenEndpoints.calls, [
+      { shop: TEST_SHOP, grantType: CLIENT_CREDENTIALS_GRANT },
+      { shop: TEST_SHOP, grantType: TOKEN_EXCHANGE_GRANT },
+      { shop: TEST_SHOP, grantType: TOKEN_EXCHANGE_GRANT },
+    ])
   })
 
   test('rotating a token keeps its tokenId and invalidates the old secret', async ({ assert }) => {

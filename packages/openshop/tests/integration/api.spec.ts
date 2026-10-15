@@ -7,7 +7,7 @@ import { createServer } from '#server/index'
 import { decryptConfig } from '#server/crypto'
 import { dispatchFlow } from '#engine/dispatch'
 import { runFlow } from '#engine/runner'
-import { truncateAll, createConfig, TEST_SHOP } from './helpers.ts'
+import { truncateAll, createConfig, TEST_SHOP, refuseShopifyTokenRequests, CLIENT_CREDENTIALS_GRANT, TOKEN_EXCHANGE_GRANT, type ShopifyTokenEndpoints } from './helpers.ts'
 
 const SECRET = process.env.SHOPIFY_API_SECRET!
 
@@ -36,6 +36,8 @@ const simpleFlow = {
 
 let app: Awaited<ReturnType<typeof createServer>>
 
+let tokenEndpoints: ShopifyTokenEndpoints
+
 test.group('API routes', (group) => {
   group.setup(async () => {
     const config = createConfig({ 'test-flow': simpleFlow })
@@ -59,7 +61,11 @@ test.group('API routes', (group) => {
     app = await createServer(() => config)
   })
 
-  group.each.setup(() => truncateAll())
+  group.each.setup(async () => {
+    await truncateAll()
+    tokenEndpoints = refuseShopifyTokenRequests()
+    return () => tokenEndpoints.restore()
+  })
 
   const req = (path: string, opts: RequestInit = {}) => {
     const headers = new Headers(opts.headers)
@@ -77,6 +83,12 @@ test.group('API routes', (group) => {
     assert.isArray(data)
     assert.equal(data[0].name, 'test-flow')
     assert.property(data[0], 'inputSchema')
+    // A session token for a shop without a token tries the client credentials
+    // grant, then token exchange; both are refused offline.
+    assert.deepEqual(tokenEndpoints.calls, [
+      { shop: TEST_SHOP, grantType: CLIENT_CREDENTIALS_GRANT },
+      { shop: TEST_SHOP, grantType: TOKEN_EXCHANGE_GRANT },
+    ])
   })
 
   // ─── Crons
@@ -420,7 +432,11 @@ test.group('API Shopify functions list', (group) => {
     fnApp = await createServer(() => config)
   })
 
-  group.each.setup(() => truncateAll())
+  group.each.setup(async () => {
+    await truncateAll()
+    tokenEndpoints = refuseShopifyTokenRequests()
+    return () => tokenEndpoints.restore()
+  })
 
   test('GET /api/functions returns definitions without calling Shopify', async ({ assert }) => {
     const res = await fnApp.request('/api/functions', {

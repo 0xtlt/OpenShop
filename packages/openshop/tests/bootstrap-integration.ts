@@ -21,13 +21,21 @@ try {
 }
 
 import { shutdownDb } from './integration/helpers.ts'
+import { installNetworkGuard } from './network-guard.ts'
+
+// Any request to a non-local address fails the run, even when the code under
+// test swallows the error (token exchange does).
+const networkGuard = installNetworkGuard()
 
 processCLIArgs(process.argv.splice(2))
 
 configure({
   files: ['tests/integration/**/*.spec.ts'],
   plugins: [assert()],
-  setup: [() => () => shutdownDb()],
+  setup: [
+    () => () => shutdownDb(),
+    () => () => networkGuard.report(),
+  ],
 })
 
 run()

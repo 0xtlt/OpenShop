@@ -9,7 +9,7 @@ import { getDb } from '#db/client'
 import { installations } from '#db/schema'
 import { closeHttpServer } from '#server/http'
 import { createServer } from '#server/index'
-import { createConfig, truncateAll } from './helpers.ts'
+import { createConfig, truncateAll, refuseShopifyTokenRequests, CLIENT_CREDENTIALS_GRANT, TOKEN_EXCHANGE_GRANT, type ShopifyTokenEndpoints } from './helpers.ts'
 
 const simpleFlow = { name: 'static-flow', async run() {} }
 const secret = process.env.SHOPIFY_API_SECRET!
@@ -41,6 +41,8 @@ function signedLaunchUrl(path = '/', shop = 'static-test.myshopify.com', signing
   return `http://localhost${path}?${query.toString()}`
 }
 
+let tokenEndpoints: ShopifyTokenEndpoints
+
 test.group('Static files and SPA fallback', (group) => {
   let staticRoot: string
   let app: Awaited<ReturnType<typeof createServer>>
@@ -57,7 +59,11 @@ test.group('Static files and SPA fallback', (group) => {
     rmSync(staticRoot, { recursive: true, force: true })
   })
 
-  group.each.setup(() => truncateAll())
+  group.each.setup(async () => {
+    await truncateAll()
+    tokenEndpoints = refuseShopifyTokenRequests()
+    return () => tokenEndpoints.restore()
+  })
 
   test('GET serves file from staticDir', async ({ assert }) => {
     const res = await app.request('http://localhost/asset.txt')
@@ -165,5 +171,7 @@ test.group('Static files and SPA fallback', (group) => {
     const res = await app.request(signedLaunchUrl('/', 'uninstalled.myshopify.com'))
     assert.equal(res.status, 302)
     assert.equal(res.headers.get('location'), '/auth?shop=uninstalled.myshopify.com')
+    // The signed launch tried the client credentials grant first; it was refused.
+    assert.deepEqual(tokenEndpoints.calls, [{ shop: 'uninstalled.myshopify.com', grantType: CLIENT_CREDENTIALS_GRANT }])
   })
 })

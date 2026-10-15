@@ -17,6 +17,7 @@ manager or deployment platform to inject their environment.
 | `SHOPIFY_API_SECRET` | Single-app mode | Empty | OAuth, session-token, webhook, and proxy signature verification |
 | `HOST` | Production | Falls back to `SHOPIFY_APP_URL` | Public application URL and allowed CORS origin |
 | `SHOPIFY_APP_URL` | When `HOST` is absent | Empty | Legacy public application URL and allowed CORS origin |
+| `SHOPIFY_CLIENT_CREDENTIALS_SHOP` | No | Unset (off) | One `*.myshopify.com` development store of the app's own organization whose token comes from the [client credentials grant](/reference/authentication/#client-credentials-development-stores) |
 | `ENCRYPTION_KEY` | Production | Plaintext storage in development | Provider configuration and Shopify access-token encryption |
 | `PORT` | No | `3000` | `openshop dev` UI port and `openshop start` HTTP port |
 | `OPENSHOP_API_PORT` | Internal | `3001` | Development API subprocess |

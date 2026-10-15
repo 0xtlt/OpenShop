@@ -2,6 +2,17 @@
 
 All notable changes to OpenShop will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Added an opt-in client credentials token mode for development stores of the
+  app's own Shopify organization. With `SHOPIFY_CLIENT_CREDENTIALS_SHOP` set to
+  one `*.myshopify.com` domain, the default app obtains, stores, and renews its
+  Admin API token for that store without OAuth; the `__global__` shop resolves
+  to it, and opening the embedded admin no longer redirects to OAuth inside the
+  admin frame.
+
 ## [0.0.12-beta.0] - 2026-09-21
 
 ### Changed

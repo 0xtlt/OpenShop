@@ -102,3 +102,12 @@ appear only in the intended app/shop context.
 If authentication fails, compare the selected client ID, secret, public URL, and
 handle with [Authentication](/reference/authentication/) and
 [Troubleshooting](/guides/troubleshooting/).
+
+## Use a development store without OAuth
+
+A development store of the app's own Shopify organization can get its token
+without OAuth. Install the app on the store once, then set
+`SHOPIFY_CLIENT_CREDENTIALS_SHOP` to that store's `*.myshopify.com` domain in
+single-app mode. OpenShop then requests and renews the token itself, including
+after the database is recreated. This does not work for merchants' stores; see
+[Client credentials](/reference/authentication/#client-credentials-development-stores).

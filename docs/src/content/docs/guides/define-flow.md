@@ -94,6 +94,8 @@ export default app.defineConfig({
 
 `shops: 'all'` dispatches for each installed app/shop pair. Omitting `shops` uses
 the synthetic `__global__` shop, which has no ordinary Shopify installation.
+With [`SHOPIFY_CLIENT_CREDENTIALS_SHOP`](/reference/authentication/#client-credentials-development-stores)
+set, its Shopify client targets that development store.
 For a shop-specific integration, set the target explicitly. Configure credentials
 for every targeted shop before enabling the schedule.
 

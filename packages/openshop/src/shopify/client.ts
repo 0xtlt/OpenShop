@@ -3,6 +3,12 @@ import { getDb } from '../db/client.ts'
 import { installations } from '../db/schema.ts'
 import { decryptString } from '../server/crypto.ts'
 import { DEFAULT_SHOPIFY_APP_HANDLE } from '../server/shopify-apps.ts'
+import {
+  CLIENT_CREDENTIALS_RENEW_MARGIN_MS,
+  clientCredentialsTarget,
+  getClientCredentialsToken,
+  type ClientCredentialsToken,
+} from './client-credentials.ts'
 
 const SHOPIFY_API_VERSION = '2026-04'
 
@@ -36,6 +42,10 @@ export interface ShopifyClient {
 /**
  * Creates a Shopify Admin API client for a specific shop.
  * Reads the access token from the installations table.
+ *
+ * When `SHOPIFY_CLIENT_CREDENTIALS_SHOP` names this shop (or the shop is the
+ * global placeholder), the token is obtained and renewed with Shopify's client
+ * credentials grant instead, and the client talks to that shop.
  */
 export async function createShopifyClient(
   shop: string,
@@ -45,6 +55,12 @@ export async function createShopifyClient(
   const isApiVersion = /^\d{4}-\d{2}$/.test(shopifyAppOrApiVersion)
   const shopifyApp = isApiVersion ? DEFAULT_SHOPIFY_APP_HANDLE : shopifyAppOrApiVersion
   const resolvedApiVersion = isApiVersion ? shopifyAppOrApiVersion : apiVersion
+  const clientCredentialsShop = clientCredentialsTarget(shopifyApp, shop)
+
+  if (clientCredentialsShop) {
+    return createClientCredentialsClient(clientCredentialsShop, shopifyApp, resolvedApiVersion)
+  }
+
   const db = getDb()
   const [installation] = await db.select().from(installations)
     .where(and(eq(installations.appHandle, shopifyApp), eq(installations.shop, shop)))
@@ -58,36 +74,68 @@ export async function createShopifyClient(
     }
 
     const shopDomain = shop.includes('.') ? shop : `${shop}.myshopify.com`
-
-    const response = await fetch(
-      `https://${shopDomain}/admin/api/${resolvedApiVersion}/graphql.json`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': accessToken,
-        },
-        body: JSON.stringify({
-          query,
-          variables: options?.variables,
-        }),
-      },
-    )
-
-    if (!response.ok) {
-      const text = await response.text()
-      throw new Error(`[openshop] Shopify GraphQL error (${response.status}): ${text}`)
-    }
-
-    const json: GraphQLResponse = await response.json()
-
-    if (json.errors?.length) {
-      const messages = json.errors.map((e) => e.message).join('; ')
-      throw new Error(`[openshop] GraphQL errors: ${messages}`)
-    }
-
-    return json.data
+    return readGraphqlResponse(await postGraphql(shopDomain, resolvedApiVersion, accessToken, query, options))
   }
 
   return { graphql, shop, shopifyApp } as ShopifyClient
+}
+
+function createClientCredentialsClient(shop: string, shopifyApp: string, apiVersion: string): ShopifyClient {
+  let token: ClientCredentialsToken | null = null
+
+  const graphql = async (query: string, options?: { variables?: Record<string, unknown> }) => {
+    if (!token || token.expiresAt.getTime() - CLIENT_CREDENTIALS_RENEW_MARGIN_MS <= Date.now()) {
+      token = await getClientCredentialsToken(shop)
+    }
+
+    let response = await postGraphql(shop, apiVersion, token.accessToken, query, options)
+    if (response.status === 401) {
+      await response.body?.cancel()
+      token = await getClientCredentialsToken(shop, { rejected: token.accessToken })
+      response = await postGraphql(shop, apiVersion, token.accessToken, query, options)
+    }
+
+    return readGraphqlResponse(response)
+  }
+
+  return { graphql, shop, shopifyApp } as ShopifyClient
+}
+
+function postGraphql(
+  shopDomain: string,
+  apiVersion: string,
+  accessToken: string,
+  query: string,
+  options?: { variables?: Record<string, unknown> },
+): Promise<Response> {
+  return fetch(
+    `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': accessToken,
+      },
+      body: JSON.stringify({
+        query,
+        variables: options?.variables,
+      }),
+    },
+  )
+}
+
+async function readGraphqlResponse(response: Response): Promise<unknown> {
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`[openshop] Shopify GraphQL error (${response.status}): ${text}`)
+  }
+
+  const json: GraphQLResponse = await response.json()
+
+  if (json.errors?.length) {
+    const messages = json.errors.map((e) => e.message).join('; ')
+    throw new Error(`[openshop] GraphQL errors: ${messages}`)
+  }
+
+  return json.data
 }

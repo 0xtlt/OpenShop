@@ -46,6 +46,48 @@ Multi-app mode also requires the configured handle:
 The callback validates the HMAC and one-time state before storing the access
 token. Access tokens are encrypted when `ENCRYPTION_KEY` is configured.
 
+## Client credentials (development stores)
+
+Shopify's [client credentials grant](https://shopify.dev/docs/apps/build/authentication-authorization/client-credentials-grant)
+issues an Admin API token without a browser, but only when the app and the
+store belong to the **same Shopify organization**. It never works on a
+merchant's store, so it is off by default and meant for development stores
+that an organization owns and keeps the app installed on, for example stores
+used by automated tests or agents.
+
+Enable it for one store in single-app mode:
+
+```dotenv
+SHOPIFY_API_KEY=your-client-id
+SHOPIFY_API_SECRET=your-client-secret
+SHOPIFY_CLIENT_CREDENTIALS_SHOP=your-dev-store.myshopify.com
+```
+
+The value must be a `*.myshopify.com` domain; otherwise the web server refuses
+to start and Shopify clients fail. With the variable set, for the `default` app and that shop only:
+
+- When no token is stored, OpenShop requests one from
+  `https://<shop>/admin/oauth/access_token` with
+  `grant_type=client_credentials` and the app's client ID and secret, then
+  stores it in `installations` like an OAuth token, encrypted when
+  `ENCRYPTION_KEY` is configured. An empty database needs no installation step.
+- A stored token is reused until five minutes before its 24-hour lifetime ends,
+  then renewed. A `401` from the Admin API renews it once and retries the
+  request once. Concurrent requests in one process share a single renewal.
+- Flows and crons that run on the synthetic `__global__` shop get a Shopify
+  client for the configured shop. Their runs, cron overrides, and provider
+  configurations stay under `__global__`. A cron with `shops: 'all'` also
+  targets the configured shop before it has an installation row.
+- Opening the embedded app in Shopify admin from a production build obtains
+  the token instead of redirecting to `/auth`, which Shopify refuses to display
+  inside the admin frame. A refused grant shows an error page there.
+
+Other shops and other app handles keep OAuth and token exchange. The token has
+the scopes of the app's released version. A refusal, such as
+`shop_not_permitted` when the store belongs to another organization or the app
+is not installed on it, fails the call with the HTTP status and Shopify's error
+code; the client ID, secret, and token are never logged.
+
 ## Webhook and proxy bodies
 
 Webhook HMAC validation uses the raw body. Reverse proxies and middleware must

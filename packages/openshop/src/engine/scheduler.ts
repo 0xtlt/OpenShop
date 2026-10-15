@@ -5,6 +5,7 @@ import { installations, cronOverrides } from '#db/schema'
 import { dispatchFlow } from '#engine/dispatch'
 import { getRuntimeLogger } from '../runtime/logger.ts'
 import { DEFAULT_SHOPIFY_APP_HANDLE } from '#server/shopify-apps'
+import { clientCredentialsShop, GLOBAL_SHOP } from '../shopify/client-credentials.ts'
 import type { OpenShopConfig, CronEntry } from '#types'
 
 const activeCrons: Cron[] = []
@@ -41,13 +42,19 @@ async function resolveInstalledTargets(shops: string[]): Promise<CronTarget[]> {
 async function resolveTargets(entry: Pick<CronEntry, 'shops'>): Promise<CronTarget[]> {
   const mode = entry.shops ?? 'global'
 
-  if (mode === 'global') return [{ shopifyApp: DEFAULT_SHOPIFY_APP_HANDLE, shop: '__global__' }]
+  if (mode === 'global') return [{ shopifyApp: DEFAULT_SHOPIFY_APP_HANDLE, shop: GLOBAL_SHOP }]
 
   if (mode === 'all') {
     const db = getDb()
     const rows = await db.select({ shopifyApp: installations.appHandle, shop: installations.shop })
       .from(installations)
       .where(isNull(installations.uninstalledAt))
+    // The client credentials shop needs no installation row: its token is
+    // obtained on first use, so it is always one of the installed shops.
+    const configured = clientCredentialsShop()
+    if (configured && !rows.some((row) => row.shopifyApp === DEFAULT_SHOPIFY_APP_HANDLE && row.shop === configured)) {
+      rows.push({ shopifyApp: DEFAULT_SHOPIFY_APP_HANDLE, shop: configured })
+    }
     return rows
   }
 

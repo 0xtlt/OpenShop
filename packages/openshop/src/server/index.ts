@@ -18,6 +18,7 @@ import { DEFAULT_SHOPIFY_APP_HANDLE, resolveShopifyAppBySignedQuery } from '#ser
 import { getDb } from '#db/client'
 import { installations } from '#db/schema'
 import type { OpenShopConfig } from '#types'
+import { clientCredentialsShop, clientCredentialsTarget, getClientCredentialsToken } from '../shopify/client-credentials.ts'
 import { adminPageFromApiPath, resolveAdminPages } from '../config/pages.ts'
 import { getRuntimeLogger } from '../runtime/logger.ts'
 
@@ -74,6 +75,13 @@ function unauthorizedUi() {
   )
 }
 
+function tokenUnavailableUi() {
+  return new Response(
+    '<!doctype html><html><body><main><h1>This store could not get an access token</h1></main></body></html>',
+    { status: 502, headers: { 'content-type': 'text/html; charset=utf-8', 'x-robots-tag': robotsHeader } },
+  )
+}
+
 async function isInstalledShop(shopifyApp: string, shop: string): Promise<boolean> {
   const [installation] = await getDb()
     .select({ id: installations.id })
@@ -90,6 +98,8 @@ async function isInstalledShop(shopifyApp: string, shop: string): Promise<boolea
 }
 
 export async function createServer(getConfig: ConfigGetter, options?: ServerOptions) {
+  // Fail at startup, not on the first request, when the variable is malformed.
+  clientCredentialsShop()
   const app = new Hono()
 
   app.use('*', async (c, next) => {
@@ -174,6 +184,18 @@ export async function createServer(getConfig: ConfigGetter, options?: ServerOpti
       }
 
       if (!(await isInstalledShop(shopifyApp.handle, shop))) {
+        // A same-organization dev store gets its token by client credentials:
+        // redirecting to OAuth inside the admin iframe is refused by Shopify.
+        if (clientCredentialsTarget(shopifyApp.handle, shop) === shop) {
+          try {
+            await getClientCredentialsToken(shop)
+          } catch (error) {
+            getRuntimeLogger().error(error instanceof Error ? error.message : '[openshop] Client credentials grant failed')
+            return tokenUnavailableUi()
+          }
+          ;(c as unknown as { set: (key: string, value: string) => void }).set('shopifyApiKey', shopifyApp.apiKey)
+          return next()
+        }
         const appParam = shopifyApp.handle === DEFAULT_SHOPIFY_APP_HANDLE ? '' : `&app=${encodeURIComponent(shopifyApp.handle)}`
         return c.redirect(`/auth?shop=${encodeURIComponent(shop)}${appParam}`)
       }

@@ -4,6 +4,8 @@ All notable changes to OpenShop will be documented in this file.
 
 ## [Unreleased]
 
+## [0.0.13-beta.0] - 2026-10-16
+
 ### Added
 
 - Added Shopify's client credentials grant for development stores of the

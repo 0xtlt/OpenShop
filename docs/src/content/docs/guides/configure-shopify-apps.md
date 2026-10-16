@@ -111,7 +111,9 @@ the store once. When the store opens the app in Shopify admin, OpenShop tries
 the grant with that app's own credentials before redirecting to OAuth, in
 single-app and multi-app mode alike; a store of another organization is
 refused and keeps OAuth, and the refusal is not attempted again for an hour.
-Only a launch Shopify signed less than 90 seconds ago starts the grant.
+Only a launch Shopify signed within 90 seconds of the server's clock starts the
+grant. A refusal met by background work before the app was installed never
+holds back that launch.
 
 For crons and `__global__` flows, which have no request from Shopify, set
 `SHOPIFY_CLIENT_CREDENTIALS_SHOP` to the store's `<name>.myshopify.com` domain.

@@ -1,6 +1,8 @@
 import { test } from '@japa/runner'
 import { createHmac } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { and, eq } from 'drizzle-orm'
@@ -10,14 +12,20 @@ import { decryptString, encryptString } from '#server/crypto'
 import { createServer } from '#server/index'
 import { resolveTargets, startScheduler, stopScheduler } from '#engine/scheduler'
 import { Worker } from '#engine/worker'
+import { cancelRun } from '#engine/abort'
+import { dispatchFlow } from '#engine/dispatch'
+import { runFlow } from '#engine/runner'
+import { createCoreMcpCapabilities } from '#server/mcp/core'
 import { createShopifyClient } from '../../src/shopify/client.ts'
+import { setRuntimeLogger, type RuntimeLogger } from '../../src/runtime/logger.ts'
 import { sql } from 'drizzle-orm'
 import {
   CLIENT_CREDENTIALS_SHOP_ENV,
+  clientCredentialsWaiters,
   resetClientCredentialsState,
   useShopifyAppsConfig,
 } from '../../src/shopify/client-credentials.ts'
-import type { OpenShopConfig } from '#types'
+import type { FlowRunContext, McpExecutionContext, OpenShopConfig } from '#types'
 import { createConfig, truncateAll } from './helpers.ts'
 
 const SHOP = 'dev-store.myshopify.com'
@@ -97,6 +105,52 @@ function fakeShopify(options: { onToken?: Responder; onGraphql?: Responder } = {
     throw new Error(`unexpected request to ${url}`)
   }
   return fake
+}
+
+/**
+ * A token endpoint that holds its answer until `release()`. `received` settles
+ * when the first request reaches it, so a test knows the request is in flight
+ * without waiting for an arbitrary time.
+ */
+function gatedToken(accessToken = 'shared-token') {
+  let release: () => void = () => {}
+  let received: () => void = () => {}
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const receivedPromise = new Promise<void>((resolve) => { received = resolve })
+  return {
+    received: receivedPromise,
+    release: () => release(),
+    onToken: async () => {
+      received()
+      await gate
+      return Response.json({ access_token: accessToken, scope: 'read_orders', expires_in: 86399 })
+    },
+  }
+}
+
+/** Waits, a turn of the event loop at a time, until `condition` holds. */
+async function until(condition: () => boolean): Promise<void> {
+  for (let turn = 0; turn < 100_000; turn += 1) {
+    if (condition()) return
+    await new Promise((resolve) => setImmediate(resolve))
+  }
+  throw new Error('condition never met')
+}
+
+/** The context the MCP server gives a tool call, with the caller's signal. */
+function mcpContext(signal: AbortSignal): McpExecutionContext {
+  return {
+    appHandle: 'default',
+    shop: SHOP,
+    tokenId: 'test-token-id',
+    permissions: ['shopify_admin_graphql'],
+    signal,
+    db: getDb() as unknown as McpExecutionContext['db'],
+  }
+}
+
+function adminGraphqlTool() {
+  return createCoreMcpCapabilities(() => createConfig({})).tools['openshop.admin.graphql']!
 }
 
 function setClientCredentialsShop(value: string | undefined): () => void {
@@ -318,7 +372,8 @@ test.group('Client credentials: background work on the configured shop', (group)
     try {
       const clients = await Promise.all([createShopifyClient(SHOP), createShopifyClient(SHOP), createShopifyClient('__global__')])
       const pending = Promise.all(clients.map((client) => client.graphql(query)))
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      // Each caller joins the shared request before its first await.
+      assert.equal(clientCredentialsWaiters('default', SHOP), 3)
       release()
       await pending
 
@@ -528,12 +583,147 @@ test.group('Client credentials: background work on the configured shop', (group)
     }
   })
 
-  test('rejects a configured value that is not exactly <name>.myshopify.com', async ({ assert }) => {
-    for (const value of ['example.com', 'https://dev-store.myshopify.com', 'dev-store.myshopify.com:8443', 'Dev-Store.myshopify.com', ' dev-store.myshopify.com']) {
-      restoreEnv()
-      restoreEnv = setClientCredentialsShop(value)
-      await assert.rejects(() => createShopifyClient(SHOP), /SHOPIFY_CLIENT_CREDENTIALS_SHOP must be exactly <name>\.myshopify\.com/)
-      await assert.rejects(() => createServer(() => createConfig({})), /SHOPIFY_CLIENT_CREDENTIALS_SHOP must be exactly <name>\.myshopify\.com/)
+  test('a malformed value stops the server, the scheduler and the worker, and is ignored with one warning elsewhere', async ({ assert }) => {
+    const warnings: string[] = []
+    const previousLogger = setRuntimeLogger({
+      info: () => {},
+      warn: (message) => { warnings.push(message) },
+      error: () => {},
+    } satisfies RuntimeLogger)
+    await insertInstallation({ shop: OTHER_SHOP, token: 'merchant-token' })
+    const shopify = fakeShopify()
+    try {
+      const values = ['example.com', 'https://dev-store.myshopify.com', 'dev-store.myshopify.com:8443', 'Dev-Store.myshopify.com', ' dev-store.myshopify.com']
+      for (const value of values) {
+        restoreEnv()
+        restoreEnv = setClientCredentialsShop(value)
+        const malformed = /SHOPIFY_CLIENT_CREDENTIALS_SHOP must be exactly <name>\.myshopify\.com/
+        await assert.rejects(() => createServer(() => createConfig({})), malformed)
+        assert.throws(() => startScheduler(createConfig({})), malformed)
+        assert.throws(() => new Worker(createConfig({})), malformed)
+
+        // A plain script: the variable is off, every other shop works as before.
+        assert.deepEqual(await (await createShopifyClient(OTHER_SHOP)).graphql(query), { shop: { name: 'Dev store' } })
+        await assert.rejects(async () => (await createShopifyClient(SHOP)).graphql(query), /No access token found for app "default" and shop "dev-store.myshopify.com"/)
+        await assert.rejects(async () => (await createShopifyClient('__global__')).graphql(query), /No access token found/)
+      }
+      assert.lengthOf(shopify.tokenRequests, 0)
+      assert.lengthOf(shopify.graphqlRequests, values.length)
+      // One warning per value, however many clients read it.
+      assert.lengthOf(warnings, values.length)
+      for (const warning of warnings) assert.include(warning, 'is ignored')
+    } finally {
+      setRuntimeLogger(previousLogger)
+      stopScheduler()
+      shopify.restore()
+    }
+  })
+
+  test('a refusal of old credentials never holds back corrected ones', async ({ assert }) => {
+    const previousSecret = process.env.SHOPIFY_API_SECRET
+    process.env.SHOPIFY_API_SECRET = 'old-wrong-secret'
+    const shopify = fakeShopify({
+      onToken: (call) => grantForm(call).get('client_secret') === API_SECRET
+        ? Response.json({ access_token: 'fixed-token', scope: 'read_orders', expires_in: 86399 })
+        : Response.json({ error: 'invalid_client' }, { status: 401 }),
+    })
+    try {
+      const messages: string[] = []
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          await (await createShopifyClient(SHOP)).graphql(query)
+        } catch (error) {
+          messages.push(errorMessage(error))
+        }
+      }
+      assert.include(messages[0], 'HTTP 401, invalid_client')
+      assert.include(messages[1], 'invalid_client, less than 1 hour ago')
+      assert.lengthOf(shopify.tokenRequests, 1)
+      for (const message of messages) assert.notInclude(message, 'old-wrong-secret')
+
+      // The operator fixes the secret: the next call asks Shopify again at once.
+      process.env.SHOPIFY_API_SECRET = previousSecret
+      assert.deepEqual(await (await createShopifyClient(SHOP)).graphql(query), { shop: { name: 'Dev store' } })
+      assert.lengthOf(shopify.tokenRequests, 2)
+      assert.equal(decryptString((await storedInstallation())!.accessToken), 'fixed-token')
+    } finally {
+      process.env.SHOPIFY_API_SECRET = previousSecret
+      shopify.restore()
+    }
+  })
+
+  test('cancelling an MCP call stops its wait, not the request it shares with other callers', async ({ assert }) => {
+    await freshState({ grantTimeoutMs: 60_000 })
+    const token = gatedToken()
+    const shopify = fakeShopify({ onToken: token.onToken })
+    const controller = new AbortController()
+    try {
+      const call = (async () => adminGraphqlTool().run(mcpContext(controller.signal), { shop: SHOP, apiVersion: '2026-04', query }))()
+        .then(() => 'answered', (error: unknown) => errorMessage(error))
+      await token.received
+      const other = (await createShopifyClient(SHOP)).graphql(query)
+      assert.equal(clientCredentialsWaiters('default', SHOP), 2)
+
+      controller.abort()
+      assert.include(await call, 'cancelled')
+      assert.equal(clientCredentialsWaiters('default', SHOP), 1)
+      assert.isFalse(shopify.tokenRequests[0]!.signal!.aborted)
+
+      token.release()
+      assert.deepEqual(await other, { shop: { name: 'Dev store' } })
+      assert.lengthOf(shopify.tokenRequests, 1)
+      assert.equal(decryptString((await storedInstallation())!.accessToken), 'shared-token')
+    } finally {
+      token.release()
+      shopify.restore()
+    }
+  })
+
+  test('cancelling a flow run stops its wait, not the request it shares with other callers', async ({ assert }) => {
+    await freshState({ grantTimeoutMs: 60_000 })
+    const token = gatedToken()
+    const fake = fakeShopify({ onToken: token.onToken })
+    const flow = {
+      name: 'grant-flow',
+      run: async ({ shopify }: FlowRunContext) => { await shopify.graphql(query) },
+    }
+    const config = createConfig({ 'grant-flow': flow })
+    try {
+      const { runId } = await dispatchFlow({
+        flowName: 'grant-flow', config, shop: '__global__', options: { retryPolicy: { maxAttempts: 0 } },
+      })
+      const run = runFlow({ runId, flowName: 'grant-flow', config, shop: '__global__' })
+      await token.received
+      const other = (await createShopifyClient(SHOP)).graphql(query)
+      assert.equal(clientCredentialsWaiters('default', SHOP), 2)
+
+      assert.isTrue(cancelRun(runId))
+      assert.equal((await run).status, 'canceled')
+      assert.equal(clientCredentialsWaiters('default', SHOP), 1)
+      assert.isFalse(fake.tokenRequests[0]!.signal!.aborted)
+
+      token.release()
+      assert.deepEqual(await other, { shop: { name: 'Dev store' } })
+      assert.lengthOf(fake.tokenRequests, 1)
+    } finally {
+      token.release()
+      fake.restore()
+    }
+  })
+
+  test('a caller whose signal already aborted sends nothing', async ({ assert }) => {
+    const shopify = fakeShopify()
+    try {
+      const controller = new AbortController()
+      controller.abort()
+      await assert.rejects(
+        async () => adminGraphqlTool().run(mcpContext(controller.signal), { shop: SHOP, apiVersion: '2026-04', query }),
+        /cancelled/,
+      )
+      assert.lengthOf(shopify.requests, 0)
+      assert.isUndefined(await storedInstallation())
+    } finally {
+      shopify.restore()
     }
   })
 
@@ -1057,7 +1247,8 @@ test.group('Client credentials: Shopify-signed requests', (group) => {
       const client = await createShopifyClient('__global__')
       const background = client.graphql(query)
       const launch = app.request(launchUrl(SHOP), { redirect: 'manual' })
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      // Released only once the launch joined the request background work started.
+      await until(() => clientCredentialsWaiters('default', SHOP) === 2)
       release()
       const [data, res] = await Promise.all([background, launch])
 
@@ -1071,6 +1262,119 @@ test.group('Client credentials: Shopify-signed requests', (group) => {
       shopify.restore()
     }
   })
+
+  test('a background refusal never holds back a signed launch: installed, then opened within the hour', async ({ assert }) => {
+    restoreEnv()
+    restoreEnv = setClientCredentialsShop(SHOP)
+    let installed = false
+    const shopify = fakeShopify({
+      onToken: () => installed
+        ? Response.json({ access_token: 'after-install', scope: 'read_orders', expires_in: 86399 })
+        : Response.json({ error: 'shop_not_permitted' }, { status: 400 }),
+    })
+    try {
+      const app = await appWith()
+      // A cron runs before the app is installed on the store, and is refused.
+      await assert.rejects(async () => (await createShopifyClient('__global__')).graphql(query), /same Shopify organization/)
+      clock += 10 * 60_000
+      await assert.rejects(async () => (await createShopifyClient('__global__')).graphql(query), /less than 1 hour ago/)
+      assert.lengthOf(shopify.tokenRequests, 1)
+
+      // The developer installs the app and opens it: the launch asks Shopify at once.
+      installed = true
+      const res = await app.request(launchUrl(SHOP), { redirect: 'manual' })
+      assert.equal(res.status, 200)
+      assert.lengthOf(shopify.tokenRequests, 2)
+      assert.equal(decryptString((await storedInstallation())!.accessToken), 'after-install')
+
+      // The success cleared the background refusal too: with the row gone, background work asks again.
+      await truncateAll()
+      assert.deepEqual(await (await createShopifyClient('__global__')).graphql(query), { shop: { name: 'Dev store' } })
+      assert.lengthOf(shopify.tokenRequests, 3)
+    } finally {
+      shopify.restore()
+    }
+  })
+
+  test('a signed refusal holds back signed launches and background work alike', async ({ assert }) => {
+    restoreEnv()
+    restoreEnv = setClientCredentialsShop(SHOP)
+    const shopify = fakeShopify({ onToken: () => Response.json({ error: 'shop_not_permitted' }, { status: 400 }) })
+    try {
+      const app = await appWith()
+      assert.equal((await app.request(launchUrl(SHOP), { redirect: 'manual' })).status, 302)
+      clock += 10 * 60_000
+      assert.equal((await app.request(launchUrl(SHOP), { redirect: 'manual' })).status, 302)
+      await assert.rejects(async () => (await createShopifyClient('__global__')).graphql(query), /less than 1 hour ago/)
+      assert.lengthOf(shopify.tokenRequests, 1)
+    } finally {
+      shopify.restore()
+    }
+  })
+
+  test('background work alone never revives a shop uninstalled while its grant was in flight', async ({ assert }) => {
+    restoreEnv()
+    restoreEnv = setClientCredentialsShop(SHOP)
+    const token = gatedToken()
+    const shopify = fakeShopify({ onToken: token.onToken })
+    try {
+      const client = await createShopifyClient(SHOP)
+      const background = client.graphql(query).then(() => 'answered', (error: unknown) => errorMessage(error))
+      await token.received
+      await insertInstallation({ token: null, uninstalledAt: new Date() })
+      token.release()
+
+      assert.include(await background, 'the shop was uninstalled')
+      const row = await storedInstallation()
+      assert.isNull(row!.accessToken)
+      assert.isNotNull(row!.uninstalledAt)
+    } finally {
+      token.release()
+      shopify.restore()
+    }
+  })
+
+  for (const first of ['background', 'signed'] as const) {
+    test(`a signed launch sharing a grant with background work revives an uninstalled shop (${first} first)`, async ({ assert }) => {
+      restoreEnv()
+      restoreEnv = setClientCredentialsShop(SHOP)
+      const token = gatedToken()
+      const shopify = fakeShopify({ onToken: token.onToken })
+      try {
+        const app = await appWith()
+        // Opened while the shop had no row; the row then says it was uninstalled.
+        const client = await createShopifyClient(SHOP)
+        let background: Promise<string>
+        let launch: Promise<Response>
+        const startBackground = () => client.graphql(query).then(() => 'answered', (error: unknown) => errorMessage(error))
+        if (first === 'background') {
+          background = startBackground()
+          await token.received
+          await insertInstallation({ token: null, uninstalledAt: new Date() })
+          launch = app.request(launchUrl(SHOP), { redirect: 'manual' })
+          await until(() => clientCredentialsWaiters('default', SHOP) === 2)
+        } else {
+          await insertInstallation({ token: null, uninstalledAt: new Date() })
+          launch = app.request(launchUrl(SHOP), { redirect: 'manual' })
+          await token.received
+          background = startBackground()
+          assert.equal(clientCredentialsWaiters('default', SHOP), 2)
+        }
+        token.release()
+
+        const res = await launch
+        await background
+        assert.equal(res.status, 200)
+        assert.lengthOf(shopify.tokenRequests, 1)
+        const row = await storedInstallation()
+        assert.equal(decryptString(row!.accessToken), 'shared-token')
+        assert.isNull(row!.uninstalledAt)
+      } finally {
+        token.release()
+        shopify.restore()
+      }
+    })
+  }
 
   test('a hostile shop parameter never reaches another host', async ({ assert }) => {
     const shopify = fakeShopify()
@@ -1225,6 +1529,127 @@ test.group('Client credentials: config registration', (group) => {
       assert.equal(await grantedClientId(shopify), API_KEY)
     } finally {
       shopify.restore()
+    }
+  })
+})
+
+interface RedirectingShopify {
+  /** Requests that reached the Shopify stand-in, which answers each with a 307. */
+  redirected: string[]
+  /** Requests that reached the address of the 307: there must be none. */
+  stolen: string[]
+  close: () => Promise<void>
+}
+
+async function listen(server: http.Server): Promise<number> {
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  return (server.address() as AddressInfo).port
+}
+
+/**
+ * Sends every request for `https://<shop>.myshopify.com/...` to a local server
+ * that answers `307 Temporary Redirect` to a second local server, which records
+ * whatever reaches it. A 307 keeps the method and the body, so a client that
+ * followed it would hand the secret or token it sent to that second address.
+ */
+async function redirectingShopify(): Promise<RedirectingShopify> {
+  const stolen: string[] = []
+  const redirected: string[] = []
+  const thief = http.createServer((req, res) => {
+    let body = ''
+    req.on('data', (chunk: Buffer) => { body += chunk.toString() })
+    req.on('end', () => {
+      stolen.push(`${req.method} ${req.url} ${JSON.stringify(req.headers)} ${body}`)
+      res.end('{}')
+    })
+  })
+  const thiefPort = await listen(thief)
+  const shopify = http.createServer((req, res) => {
+    redirected.push(`${req.method} ${req.url}`)
+    req.resume()
+    res.writeHead(307, { Location: `http://127.0.0.1:${thiefPort}${req.url}` })
+    res.end()
+  })
+  const shopifyPort = await listen(shopify)
+
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    const match = url.match(/^https:\/\/[a-z0-9-]+\.myshopify\.com(\/.*)$/)
+    return originalFetch(match ? `http://127.0.0.1:${shopifyPort}${match[1]}` : input, init)
+  }
+  return {
+    stolen,
+    redirected,
+    close: async () => {
+      globalThis.fetch = originalFetch
+      shopify.closeAllConnections()
+      thief.closeAllConnections()
+      await Promise.all([shopify, thief].map((server) => new Promise<void>((resolve) => server.close(() => resolve()))))
+    },
+  }
+}
+
+test.group('Client credentials: redirects', (group) => {
+  let restoreEnv: () => void = () => {}
+
+  group.each.setup(async () => {
+    await freshState()
+    restoreEnv = setClientCredentialsShop(SHOP)
+    return () => restoreEnv()
+  })
+
+  test('a redirect of the token endpoint is never followed and counts as a transient failure', async ({ assert }) => {
+    const shopify = await redirectingShopify()
+    try {
+      let message = ''
+      try {
+        await (await createShopifyClient(SHOP)).graphql(query)
+      } catch (error) {
+        message = errorMessage(error)
+      }
+      assert.include(message, 'redirect refused')
+      assert.include(message, 'attempted again after 30 seconds')
+      assert.deepEqual(shopify.redirected, ['POST /admin/oauth/access_token'])
+      assert.deepEqual(shopify.stolen, [])
+
+      clock += BACKOFF_MS - 1000
+      await assert.rejects(async () => (await createShopifyClient(SHOP)).graphql(query), /less than 30 seconds ago/)
+      assert.lengthOf(shopify.redirected, 1)
+      clock += 2000
+      await assert.rejects(async () => (await createShopifyClient(SHOP)).graphql(query), /redirect refused/)
+      assert.lengthOf(shopify.redirected, 2)
+      assert.deepEqual(shopify.stolen, [])
+    } finally {
+      await shopify.close()
+    }
+  })
+
+  test('a redirect of the Admin API never carries the token elsewhere, from a client or the MCP tool', async ({ assert }) => {
+    await insertInstallation({ token: 'stored-secret-token' })
+    const shopify = await redirectingShopify()
+    try {
+      await assert.rejects(async () => (await createShopifyClient(SHOP)).graphql(query))
+      await assert.rejects(async () => adminGraphqlTool().run(mcpContext(new AbortController().signal), { shop: SHOP, apiVersion: '2026-04', query }))
+      assert.deepEqual(shopify.redirected, ['POST /admin/api/2026-04/graphql.json', 'POST /admin/api/2026-04/graphql.json'])
+      assert.deepEqual(shopify.stolen, [])
+    } finally {
+      await shopify.close()
+    }
+  })
+
+  test('a redirect during a session token\'s grant or token exchange is never followed', async ({ assert }) => {
+    const shopify = await redirectingShopify()
+    try {
+      const app = await createServer(() => createConfig({}))
+      const res = await app.request('/api/flows', { headers: { Authorization: `Bearer ${sessionToken(OTHER_SHOP)}` } })
+      assert.equal(res.status, 200)
+      // The grant, then token exchange, each redirected once and followed by neither.
+      assert.deepEqual(shopify.redirected, ['POST /admin/oauth/access_token', 'POST /admin/oauth/access_token'])
+      assert.deepEqual(shopify.stolen, [])
+      assert.isUndefined(await storedInstallation(OTHER_SHOP))
+    } finally {
+      await shopify.close()
     }
   })
 })

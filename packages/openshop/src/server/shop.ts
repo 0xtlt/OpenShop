@@ -85,6 +85,8 @@ async function ensureInstallation(shopifyApp: ResolvedShopifyApp, shop: string, 
         subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
         requested_token_type: 'urn:shopify:params:oauth:token-type:offline-access-token',
       }),
+      // A redirect would carry the client secret to another address.
+      redirect: 'error',
     })
 
     if (!response.ok) return

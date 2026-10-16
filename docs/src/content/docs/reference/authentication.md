@@ -72,8 +72,9 @@ two cases only:
 
 - an embedded admin load whose query HMAC is valid for one of the configured
   apps; the `shop` parameter must itself be exactly `<name>.myshopify.com`, and
-  the signed `timestamp` must be less than 90 seconds away from the server's
-  clock, the tolerance Shopify's own app library uses. A copied launch URL
+  the signed `timestamp` must be within 90 seconds of the server's clock, in
+  either direction (90 seconds included), the tolerance Shopify's own app
+  library uses. A copied launch URL
   replayed later is still accepted as before, but never grants and never marks
   an uninstalled shop installed again: it redirects to `/auth`;
 - an `/api` request whose session token is verified; the shop is its `dest`
@@ -86,21 +87,30 @@ inside the admin frame. On any failure the request continues exactly as before
 the grant existed: the admin load redirects to `/auth`, and an `/api` request
 uses token exchange.
 
-The request to Shopify is abandoned after five seconds. Failures are
-remembered in process memory per app and shop, and during that time no grant is
-attempted for the pair and the usual path is taken at once:
+The request to Shopify is abandoned after five seconds, and a redirect is
+never followed: it would send the client secret to another address. Failures
+are remembered in process memory per app, shop and credentials (a truncated
+SHA-256 digest of the client ID and secret, never the secret itself, so a
+refusal of a wrong secret does not hold back the corrected one). During that
+time the usual path is taken at once, without asking Shopify:
 
 - a definite refusal, a `4xx` answer carrying a Shopify error code such as
-  `shop_not_permitted`, for one hour, so a merchant's store pays one extra round
-  trip to Shopify at most once an hour per process;
-- a transient failure, a timeout, a network error, a `429`, a `5xx` or an
-  answer without an error code, for 30 seconds.
+  `shop_not_permitted` or `invalid_client`, for one hour, so a merchant's store
+  pays one extra round trip to Shopify at most once an hour per process;
+- a transient failure, a timeout, a network error, a redirect, a `429`, a
+  `5xx`, a `4xx` without an error code, or an answer without a token, for 30
+  seconds.
 
-A successful grant clears the entry. Nothing about failures is stored in the
-database.
+A failure is remembered for the kind of attempt that met it. A failure of
+background work (below) never holds back a signed request: a cron refused
+before the app was installed on the store does not keep the developer who
+installs and opens it from getting a token. A failure of a signed request holds
+back signed requests and background work alike. A successful grant of either
+kind clears both. Nothing about failures is stored in the database.
 
 Unsigned input never starts a grant for a shop of its choosing. `/auth`, public
-routes, proxy routes, and MCP requests are not signed by Shopify. A webhook's
+routes, and MCP requests are not signed by Shopify; app proxy requests are
+signed (HMAC) but never start a grant. A webhook's
 signature covers the body, not the `X-Shopify-Shop-Domain` header, so the
 header does not vouch for the shop: the webhook route answers `400` when it is
 `__global__`, so that a webhook can never name the placeholder of background
@@ -137,7 +147,9 @@ The value must be exactly `<name>.myshopify.com`. In multi-app mode the
 `default` handle's credentials are used, and a config without a `default`
 handle is refused. The web server, the scheduler, and the worker refuse to
 start when the value is malformed or the `default` app has no API key and
-secret.
+secret. Elsewhere, for example a script that only calls `createShopifyClient`,
+a malformed value is ignored with one warning: no shop is granted by it, and
+every other shop works as before.
 
 ### Stored tokens and renewal
 
@@ -150,10 +162,17 @@ secret.
 - When the Admin API answers `401`, OpenShop requests one grant with the app's
   credentials and retries the request once, never more. When the shop is
   marked uninstalled or the grant fails, the original `401` error is returned.
-- Concurrent callers in one process share one grant request per app and shop,
-  whether a signed request or background work started it. Each stores the
-  answer on its own terms: background work still never marks an uninstalled
-  shop installed again.
+- Concurrent callers in one process share one grant request per app, shop and
+  credentials, whether a signed request or background work started it. Each
+  stores the answer on its own terms: background work still never marks an
+  uninstalled shop installed again. A failure of a shared request is
+  remembered for the kind of caller that started it.
+- An MCP call or a flow run that is cancelled stops waiting for the grant at
+  once, and sends nothing when it was already cancelled; the shared request
+  still ends by itself for the other callers.
+- Neither the Admin API requests, the grant, token exchange nor the OAuth
+  callback follow a redirect, so a token or secret never reaches another
+  address.
 
 The MCP `openshop.admin.graphql` tool resolves its token the same way: it uses
 the stored token of the requested shop (or, for the configured shop, a granted

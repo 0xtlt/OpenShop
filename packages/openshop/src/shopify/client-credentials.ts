@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { and, eq, isNull } from 'drizzle-orm'
 import { getDb } from '../db/client.ts'
 import { installations } from '../db/schema.ts'
@@ -19,9 +20,10 @@ import type { OpenShopConfig } from '../types.ts'
  *   covers `shop` and whose `timestamp` is recent, or a verified session
  *   token's `dest`), when the resolved app has no usable token for that shop.
  *   Any failure falls back to OAuth or token exchange exactly as before. A
- *   definite refusal is remembered in memory for one hour per app and shop, so
- *   a merchant's store pays the extra round trip at most once an hour per
- *   process; a transient failure only for a few seconds.
+ *   definite refusal is remembered in memory for one hour per app, shop and
+ *   credentials, so a merchant's store pays the extra round trip at most once
+ *   an hour per process; a transient failure only for 30 seconds. A failure of
+ *   background work never holds back a signed request.
  * - For background work on the one shop named by `SHOPIFY_CLIENT_CREDENTIALS_SHOP`
  *   (and the `__global__` placeholder, which maps to it), with the `default` app.
  * - To renew a stored token the Admin API answered 401 to (one grant, one retry),
@@ -72,7 +74,12 @@ interface AppCredentials {
   clientSecret: string
 }
 
-/** Who vouched for the shop. A background grant never revives an uninstalled shop. */
+/**
+ * Who vouched for the shop. A background grant never revives an uninstalled
+ * shop. Failures are remembered per mode: a background failure never holds
+ * back a signed attempt (the app may have been installed since), while a
+ * signed failure holds back both.
+ */
 type GrantMode = 'signed' | 'background'
 
 /**
@@ -101,15 +108,53 @@ interface Failure {
   window: string
 }
 
+interface PendingRequest {
+  promise: Promise<TokenAnswer>
+  /** Callers currently waiting for this request. */
+  waiters: number
+}
+
 const granted = new Map<string, GrantedToken>()
 const failures = new Map<string, Failure>()
-const inFlight = new Map<string, Promise<TokenAnswer>>()
+const inFlight = new Map<string, PendingRequest>()
 let now: () => number = () => Date.now()
 let grantTimeoutMs = CLIENT_CREDENTIALS_GRANT_TIMEOUT_MS
 let configSource: { get: () => OpenShopConfig; live: boolean } | null = null
+let warnedMalformedShop: string | null = null
 
+/** Key of the token this process holds for an app and shop. */
 function stateKey(shopifyApp: string, shop: string): string {
   return `${shopifyApp}\n${shop}`
+}
+
+/**
+ * Key of a token request: app, shop, and a digest of the credentials, so that
+ * a refusal of old credentials (`invalid_client`) never holds back corrected
+ * ones. Only a truncated SHA-256 digest is kept, never the secret.
+ */
+function requestKey(shopifyApp: string, shop: string, credentials: AppCredentials): string {
+  const digest = createHash('sha256')
+    .update(JSON.stringify([credentials.clientId, credentials.clientSecret]))
+    .digest('hex')
+    .slice(0, 16)
+  return `${stateKey(shopifyApp, shop)}\n${digest}`
+}
+
+function failureKey(request: string, mode: GrantMode): string {
+  return `${request}\n${mode}`
+}
+
+/** The failure that holds back a `mode` attempt: a signed one is only held by a signed failure. */
+function heldBack(request: string, mode: GrantMode): Failure | null {
+  const modes: GrantMode[] = mode === 'signed' ? ['signed'] : ['signed', 'background']
+  for (const candidate of modes) {
+    const key = failureKey(request, candidate)
+    const failure = failures.get(key)
+    if (!failure) continue
+    if (failure.until > now()) return failure
+    failures.delete(key)
+  }
+  return null
 }
 
 function formatDuration(ms: number): string {
@@ -128,6 +173,7 @@ export function resetClientCredentialsState(options?: { now?: () => number; gran
   failures.clear()
   inFlight.clear()
   configSource = null
+  warnedMalformedShop = null
   now = options?.now ?? (() => Date.now())
   grantTimeoutMs = options?.grantTimeoutMs ?? CLIENT_CREDENTIALS_GRANT_TIMEOUT_MS
 }
@@ -149,17 +195,39 @@ export function useShopifyAppsConfig(getConfig: () => OpenShopConfig, options?: 
 }
 
 /**
- * The shop named by `SHOPIFY_CLIENT_CREDENTIALS_SHOP`, or `null` when it is unset.
- * Throws when it is set to anything but exactly `<name>.myshopify.com`.
+ * Callers currently waiting for a token request for this app and shop, whatever
+ * their credentials. Meant for tests, to know a caller joined a shared request.
  */
-export function clientCredentialsShop(): string | null {
+export function clientCredentialsWaiters(shopifyApp: string, shop: string): number {
+  const prefix = `${stateKey(shopifyApp, shop)}\n`
+  let waiters = 0
+  for (const [key, pending] of inFlight) if (key.startsWith(prefix)) waiters += pending.waiters
+  return waiters
+}
+
+const MALFORMED_SHOP_MESSAGE = `[openshop] ${CLIENT_CREDENTIALS_SHOP_ENV} must be exactly <name>.myshopify.com (lowercase, no scheme, port or path)`
+
+function readClientCredentialsShop(strict: boolean): string | null {
   const raw = process.env[CLIENT_CREDENTIALS_SHOP_ENV]
   if (raw === undefined || raw === '') return null
   const shop = strictShopDomain(raw)
-  if (!shop) {
-    throw new Error(`[openshop] ${CLIENT_CREDENTIALS_SHOP_ENV} must be exactly <name>.myshopify.com (lowercase, no scheme, port or path)`)
+  if (shop) return shop
+  if (strict) throw new Error(MALFORMED_SHOP_MESSAGE)
+  if (warnedMalformedShop !== raw) {
+    warnedMalformedShop = raw
+    getRuntimeLogger().warn(`${MALFORMED_SHOP_MESSAGE}; it is ignored and background work gets no client credentials token`)
   }
-  return shop
+  return null
+}
+
+/**
+ * The shop named by `SHOPIFY_CLIENT_CREDENTIALS_SHOP`, or `null` when it is
+ * unset. A malformed value is ignored with one warning: the server, the
+ * scheduler and the worker refuse it at startup (`assertClientCredentialsConfig`),
+ * and a plain script that creates a Shopify client keeps working without it.
+ */
+export function clientCredentialsShop(): string | null {
+  return readClientCredentialsShop(false)
 }
 
 /**
@@ -168,7 +236,7 @@ export function clientCredentialsShop(): string | null {
  * a `default` handle is refused, since nothing says which app the shop belongs to.
  */
 export function assertClientCredentialsConfig(config: OpenShopConfig): void {
-  const shop = clientCredentialsShop()
+  const shop = readClientCredentialsShop(true)
   if (!shop) return
   const app = resolveShopifyApps(config).find((candidate) => candidate.handle === DEFAULT_SHOPIFY_APP_HANDLE)
   if (!app) {
@@ -195,7 +263,8 @@ export function clientCredentialsTarget(shopifyApp: string, shop: string): strin
 
 /**
  * Whether the `timestamp` of a Shopify-signed query (seconds since the epoch)
- * is within `SIGNED_QUERY_MAX_AGE_MS` of now, in either direction.
+ * is within `SIGNED_QUERY_MAX_AGE_MS` of now, in either direction, the bound
+ * included.
  */
 export function isFreshSignedTimestamp(timestamp: unknown): boolean {
   if (typeof timestamp !== 'string' || !TIMESTAMP_RE.test(timestamp)) return false
@@ -241,45 +310,68 @@ async function readErrorCode(response: Response, signal: AbortSignal): Promise<s
   }
 }
 
-function remember(shopifyApp: string, shop: string, reason: string, kind: 'refused' | 'transient'): TokenAnswer {
+/** Whether fetch failed because the answer was a redirect (`redirect: 'error'`). */
+function isRedirectError(error: unknown): boolean {
+  const cause = error instanceof Error ? error.cause : undefined
+  return cause instanceof Error && /redirect/i.test(cause.message)
+}
+
+/**
+ * A request to Shopify's token endpoint, sent once by the caller that started
+ * it and shared by those that join it. Its failure is remembered for the mode
+ * of the caller that started it.
+ */
+interface TokenRequest {
+  shopifyApp: string
+  shop: string
+  credentials: AppCredentials
+  key: string
+  mode: GrantMode
+}
+
+function remember(request: TokenRequest, reason: string, kind: 'refused' | 'transient'): TokenAnswer {
   const ttl = kind === 'refused' ? CLIENT_CREDENTIALS_REFUSAL_TTL_MS : CLIENT_CREDENTIALS_RETRY_BACKOFF_MS
   const window = formatDuration(ttl)
-  failures.set(stateKey(shopifyApp, shop), { until: now() + ttl, reason, kind, window })
+  failures.set(failureKey(request.key, request.mode), { until: now() + ttl, reason, kind, window })
+  const held = request.mode === 'signed' ? 'not attempted again' : 'not attempted again by background work'
   getRuntimeLogger().info(
-    `[openshop] Client credentials grant ${kind === 'refused' ? 'refused' : 'failed'} for app "${shopifyApp}" and shop "${shop}" `
-    + `(${reason}); not attempted again for ${window}`,
+    `[openshop] Client credentials grant ${kind === 'refused' ? 'refused' : 'failed'} for app "${request.shopifyApp}" and shop "${request.shop}" `
+    + `(${reason}); ${held} for ${window}`,
   )
   return { ok: false, reason, kind }
 }
 
 /**
- * Asks Shopify's token endpoint once, with a timeout. Never throws: every
+ * Asks Shopify's token endpoint once, with a timeout, following no redirect
+ * (a redirect would send the client secret elsewhere). Never throws: every
  * failure is remembered, for an hour when Shopify refused with an error code,
  * for `CLIENT_CREDENTIALS_RETRY_BACKOFF_MS` otherwise.
  */
-async function requestToken(shopifyApp: string, shop: string, credentials: AppCredentials): Promise<TokenAnswer> {
+async function requestToken(request: TokenRequest): Promise<TokenAnswer> {
   const timeout = AbortSignal.timeout(grantTimeoutMs)
   let response: Response
   try {
     // The race keeps the timeout even if a fetch implementation ignored the signal.
-    response = await untilAborted(fetch(`https://${shop}/admin/oauth/access_token`, {
+    response = await untilAborted(fetch(`https://${request.shop}/admin/oauth/access_token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
       body: new URLSearchParams({
         grant_type: 'client_credentials',
-        client_id: credentials.clientId,
-        client_secret: credentials.clientSecret,
+        client_id: request.credentials.clientId,
+        client_secret: request.credentials.clientSecret,
       }).toString(),
+      redirect: 'error',
       signal: timeout,
     }), timeout)
-  } catch {
-    return remember(shopifyApp, shop, timeout.aborted ? 'timed out' : 'network error', 'transient')
+  } catch (error) {
+    const reason = timeout.aborted ? 'timed out' : isRedirectError(error) ? 'redirect refused' : 'network error'
+    return remember(request, reason, 'transient')
   }
 
   if (!response.ok) {
     const code = await readErrorCode(response, timeout)
     const definite = response.status >= 400 && response.status < 500 && response.status !== 429 && code !== null
-    return remember(shopifyApp, shop, `HTTP ${response.status}${code ? `, ${code}` : ''}`, definite ? 'refused' : 'transient')
+    return remember(request, `HTTP ${response.status}${code ? `, ${code}` : ''}`, definite ? 'refused' : 'transient')
   }
 
   let data: { access_token?: unknown; scope?: unknown; expires_in?: unknown }
@@ -289,10 +381,12 @@ async function requestToken(shopifyApp: string, shop: string, credentials: AppCr
     data = {}
   }
   if (typeof data.access_token !== 'string' || data.access_token === '') {
-    return remember(shopifyApp, shop, 'no access token in the answer', 'transient')
+    return remember(request, 'no access token in the answer', 'transient')
   }
 
-  failures.delete(stateKey(shopifyApp, shop))
+  // A success clears what both modes remembered.
+  failures.delete(failureKey(request.key, 'signed'))
+  failures.delete(failureKey(request.key, 'background'))
   const lifetimeMs = typeof data.expires_in === 'number' && Number.isFinite(data.expires_in) && data.expires_in > 0
     ? data.expires_in * 1000
     : DEFAULT_TOKEN_LIFETIME_MS
@@ -331,16 +425,20 @@ async function storeToken(shopifyApp: string, shop: string, token: string, scope
 
 /**
  * Gets a token for this app and shop and stores it, unless a grant for them
- * failed recently (an hour after a refusal, `CLIENT_CREDENTIALS_RETRY_BACKOFF_MS`
- * after a transient failure).
+ * with these credentials failed recently (an hour after a refusal,
+ * `CLIENT_CREDENTIALS_RETRY_BACKOFF_MS` after a transient failure). A signed
+ * attempt is only held back by a signed failure; a background attempt by
+ * either.
  *
- * Concurrent callers share one request to Shopify per app and shop, whatever
- * their mode; each then stores the answer with its own mode, so a background
- * caller never revives an uninstalled row and never keeps a signed caller from
- * reviving it. `signal` only stops this caller's wait: the shared request runs
- * until it ends or times out. Shopify failures are returned, never thrown; a
- * database error is thrown as a generic error that quotes neither the token
- * nor the query.
+ * Concurrent callers share one request to Shopify per app, shop and
+ * credentials, whatever their mode; each then stores the answer with its own
+ * mode, so a background caller never revives an uninstalled row and never
+ * keeps a signed caller from reviving it. The failure of a shared request is
+ * remembered for the mode of the caller that started it. `signal` only stops
+ * this caller's wait: the shared request runs until it ends or times out, and
+ * a caller whose signal already aborted sends nothing. Shopify failures are
+ * returned, never thrown; a database error is thrown as a generic error that
+ * quotes neither the token nor the query.
  */
 async function grant(
   shopifyApp: string,
@@ -349,29 +447,34 @@ async function grant(
   mode: GrantMode,
   signal?: AbortSignal,
 ): Promise<GrantResult> {
+  if (signal?.aborted) return { ok: false, reason: 'cancelled', kind: 'other' }
   const validShop = strictShopDomain(shop)
   if (!validShop) return { ok: false, reason: 'invalid shop domain', kind: 'other' }
 
   const key = stateKey(shopifyApp, validShop)
-  const failure = failures.get(key)
-  if (failure) {
-    if (failure.until > now()) return { ok: false, reason: `${failure.reason}, less than ${failure.window} ago`, kind: failure.kind }
-    failures.delete(key)
-  }
+  const request = requestKey(shopifyApp, validShop, credentials)
+  const failure = heldBack(request, mode)
+  if (failure) return { ok: false, reason: `${failure.reason}, less than ${failure.window} ago`, kind: failure.kind }
 
-  let pending = inFlight.get(key)
+  let pending = inFlight.get(request)
   if (!pending) {
-    const request: Promise<TokenAnswer> = requestToken(shopifyApp, validShop, credentials)
-      .finally(() => { if (inFlight.get(key) === request) inFlight.delete(key) })
-    inFlight.set(key, request)
-    pending = request
+    const created: PendingRequest = {
+      promise: requestToken({ shopifyApp, shop: validShop, credentials, key: request, mode })
+        .finally(() => { if (inFlight.get(request) === created) inFlight.delete(request) }),
+      waiters: 0,
+    }
+    inFlight.set(request, created)
+    pending = created
   }
 
   let answer: TokenAnswer
+  pending.waiters += 1
   try {
-    answer = signal ? await untilAborted(pending, signal) : await pending
+    answer = signal ? await untilAborted(pending.promise, signal) : await pending.promise
   } catch {
     return { ok: false, reason: 'cancelled', kind: 'other' }
+  } finally {
+    pending.waiters -= 1
   }
   if (!answer.ok) return answer
 

@@ -100,6 +100,8 @@ function postGraphql(
         query,
         variables: options?.variables,
       }),
+      // A redirect would carry the access token to another address.
+      redirect: 'error',
     },
   )
 }

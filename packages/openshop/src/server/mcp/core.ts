@@ -120,6 +120,8 @@ async function runAdminGraphql(ctx: McpExecutionContext, input: Record<string, u
       'X-Shopify-Access-Token': accessToken,
     },
     body: JSON.stringify({ query, variables }),
+    // A redirect would carry the access token to another address.
+    redirect: 'error',
     signal: ctx.signal,
   }))
   const text = await response.text()

@@ -25,7 +25,7 @@ import {
   validateCustomAdminNavigation,
 } from '../cli/admin-pages.ts'
 import { getDb } from '../db/client.ts'
-import { createShopifyClient } from '../shopify/client.ts'
+import { openShopifyClient } from '../shopify/client.ts'
 import { getRuntimeLogger } from '../runtime/logger.ts'
 import type { OpenShopConfig } from '../types.ts'
 import { buildConnectors } from './connectors.ts'
@@ -93,7 +93,7 @@ async function createContext(
     actor: getAdminActor(c),
     params,
     db: getDb(),
-    shopify: await createShopifyClient(shop, shopifyApp),
+    shopify: await openShopifyClient(shop, shopifyApp, { getConfig: () => config }),
     connectors: await buildConnectors(config, shop, shopifyApp),
     requestId,
     idempotencyKey: c.req.header('idempotency-key'),

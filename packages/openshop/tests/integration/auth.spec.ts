@@ -145,9 +145,11 @@ test.group('Auth routes', (group) => {
     const qs = new URLSearchParams(params).toString()
 
     const originalFetch = globalThis.fetch
+    const redirectModes: Array<RequestRedirect | undefined> = []
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.includes('/admin/oauth/access_token')) {
+        redirectModes.push(init?.redirect)
         return Response.json({ access_token: 'stored-access-token', scope: 'read_products' })
       }
       return originalFetch(input, init)
@@ -156,6 +158,8 @@ test.group('Auth routes', (group) => {
     try {
       const res = await app.request(`http://localhost/auth/callback?${qs}`, { redirect: 'manual' })
       assert.equal(res.status, 302)
+      // A redirect would carry the client secret elsewhere: it is never followed.
+      assert.deepEqual(redirectModes, ['error'])
 
       const [row] = await db.select().from(installations).where(eq(installations.shop, shop)).limit(1)
       assert.notEqual(row.accessToken, 'stored-access-token')

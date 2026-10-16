@@ -5,6 +5,7 @@ import { installations, cronOverrides } from '#db/schema'
 import { dispatchFlow } from '#engine/dispatch'
 import { getRuntimeLogger } from '../runtime/logger.ts'
 import { DEFAULT_SHOPIFY_APP_HANDLE } from '#server/shopify-apps'
+import { assertClientCredentialsConfig, clientCredentialsShop, GLOBAL_SHOP } from '../shopify/client-credentials.ts'
 import type { OpenShopConfig, CronEntry } from '#types'
 
 const activeCrons: Cron[] = []
@@ -38,16 +39,28 @@ async function resolveInstalledTargets(shops: string[]): Promise<CronTarget[]> {
   return results
 }
 
-async function resolveTargets(entry: Pick<CronEntry, 'shops'>): Promise<CronTarget[]> {
+/** The app and shop pairs a cron runs for. Exported for tests. */
+export async function resolveTargets(entry: Pick<CronEntry, 'shops'>): Promise<CronTarget[]> {
   const mode = entry.shops ?? 'global'
 
-  if (mode === 'global') return [{ shopifyApp: DEFAULT_SHOPIFY_APP_HANDLE, shop: '__global__' }]
+  if (mode === 'global') return [{ shopifyApp: DEFAULT_SHOPIFY_APP_HANDLE, shop: GLOBAL_SHOP }]
 
   if (mode === 'all') {
     const db = getDb()
     const rows = await db.select({ shopifyApp: installations.appHandle, shop: installations.shop })
       .from(installations)
       .where(isNull(installations.uninstalledAt))
+    // The shop of SHOPIFY_CLIENT_CREDENTIALS_SHOP gets its token on first use,
+    // so it needs no installation row. A row of any kind (installed or
+    // uninstalled) is left to decide: an uninstalled shop is never revived.
+    const configured = clientCredentialsShop()
+    if (configured) {
+      const [existing] = await db.select({ id: installations.id })
+        .from(installations)
+        .where(and(eq(installations.appHandle, DEFAULT_SHOPIFY_APP_HANDLE), eq(installations.shop, configured)))
+        .limit(1)
+      if (!existing) rows.push({ shopifyApp: DEFAULT_SHOPIFY_APP_HANDLE, shop: configured })
+    }
     return rows
   }
 
@@ -57,6 +70,7 @@ async function resolveTargets(entry: Pick<CronEntry, 'shops'>): Promise<CronTarg
 }
 
 export function startScheduler(config: OpenShopConfig) {
+  assertClientCredentialsConfig(config)
   if (!config.crons?.length) return
   const logger = getRuntimeLogger()
 

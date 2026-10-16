@@ -2,6 +2,46 @@
 
 All notable changes to OpenShop will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Added Shopify's client credentials grant for development stores of the
+  organization that owns the app. On an embedded admin load with a valid query
+  HMAC, a shop without a usable token is granted one with the resolved app's
+  own credentials before falling back to OAuth as before. On an `/api` request
+  with a verified session token, token exchange still runs first and the grant
+  is only tried when it fails. A signed launch only
+  starts a grant when its `timestamp` is within 90 seconds of the server's
+  clock, either way (90 seconds included). A definite refusal from Shopify (a
+  `4xx` with an error code) is remembered in memory for one hour per app, shop
+  and credentials; a transient failure (a request taking more than five
+  seconds, a network error, a redirect, a `429`, a `5xx`, a `4xx` without an
+  error code, or an answer without a token) for 30 seconds. A failure of
+  background work never holds back a signed request, so a store refused before
+  the app was installed on it gets its token as soon as it opens the app.
+  Unsigned input never starts a grant for a shop of its choosing, and the
+  webhook route refuses `__global__` as its shop header.
+- Added the optional `SHOPIFY_CLIENT_CREDENTIALS_SHOP` for background work: the
+  `default` app gets a token for that one store, `__global__` maps to it, and
+  `shops: 'all'` includes it until an installation row exists for it. The
+  server, the scheduler and the worker refuse a malformed value at startup; a
+  plain script ignores it with one warning.
+- Shopify clients and the MCP `openshop.admin.graphql` tool now renew a stored
+  token once with the grant after a `401` and retry once; a token granted by
+  the running process is renewed five minutes before it expires. Stored OAuth
+  tokens are used as before. The grant uses the credentials of the caller's
+  config; `createShopifyClient`, which has none, uses the `default` app's from
+  the environment. `openshop.shops.list` also lists the configured shop unless
+  its row is marked uninstalled.
+
+### Security
+
+- Admin API requests, the client credentials grant, token exchange and the
+  OAuth callback no longer follow redirects, which could carry an access token
+  or the client secret to another address. They fail with `[openshop] Shopify
+  answered a redirect, not followed`.
+
 ## [0.0.12-beta.0] - 2026-09-21
 
 ### Changed

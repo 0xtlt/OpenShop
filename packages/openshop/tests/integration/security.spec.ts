@@ -6,7 +6,7 @@ import { flowRuns, installations, providerConfigs } from '#db/schema'
 import { createServer } from '#server/index'
 import { dispatchFlow } from '#engine/dispatch'
 import { runFlow } from '#engine/runner'
-import { truncateAll, createConfig } from './helpers.ts'
+import { truncateAll, createConfig, refuseShopifyTokenRequests, CLIENT_CREDENTIALS_GRANT, TOKEN_EXCHANGE_GRANT, type ShopifyTokenEndpoints } from './helpers.ts'
 
 const SECRET = process.env.SHOPIFY_API_SECRET!
 const SHOP_A = 'shop-a.myshopify.com'
@@ -65,6 +65,8 @@ const reqAsApp = (shop: string, shopifyApp: 'clientA' | 'clientB', path: string,
   return app.request(path, { ...opts, headers })
 }
 
+let tokenEndpoints: ShopifyTokenEndpoints
+
 test.group('Security: cross-shop isolation', (group) => {
   group.setup(async () => {
     const config = createConfig({ 'test-flow': simpleFlow })
@@ -85,7 +87,11 @@ test.group('Security: cross-shop isolation', (group) => {
     }
     app = await createServer(() => config)
   })
-  group.each.setup(() => truncateAll())
+  group.each.setup(async () => {
+    await truncateAll()
+    tokenEndpoints = refuseShopifyTokenRequests()
+    return () => tokenEndpoints.restore()
+  })
 
   test('shop A cannot see shop B runs in /api/runs', async ({ assert }) => {
     const config = createConfig({ 'test-flow': simpleFlow })
@@ -99,6 +105,12 @@ test.group('Security: cross-shop isolation', (group) => {
     const resB = await reqAs(SHOP_B, '/api/runs')
     const dataB = await resB.json()
     assert.isTrue(dataB.every((r: any) => r.shop === SHOP_B))
+    assert.deepEqual(tokenEndpoints.calls, [
+      { shop: SHOP_A, grantType: TOKEN_EXCHANGE_GRANT },
+      { shop: SHOP_A, grantType: CLIENT_CREDENTIALS_GRANT },
+      { shop: SHOP_B, grantType: TOKEN_EXCHANGE_GRANT },
+      { shop: SHOP_B, grantType: CLIENT_CREDENTIALS_GRANT },
+    ])
   })
 
   test('shop A cannot see shop B runs in /api/flows/:name/runs', async ({ assert }) => {
@@ -282,7 +294,11 @@ test.group('Security: cross-app isolation', (group) => {
     }
     app = await createServer(() => multiConfig)
   })
-  group.each.setup(() => truncateAll())
+  group.each.setup(async () => {
+    await truncateAll()
+    tokenEndpoints = refuseShopifyTokenRequests()
+    return () => tokenEndpoints.restore()
+  })
 
   test('same shop runs are isolated by Shopify app', async ({ assert }) => {
     const { runId: runA } = await dispatchFlow({ flowName: 'test-flow', config: multiConfig, shopifyApp: 'clientA', shop: MULTI_APP_SHOP })
@@ -301,6 +317,14 @@ test.group('Security: cross-app isolation', (group) => {
     const dataB = await listB.json()
     assert.deepEqual(dataB.map((run: any) => run.id), [runB])
     assert.deepEqual(dataB.map((run: any) => run.appHandle), ['clientB'])
+    // Refusals are remembered per app: clientB still tries its own grant.
+    assert.deepEqual(tokenEndpoints.calls, [
+      { shop: MULTI_APP_SHOP, grantType: TOKEN_EXCHANGE_GRANT },
+      { shop: MULTI_APP_SHOP, grantType: CLIENT_CREDENTIALS_GRANT },
+      { shop: MULTI_APP_SHOP, grantType: TOKEN_EXCHANGE_GRANT },
+      { shop: MULTI_APP_SHOP, grantType: TOKEN_EXCHANGE_GRANT },
+      { shop: MULTI_APP_SHOP, grantType: CLIENT_CREDENTIALS_GRANT },
+    ])
   })
 
   test('same shop provider configs are isolated by Shopify app', async ({ assert }) => {
@@ -334,7 +358,11 @@ test.group('Security: SQL injection', (group) => {
     const config = createConfig({ 'test-flow': simpleFlow })
     app = await createServer(() => config)
   })
-  group.each.setup(() => truncateAll())
+  group.each.setup(async () => {
+    await truncateAll()
+    tokenEndpoints = refuseShopifyTokenRequests()
+    return () => tokenEndpoints.restore()
+  })
 
   test('search param with SQL injection returns empty, not error', async ({ assert }) => {
     const payloads = [

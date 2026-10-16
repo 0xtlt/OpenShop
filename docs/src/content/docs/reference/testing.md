@@ -201,6 +201,13 @@ assert.equal(Array.isArray(await response.json()), true)
 For custom claims, `ctx.sessionToken(shop?, sub?)` returns the raw JWT and
 `ctx.authorizationHeader(shop?, sub?)` returns `Bearer <jwt>`.
 
+These session tokens are signed for `test.myshopify.com` (or the `shop` you
+pass). When no token is stored for that shop, the first request sends real
+requests to Shopify with your app's secret: token exchange, then the client
+credentials grant when it fails. Keep a suite offline by passing `accessToken`
+to `createTestContext` (it stores a token for the shop) or by replacing
+`globalThis.fetch` for `https://<shop>/admin/oauth/access_token`.
+
 ## Use factories and automatic cleanup
 
 Factories create real Shopify resources when the context has an installation and

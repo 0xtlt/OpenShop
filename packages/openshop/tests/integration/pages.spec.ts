@@ -4,7 +4,7 @@ import { getDb } from '#db/client'
 import { mcpTokens } from '#db/schema'
 import { createMcpToken } from '#server/mcp/tokens'
 import { createServer } from '#server/index'
-import { createConfig, truncateAll, TEST_SHOP } from './helpers.ts'
+import { createConfig, truncateAll, TEST_SHOP, refuseShopifyTokenRequests, type ShopifyTokenEndpoints } from './helpers.ts'
 
 const SECRET = process.env.SHOPIFY_API_SECRET!
 
@@ -31,8 +31,14 @@ const simpleFlow = {
   async run() {},
 }
 
+let tokenEndpoints: ShopifyTokenEndpoints
+
 test.group('Admin page visibility', (group) => {
-  group.each.setup(() => truncateAll())
+  group.each.setup(async () => {
+    await truncateAll()
+    tokenEndpoints = refuseShopifyTokenRequests()
+    return () => tokenEndpoints.restore()
+  })
 
   const req = (app: Awaited<ReturnType<typeof createServer>>, path: string) => {
     return app.request(path, {

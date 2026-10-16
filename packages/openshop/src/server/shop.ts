@@ -5,6 +5,8 @@ import { getDb } from '#db/client'
 import { installations } from '#db/schema'
 import { encryptString } from '#server/crypto'
 import { getRuntimeLogger } from '../runtime/logger.ts'
+import { grantForSignedRequest } from '../shopify/client-credentials.ts'
+import { fetchWithoutRedirect } from '../shopify/no-redirect.ts'
 import { readJwtAudience, resolveShopifyAppByApiKey, type ResolvedShopifyApp } from '#server/shopify-apps'
 import type { OpenShopConfig } from '#types'
 import type { AdminActor } from '../admin/index.ts'
@@ -15,6 +17,7 @@ export function createShopMiddleware(getConfig: () => OpenShopConfig) {
   let sessionToken: string | undefined
   let shopifyApp: ResolvedShopifyApp | undefined
   let actor: AdminActor | undefined
+  let destIsExactShop = false
 
   const auth = c.req.header('Authorization')
   if (auth?.startsWith('Bearer ')) {
@@ -26,6 +29,7 @@ export function createShopMiddleware(getConfig: () => OpenShopConfig) {
       shopifyApp = resolveShopifyAppByApiKey(getConfig(), audience)
       const result = verifySessionToken(sessionToken, shopifyApp.apiSecret, { audience: shopifyApp.apiKey })
       shop = result.shop
+      destIsExactShop = result.payload.dest === `https://${result.shop}`
       actor = { id: result.payload.sub, sessionId: result.payload.sid }
     } catch (error) {
       return c.json({ error: 'Unauthorized: ' + (error instanceof Error ? error.message : 'Invalid token') }, 401)
@@ -41,7 +45,7 @@ export function createShopMiddleware(getConfig: () => OpenShopConfig) {
   }
 
   if (sessionToken) {
-    try { await ensureInstallation(shopifyApp, shop, sessionToken) } catch { /* non-blocking */ }
+    try { await ensureInstallation(shopifyApp, shop, sessionToken, destIsExactShop) } catch { /* non-blocking */ }
   }
 
   c.set('shop', shop)
@@ -51,7 +55,7 @@ export function createShopMiddleware(getConfig: () => OpenShopConfig) {
   }
 }
 
-async function ensureInstallation(shopifyApp: ResolvedShopifyApp, shop: string, sessionToken: string) {
+async function ensureInstallation(shopifyApp: ResolvedShopifyApp, shop: string, sessionToken: string, destIsExactShop: boolean) {
   const db = getDb()
   const [existing] = await db.select().from(installations)
     .where(and(eq(installations.appHandle, shopifyApp.handle), eq(installations.shop, shop)))
@@ -61,8 +65,18 @@ async function ensureInstallation(shopifyApp: ResolvedShopifyApp, shop: string, 
 
   if (!shopifyApp.apiKey || !shopifyApp.apiSecret) return
 
+  // Token exchange first, as always: it gives an offline token that does not
+  // expire. Only when it fails, and the verified session token's `dest` is a
+  // shop Shopify vouched for, is the client credentials grant tried (it only
+  // succeeds on a store of the app's own organization). It never throws.
+  if (await exchangeSessionToken(shopifyApp, shop, sessionToken)) return
+  if (destIsExactShop) await grantForSignedRequest(shopifyApp, shop)
+}
+
+/** Token exchange for an offline token. Returns whether a token was stored. */
+async function exchangeSessionToken(shopifyApp: ResolvedShopifyApp, shop: string, sessionToken: string): Promise<boolean> {
   try {
-    const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
+    const response = await fetchWithoutRedirect(`https://${shop}/admin/oauth/access_token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -75,12 +89,12 @@ async function ensureInstallation(shopifyApp: ResolvedShopifyApp, shop: string, 
       }),
     })
 
-    if (!response.ok) return
+    if (!response.ok) return false
 
     const data = await response.json() as { access_token: string; scope: string }
     const accessToken = encryptString(data.access_token)
 
-    await db.insert(installations)
+    await getDb().insert(installations)
       .values({ appHandle: shopifyApp.handle, shop, accessToken, scopes: data.scope })
       .onConflictDoUpdate({
         target: [installations.appHandle, installations.shop],
@@ -88,7 +102,10 @@ async function ensureInstallation(shopifyApp: ResolvedShopifyApp, shop: string, 
       })
 
     getRuntimeLogger().info(`[openshop] Token exchange successful for ${shop}`)
-  } catch { /* silent */ }
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function getShop(c: Context): string {

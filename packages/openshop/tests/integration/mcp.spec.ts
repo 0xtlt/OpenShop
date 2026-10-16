@@ -7,7 +7,8 @@ import { createServer } from '#server/index'
 import { dispatchFlow } from '#engine/dispatch'
 import { runFlow } from '#engine/runner'
 import { encryptString } from '#server/crypto'
-import { createConfig, truncateAll, TEST_SHOP } from './helpers.ts'
+import { resetClientCredentialsState } from '../../src/shopify/client-credentials.ts'
+import { createConfig, truncateAll, TEST_SHOP, refuseShopifyTokenRequests, CLIENT_CREDENTIALS_GRANT, TOKEN_EXCHANGE_GRANT, type ShopifyTokenEndpoints } from './helpers.ts'
 
 const SECRET = process.env.SHOPIFY_API_SECRET!
 const SHOP_B = 'mcp-other.myshopify.com'
@@ -48,6 +49,8 @@ async function createLoggedRun(shop = TEST_SHOP) {
 
 let app: Awaited<ReturnType<typeof createServer>>
 
+let tokenEndpoints: ShopifyTokenEndpoints
+
 test.group('MCP', (group) => {
   group.setup(async () => {
     const config = createConfig({ 'log-flow': logFlow }, {
@@ -76,7 +79,11 @@ test.group('MCP', (group) => {
     app = await createServer(() => config)
   })
 
-  group.each.setup(() => truncateAll())
+  group.each.setup(async () => {
+    await truncateAll()
+    tokenEndpoints = refuseShopifyTokenRequests()
+    return () => tokenEndpoints.restore()
+  })
 
   const adminReq = (path: string, opts: RequestInit = {}, shop = TEST_SHOP) => {
     const headers = new Headers(opts.headers)
@@ -112,6 +119,12 @@ test.group('MCP', (group) => {
     assert.notProperty(list[0], 'token')
     assert.equal(list[0].tokenId, data.item.tokenId)
     assert.equal(new Date(list[0].expiresAt).getTime() > Date.now(), true)
+    // The refused grant is remembered: the second request only tries token exchange.
+    assert.deepEqual(tokenEndpoints.calls, [
+      { shop: TEST_SHOP, grantType: TOKEN_EXCHANGE_GRANT },
+      { shop: TEST_SHOP, grantType: CLIENT_CREDENTIALS_GRANT },
+      { shop: TEST_SHOP, grantType: TOKEN_EXCHANGE_GRANT },
+    ])
   })
 
   test('rotating a token keeps its tokenId and invalidates the old secret', async ({ assert }) => {
@@ -348,6 +361,66 @@ test.group('MCP', (group) => {
       assert.equal(audits[0].targetShop, SHOP_B)
     } finally {
       globalThis.fetch = originalFetch
+    }
+  })
+
+  test('openshop.admin.graphql renews a rejected token once by client credentials, then returns the original 401', async ({ assert }) => {
+    resetClientCredentialsState()
+    await getDb().insert(installations).values({
+      appHandle: 'default',
+      shop: SHOP_B,
+      accessToken: encryptString('revoked-admin-token'),
+      scopes: 'read_products',
+    })
+    const { data } = await createToken(['shopify_admin_graphql'])
+    const originalFetch = globalThis.fetch
+    const seen: string[] = []
+    let grantStatus = 200
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === `https://${SHOP_B}/admin/oauth/access_token`) {
+        seen.push('grant')
+        return grantStatus === 200
+          ? Response.json({ access_token: 'granted-admin-token', scope: 'read_products', expires_in: 86399 })
+          : Response.json({ error: 'shop_not_permitted' }, { status: grantStatus })
+      }
+      if (url === `https://${SHOP_B}/admin/api/2026-04/graphql.json`) {
+        const token = (init?.headers as Record<string, string>)['X-Shopify-Access-Token']
+        seen.push(token)
+        return token === 'granted-admin-token'
+          ? Response.json({ data: { shop: { name: 'Renewed Shop' } } })
+          : Response.json({ errors: '[API] Invalid API key or access token' }, { status: 401 })
+      }
+      return originalFetch(input, init)
+    }
+    const call = (id: number) => mcpReq(data.token, {
+      jsonrpc: '2.0',
+      id,
+      method: 'tools/call',
+      params: {
+        name: 'openshop.admin.graphql',
+        arguments: { shop: SHOP_B, apiVersion: '2026-04', query: 'query { shop { name } }' },
+      },
+    })
+
+    try {
+      const renewed = await (await call(1)).json()
+      assert.equal(renewed.result.structuredContent.status, 200)
+      assert.equal(renewed.result.structuredContent.data.shop.name, 'Renewed Shop')
+      assert.deepEqual(seen, ['revoked-admin-token', 'grant', 'granted-admin-token'])
+
+      await getDb().update(installations)
+        .set({ accessToken: encryptString('revoked-again-token') })
+        .where(eq(installations.shop, SHOP_B))
+      grantStatus = 400
+      seen.length = 0
+      const refused = await (await call(2)).json()
+      assert.equal(refused.result.structuredContent.status, 401)
+      assert.isFalse(refused.result.structuredContent.ok)
+      assert.deepEqual(seen, ['revoked-again-token', 'grant'])
+    } finally {
+      globalThis.fetch = originalFetch
+      resetClientCredentialsState()
     }
   })
 

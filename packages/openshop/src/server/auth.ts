@@ -7,6 +7,7 @@ import { normalizeShopDomain } from '#server/shop-domain'
 import { encryptString } from '#server/crypto'
 import { resolveShopifyAppByHandle, resolveShopifyAppBySignedQuery, resolveShopifyAppByWebhookHmac } from '#server/shopify-apps'
 import type { OpenShopConfig } from '#types'
+import { fetchWithoutRedirect, RedirectRefusedError } from '../shopify/no-redirect.ts'
 
 export function createAuthRoutes(getConfig: () => OpenShopConfig) {
   const auth = new Hono()
@@ -55,11 +56,17 @@ export function createAuthRoutes(getConfig: () => OpenShopConfig) {
       .limit(1)
     if (!installation || installation.nonce !== state) return c.json({ error: 'Invalid state/nonce' }, 401)
 
-    const tokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client_id: app.apiKey, client_secret: app.apiSecret, code }),
-    })
+    let tokenResponse: Response
+    try {
+      tokenResponse = await fetchWithoutRedirect(`https://${shop}/admin/oauth/access_token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: app.apiKey, client_secret: app.apiSecret, code }),
+      })
+    } catch (error) {
+      if (error instanceof RedirectRefusedError) return c.json({ error: error.message }, 502)
+      throw error
+    }
 
     if (!tokenResponse.ok) {
       const text = await tokenResponse.text()

@@ -96,7 +96,9 @@ export default app.defineConfig({
 the synthetic `__global__` shop, which has no ordinary Shopify installation.
 With [`SHOPIFY_CLIENT_CREDENTIALS_SHOP`](/reference/authentication/#background-work-shopify_client_credentials_shop)
 set, its Shopify client targets that development store, and `shops: 'all'`
-includes the store until a row records it (an uninstalled store stays out).
+includes the store until a row records it (an uninstalled store stays out). A
+cron that lists its shops runs for each of them, with or without a row, as
+before.
 For a shop-specific integration, set the target explicitly. Configure credentials
 for every targeted shop before enabling the schedule.
 

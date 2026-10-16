@@ -11,6 +11,7 @@ import { createServer } from '#server/index'
 import { resolveTargets, startScheduler, stopScheduler } from '#engine/scheduler'
 import { Worker } from '#engine/worker'
 import { createShopifyClient } from '../../src/shopify/client.ts'
+import { sql } from 'drizzle-orm'
 import {
   CLIENT_CREDENTIALS_SHOP_ENV,
   resetClientCredentialsState,
@@ -24,6 +25,8 @@ const OTHER_SHOP = 'merchant-store.myshopify.com'
 const API_KEY = process.env.SHOPIFY_API_KEY!
 const API_SECRET = process.env.SHOPIFY_API_SECRET!
 const HOUR_MS = 60 * 60 * 1000
+/** The short wait after a transient failure (CLIENT_CREDENTIALS_RETRY_BACKOFF_MS). */
+const BACKOFF_MS = 30_000
 const query = 'query { shop { name } }'
 
 const MULTI_APPS = {
@@ -46,6 +49,7 @@ interface Call {
   url: string
   body: string
   headers: Headers
+  signal: AbortSignal | null
 }
 
 type Responder = (call: Call) => Response | Promise<Response>
@@ -80,7 +84,7 @@ function fakeShopify(options: { onToken?: Responder; onGraphql?: Responder } = {
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
-    const call = { url, body: String(init?.body ?? ''), headers: new Headers(init?.headers) }
+    const call = { url, body: String(init?.body ?? ''), headers: new Headers(init?.headers), signal: init?.signal ?? null }
     fake.requests.push(call)
     if (/^https:\/\/[a-z0-9-]+\.myshopify\.com\/admin\/oauth\/access_token$/.test(url)) {
       fake.tokenRequests.push(call)
@@ -136,8 +140,10 @@ function signQuery(params: Record<string, string>, secret = API_SECRET): Record<
   return { ...params, hmac: createHmac('sha256', secret).update(message).digest('hex') }
 }
 
-function launchUrl(shop: string, options: { secret?: string; signed?: boolean } = {}): string {
-  const params = { host: 'YWRtaW4uc2hvcGlmeS5jb20vc3RvcmUvZGV2LXN0b3Jl', shop, timestamp: '1770000000' }
+/** A launch URL as Shopify signs it, with a timestamp taken from the test clock. */
+function launchUrl(shop: string, options: { secret?: string; signed?: boolean; ageMs?: number } = {}): string {
+  const timestamp = String(Math.floor((clock - (options.ageMs ?? 0)) / 1000))
+  const params = { host: 'YWRtaW4uc2hvcGlmeS5jb20vc3RvcmUvZGV2LXN0b3Jl', shop, timestamp }
   const query = options.signed === false ? params : signQuery(params, options.secret)
   return `http://localhost/?${new URLSearchParams(query).toString()}`
 }
@@ -170,12 +176,32 @@ function errorMessage(error: unknown): string {
 
 let clock = Date.now()
 
-/** Common per-test state: empty tables, a fixed clock, a single-app config. */
-async function freshState(): Promise<void> {
+/**
+ * Common per-test state: empty tables, a fixed clock, no registered config
+ * (the `default` app then uses SHOPIFY_API_KEY / SHOPIFY_API_SECRET).
+ */
+async function freshState(options?: { grantTimeoutMs?: number }): Promise<void> {
   await truncateAll()
   clock = Date.now()
-  resetClientCredentialsState({ now: () => clock })
-  useShopifyAppsConfig(() => createConfig({}))
+  resetClientCredentialsState({ now: () => clock, ...options })
+}
+
+/** Makes every write to `installations` fail, as a database error would. */
+async function refuseInstallationWrites(): Promise<() => Promise<void>> {
+  const db = getDb()
+  await db.execute(sql`CREATE OR REPLACE FUNCTION openshop_test_refuse_write() RETURNS trigger AS $$
+    BEGIN RAISE EXCEPTION 'write refused by test'; END $$ LANGUAGE plpgsql`)
+  await db.execute(sql`DROP TRIGGER IF EXISTS openshop_test_refuse_write ON installations`)
+  await db.execute(sql`CREATE TRIGGER openshop_test_refuse_write BEFORE INSERT OR UPDATE ON installations
+    FOR EACH ROW EXECUTE FUNCTION openshop_test_refuse_write()`)
+  return async () => {
+    await db.execute(sql`DROP TRIGGER IF EXISTS openshop_test_refuse_write ON installations`)
+    await db.execute(sql`DROP FUNCTION IF EXISTS openshop_test_refuse_write()`)
+  }
+}
+
+function signWebhook(body: string, secret = API_SECRET): string {
+  return createHmac('sha256', secret).update(body, 'utf8').digest('base64')
 }
 
 test.group('Client credentials: background work on the configured shop', (group) => {
@@ -379,6 +405,129 @@ test.group('Client credentials: background work on the configured shop', (group)
     }
   })
 
+  test('a definite refusal (a 4xx with an error code) is remembered for an hour', async ({ assert }) => {
+    const shopify = fakeShopify({ onToken: () => Response.json({ error: 'shop_not_permitted' }, { status: 400 }) })
+    try {
+      const client = await createShopifyClient(SHOP)
+      await assert.rejects(() => client.graphql(query), /same Shopify organization/)
+      clock += HOUR_MS - 1000
+      await assert.rejects(() => client.graphql(query), /shop_not_permitted, less than 1 hour ago/)
+      assert.lengthOf(shopify.tokenRequests, 1)
+      clock += 2000
+      await assert.rejects(() => client.graphql(query), /\(HTTP 400, shop_not_permitted\)/)
+      assert.lengthOf(shopify.tokenRequests, 2)
+    } finally {
+      shopify.restore()
+    }
+  })
+
+  test('a transient failure holds the next attempt for 30 seconds, not an hour', async ({ assert }) => {
+    const failures: Array<{ label: string; answer: () => Response | Promise<Response> }> = [
+      { label: 'HTTP 503', answer: () => Response.json({ error: 'service_unavailable' }, { status: 503 }) },
+      { label: 'HTTP 502', answer: () => new Response('Bad gateway', { status: 502 }) },
+      { label: 'HTTP 429', answer: () => Response.json({ error: 'too_many_requests' }, { status: 429 }) },
+      { label: 'HTTP 400', answer: () => new Response('Bad request', { status: 400 }) },
+      { label: 'network error', answer: () => { throw new TypeError('fetch failed') } },
+    ]
+    for (const failure of failures) {
+      await freshState()
+      let fail = true
+      const shopify = fakeShopify({
+        onToken: () => fail
+          ? failure.answer()
+          : Response.json({ access_token: 'after-backoff', scope: 'read_orders', expires_in: 86399 }),
+      })
+      try {
+        const client = await createShopifyClient(SHOP)
+        let message = ''
+        try {
+          await client.graphql(query)
+        } catch (error) {
+          message = errorMessage(error)
+        }
+        assert.include(message, failure.label)
+        assert.include(message, 'attempted again after 30 seconds')
+        assert.notInclude(message, 'same Shopify organization')
+
+        clock += BACKOFF_MS - 1000
+        await assert.rejects(() => client.graphql(query), /less than 30 seconds ago/)
+        assert.lengthOf(shopify.tokenRequests, 1)
+
+        fail = false
+        clock += 2000
+        assert.deepEqual(await client.graphql(query), { shop: { name: 'Dev store' } })
+        assert.lengthOf(shopify.tokenRequests, 2)
+        assert.equal(decryptString((await storedInstallation())!.accessToken), 'after-backoff')
+      } finally {
+        shopify.restore()
+      }
+    }
+  })
+
+  test('a failed renewal keeps the token and holds the next grant for 30 seconds only', async ({ assert }) => {
+    const grantedAt = clock
+    const expiresAt = grantedAt + 900_000
+    let answers = 0
+    const shopify = fakeShopify({
+      onToken: () => {
+        answers += 1
+        if (answers === 1) return Response.json({ access_token: 'short-token-1', scope: 'read_orders', expires_in: 900 })
+        if (answers === 2) return new Response('Bad gateway', { status: 502 })
+        return Response.json({ access_token: 'short-token-2', scope: 'read_orders', expires_in: 900 })
+      },
+      onGraphql: (call) => call.headers.get('x-shopify-access-token') === 'short-token-1' && clock >= expiresAt
+        ? new Response('expired-token', { status: 401 })
+        : Response.json({ data: { shop: { name: 'Dev store' } } }),
+    })
+    try {
+      await (await createShopifyClient(SHOP)).graphql(query)
+
+      // Inside the renewal margin: the renewal fails, the current token still works.
+      clock = expiresAt - 10_000
+      await (await createShopifyClient(SHOP)).graphql(query)
+      assert.lengthOf(shopify.tokenRequests, 2)
+
+      // Expired, within the backoff: no new request, the original 401 surfaces.
+      clock = expiresAt + 10_000
+      await assert.rejects(async () => (await createShopifyClient(SHOP)).graphql(query), /Shopify GraphQL error \(401\): expired-token/)
+      assert.lengthOf(shopify.tokenRequests, 2)
+
+      // Past the backoff: a grant replaces the token.
+      clock = expiresAt + 25_000
+      assert.deepEqual(await (await createShopifyClient(SHOP)).graphql(query), { shop: { name: 'Dev store' } })
+      assert.lengthOf(shopify.tokenRequests, 3)
+      assert.equal(shopify.graphqlRequests.at(-1)!.headers.get('x-shopify-access-token'), 'short-token-2')
+      assert.equal(decryptString((await storedInstallation())!.accessToken), 'short-token-2')
+    } finally {
+      shopify.restore()
+    }
+  })
+
+  test('a failed write names neither the token nor its ciphertext', async ({ assert }) => {
+    const shopify = fakeShopify({
+      onToken: () => Response.json({ access_token: 'granted-secret-token', scope: 'read_orders', expires_in: 86399 }),
+    })
+    const restoreWrites = await refuseInstallationWrites()
+    try {
+      const client = await createShopifyClient(SHOP)
+      let message = ''
+      try {
+        await client.graphql(query)
+      } catch (error) {
+        message = errorMessage(error)
+        assert.isUndefined((error as Error).cause)
+      }
+      assert.include(message, 'Could not store the client credentials token for app "default" and shop "dev-store.myshopify.com"')
+      assert.notInclude(message, 'granted-secret-token')
+      assert.notInclude(message, 'enc:')
+      assert.notInclude(message, 'params')
+      assert.lengthOf(shopify.graphqlRequests, 0)
+    } finally {
+      await restoreWrites()
+      shopify.restore()
+    }
+  })
+
   test('rejects a configured value that is not exactly <name>.myshopify.com', async ({ assert }) => {
     for (const value of ['example.com', 'https://dev-store.myshopify.com', 'dev-store.myshopify.com:8443', 'Dev-Store.myshopify.com', ' dev-store.myshopify.com']) {
       restoreEnv()
@@ -461,6 +610,63 @@ test.group('Client credentials: 401 renewal', (group) => {
       await assert.rejects(() => client.graphql(query), /Shopify GraphQL error \(401\)/)
       assert.lengthOf(shopify.tokenRequests, 1)
     } finally {
+      shopify.restore()
+    }
+  })
+
+  test('a transient failure after a 401 is tried again after 30 seconds, not an hour', async ({ assert }) => {
+    await insertInstallation({ token: 'revoked-token' })
+    let fail = true
+    const shopify = fakeShopify({
+      onToken: () => fail
+        ? new Response('upstream error', { status: 503 })
+        : Response.json({ access_token: 'renewed-token', scope: 'read_orders', expires_in: 86399 }),
+      onGraphql: (call) => call.headers.get('x-shopify-access-token') === 'revoked-token'
+        ? new Response('original-401-body', { status: 401 })
+        : Response.json({ data: { shop: { name: 'Dev store' } } }),
+    })
+    try {
+      const client = await createShopifyClient(SHOP)
+      await assert.rejects(() => client.graphql(query), /Shopify GraphQL error \(401\): original-401-body/)
+      assert.lengthOf(shopify.tokenRequests, 1)
+
+      clock += BACKOFF_MS - 1000
+      await assert.rejects(() => client.graphql(query), /Shopify GraphQL error \(401\)/)
+      assert.lengthOf(shopify.tokenRequests, 1)
+
+      fail = false
+      clock += 2000
+      assert.deepEqual(await client.graphql(query), { shop: { name: 'Dev store' } })
+      assert.lengthOf(shopify.tokenRequests, 2)
+      assert.equal(decryptString((await storedInstallation())!.accessToken), 'renewed-token')
+    } finally {
+      shopify.restore()
+    }
+  })
+
+  test('a failed write after a 401 names neither the token nor its ciphertext', async ({ assert }) => {
+    await insertInstallation({ token: 'revoked-token' })
+    const shopify = fakeShopify({
+      onToken: () => Response.json({ access_token: 'granted-secret-token', scope: 'read_orders', expires_in: 86399 }),
+      onGraphql: () => new Response('unauthorized', { status: 401 }),
+    })
+    const restoreWrites = await refuseInstallationWrites()
+    try {
+      const client = await createShopifyClient(SHOP)
+      let message = ''
+      try {
+        await client.graphql(query)
+      } catch (error) {
+        message = errorMessage(error)
+      }
+      assert.include(message, 'Could not store the client credentials token')
+      assert.notInclude(message, 'granted-secret-token')
+      assert.notInclude(message, 'enc:')
+      assert.notInclude(message, 'params')
+      assert.lengthOf(shopify.graphqlRequests, 1)
+      assert.equal(decryptString((await storedInstallation())!.accessToken), 'revoked-token')
+    } finally {
+      await restoreWrites()
       shopify.restore()
     }
   })
@@ -595,6 +801,15 @@ test.group('Client credentials: cron targets', (group) => {
     assert.deepEqual(await resolveTargets({ shops: 'all' }), [{ shopifyApp: 'default', shop: OTHER_SHOP }])
   })
 
+  test('shops given as a list or a string include the configured shop with no row, like any named shop', async ({ assert }) => {
+    assert.deepEqual(await resolveTargets({ shops: SHOP }), [{ shopifyApp: 'default', shop: SHOP }])
+    assert.deepEqual(await resolveTargets({ shops: [SHOP] }), [{ shopifyApp: 'default', shop: SHOP }])
+    assert.deepEqual(await resolveTargets({ shops: [SHOP, OTHER_SHOP] }), [
+      { shopifyApp: 'default', shop: SHOP },
+      { shopifyApp: 'default', shop: OTHER_SHOP },
+    ])
+  })
+
   test('with the variable unset, shops=all is exactly the installed rows', async ({ assert }) => {
     restoreEnv()
     restoreEnv = setClientCredentialsShop(undefined)
@@ -696,13 +911,16 @@ test.group('Client credentials: Shopify-signed requests', (group) => {
     }
   })
 
-  test('a network error is remembered like a refusal', async ({ assert }) => {
+  test('a network error holds the next attempt for 30 seconds only', async ({ assert }) => {
     const shopify = fakeShopify({ onToken: () => { throw new TypeError('fetch failed') } })
     try {
       const app = await appWith()
       assert.equal((await app.request(launchUrl(OTHER_SHOP), { redirect: 'manual' })).status, 302)
       assert.equal((await app.request(launchUrl(OTHER_SHOP), { redirect: 'manual' })).status, 302)
       assert.lengthOf(shopify.tokenRequests, 1)
+      clock += BACKOFF_MS + 1000
+      assert.equal((await app.request(launchUrl(OTHER_SHOP), { redirect: 'manual' })).status, 302)
+      assert.lengthOf(shopify.tokenRequests, 2)
     } finally {
       shopify.restore()
     }
@@ -773,6 +991,87 @@ test.group('Client credentials: Shopify-signed requests', (group) => {
     }
   })
 
+  test('a stale signed launch never grants nor revives, and keeps the OAuth redirect', async ({ assert }) => {
+    await insertInstallation({ shop: OTHER_SHOP, token: null, uninstalledAt: new Date() })
+    const shopify = fakeShopify()
+    try {
+      const app = await appWith()
+      for (const ageMs of [91_000, -91_000, 30 * 24 * HOUR_MS]) {
+        for (const shop of [SHOP, OTHER_SHOP]) {
+          const res = await app.request(launchUrl(shop, { ageMs }), { redirect: 'manual' })
+          assert.equal(res.status, 302)
+          assert.equal(res.headers.get('location'), `/auth?shop=${shop}`)
+        }
+      }
+      assert.lengthOf(shopify.requests, 0)
+      assert.isUndefined(await storedInstallation())
+      assert.isNotNull((await storedInstallation(OTHER_SHOP))!.uninstalledAt)
+
+      // Within 90 seconds, either way, the launch still grants.
+      assert.equal((await app.request(launchUrl(SHOP, { ageMs: 89_000 }), { redirect: 'manual' })).status, 200)
+      assert.equal((await app.request(launchUrl(OTHER_SHOP, { ageMs: -89_000 }), { redirect: 'manual' })).status, 200)
+      assert.lengthOf(shopify.tokenRequests, 2)
+      assert.isNull((await storedInstallation(OTHER_SHOP))!.uninstalledAt)
+    } finally {
+      shopify.restore()
+    }
+  })
+
+  test('a token endpoint that never answers falls back to the OAuth redirect within the timeout', async ({ assert }) => {
+    resetClientCredentialsState({ now: () => clock, grantTimeoutMs: 50 })
+    // Never settles, and ignores the abort signal too.
+    const shopify = fakeShopify({ onToken: () => new Promise<Response>(() => {}) })
+    try {
+      const app = await appWith()
+      const started = Date.now()
+      const res = await app.request(launchUrl(SHOP), { redirect: 'manual' })
+      assert.isBelow(Date.now() - started, 2000)
+      assert.equal(res.status, 302)
+      assert.equal(res.headers.get('location'), `/auth?shop=${SHOP}`)
+      assert.isTrue(shopify.tokenRequests[0]!.signal?.aborted)
+
+      // A timeout is transient: tried again after the backoff, not after an hour.
+      assert.equal((await app.request(launchUrl(SHOP), { redirect: 'manual' })).status, 302)
+      assert.lengthOf(shopify.tokenRequests, 1)
+      clock += BACKOFF_MS + 1000
+      assert.equal((await app.request(launchUrl(SHOP), { redirect: 'manual' })).status, 302)
+      assert.lengthOf(shopify.tokenRequests, 2)
+    } finally {
+      shopify.restore()
+    }
+  })
+
+  test('a signed launch and background work on the same shop share one grant request', async ({ assert }) => {
+    restoreEnv()
+    restoreEnv = setClientCredentialsShop(SHOP)
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const shopify = fakeShopify({
+      onToken: async () => {
+        await gate
+        return Response.json({ access_token: 'shared-token', scope: 'read_orders', expires_in: 86399 })
+      },
+    })
+    try {
+      const app = await appWith()
+      const client = await createShopifyClient('__global__')
+      const background = client.graphql(query)
+      const launch = app.request(launchUrl(SHOP), { redirect: 'manual' })
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      release()
+      const [data, res] = await Promise.all([background, launch])
+
+      assert.deepEqual(data, { shop: { name: 'Dev store' } })
+      assert.equal(res.status, 200)
+      assert.lengthOf(shopify.tokenRequests, 1)
+      const row = await storedInstallation()
+      assert.equal(decryptString(row!.accessToken), 'shared-token')
+      assert.isNull(row!.uninstalledAt)
+    } finally {
+      shopify.restore()
+    }
+  })
+
   test('a hostile shop parameter never reaches another host', async ({ assert }) => {
     const shopify = fakeShopify()
     try {
@@ -832,6 +1131,98 @@ test.group('Client credentials: Shopify-signed requests', (group) => {
       assert.equal(res.status, 200)
       assert.equal(shopify.tokenRequests[0]!.url, `https://${OTHER_SHOP}/admin/oauth/access_token`)
       assert.isUndefined(await storedInstallation(SHOP))
+    } finally {
+      shopify.restore()
+    }
+  })
+})
+
+test.group('Client credentials: unsigned input', (group) => {
+  let restoreEnv: () => void = () => {}
+
+  group.each.setup(async () => {
+    await freshState()
+    restoreEnv = setClientCredentialsShop(SHOP)
+    return () => restoreEnv()
+  })
+
+  test('a webhook naming the global placeholder is refused and runs nothing', async ({ assert }) => {
+    const shops: string[] = []
+    const config = createConfig({}, {
+      webhooks: { ORDERS_CREATE: { run: async ({ shop }: { shop: string }) => { shops.push(shop) } } },
+    })
+    const shopify = fakeShopify()
+    try {
+      const app = await createServer(() => config)
+      const body = JSON.stringify({ id: 1 })
+      const send = (shop: string) => app.request('http://localhost/webhooks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-shopify-hmac-sha256': signWebhook(body),
+          'x-shopify-topic': 'orders/create',
+          'x-shopify-shop-domain': shop,
+          'x-shopify-api-version': '2026-04',
+        },
+        body,
+      })
+
+      assert.equal((await send('__global__')).status, 400)
+      assert.equal((await send(OTHER_SHOP)).status, 200)
+      assert.deepEqual(shops, [OTHER_SHOP])
+      assert.lengthOf(shopify.requests, 0)
+    } finally {
+      shopify.restore()
+    }
+  })
+})
+
+test.group('Client credentials: config registration', (group) => {
+  let restoreEnv: () => void = () => {}
+
+  group.each.setup(async () => {
+    stopScheduler()
+    await freshState()
+    restoreEnv = setClientCredentialsShop(SHOP)
+    return () => {
+      stopScheduler()
+      restoreEnv()
+    }
+  })
+
+  async function grantedClientId(shopify: FakeShopify): Promise<string | null> {
+    await truncateAll()
+    const before = shopify.tokenRequests.length
+    await (await createShopifyClient('__global__')).graphql(query)
+    return grantForm(shopify.tokenRequests[before]!).get('client_id')
+  }
+
+  test('the scheduler, the worker and the flow runner never replace the server\'s live config', async ({ assert }) => {
+    const shopify = fakeShopify()
+    try {
+      await createServer(() => createConfig({}, { shopify: MULTI_APPS }))
+      startScheduler(createConfig({}))
+      assert.instanceOf(new Worker(createConfig({})), Worker)
+      useShopifyAppsConfig(() => createConfig({}))
+      assert.equal(await grantedClientId(shopify), 'default-app-key')
+
+      // A reset forgets it: the environment's credentials apply again.
+      resetClientCredentialsState({ now: () => clock })
+      assert.equal(await grantedClientId(shopify), API_KEY)
+    } finally {
+      shopify.restore()
+    }
+  })
+
+  test('the first fixed config is kept until the server registers its live one', async ({ assert }) => {
+    const shopify = fakeShopify()
+    try {
+      useShopifyAppsConfig(() => createConfig({}, { shopify: MULTI_APPS }))
+      useShopifyAppsConfig(() => createConfig({}))
+      assert.equal(await grantedClientId(shopify), 'default-app-key')
+
+      await createServer(() => createConfig({}))
+      assert.equal(await grantedClientId(shopify), API_KEY)
     } finally {
       shopify.restore()
     }

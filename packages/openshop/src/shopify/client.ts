@@ -47,10 +47,23 @@ export async function createShopifyClient(
   shopifyAppOrApiVersion = DEFAULT_SHOPIFY_APP_HANDLE,
   apiVersion = SHOPIFY_API_VERSION,
 ): Promise<ShopifyClient> {
+  return openShopifyClient(shop, shopifyAppOrApiVersion, apiVersion)
+}
+
+/**
+ * `createShopifyClient` for the flow runner: `signal` (the run's) stops waiting
+ * for a client credentials grant when the run is cancelled.
+ */
+export async function openShopifyClient(
+  shop: string,
+  shopifyAppOrApiVersion = DEFAULT_SHOPIFY_APP_HANDLE,
+  apiVersion = SHOPIFY_API_VERSION,
+  options?: { signal?: AbortSignal },
+): Promise<ShopifyClient> {
   const isApiVersion = /^\d{4}-\d{2}$/.test(shopifyAppOrApiVersion)
   const shopifyApp = isApiVersion ? DEFAULT_SHOPIFY_APP_HANDLE : shopifyAppOrApiVersion
   const resolvedApiVersion = isApiVersion ? shopifyAppOrApiVersion : apiVersion
-  const tokens = await openAdminTokenSource(shopifyApp, shop)
+  const tokens = await openAdminTokenSource(shopifyApp, shop, options?.signal ? { signal: options.signal } : undefined)
 
   const graphql = async (query: string, options?: { variables?: Record<string, unknown> }) => {
     // The token comes first, so a shop without one keeps today's error.

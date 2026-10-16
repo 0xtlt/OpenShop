@@ -1,11 +1,17 @@
+import { writeSync } from 'node:fs'
+import http from 'node:http'
+import https from 'node:https'
+import { syncBuiltinESMExports } from 'node:module'
+
 /**
- * Keeps the test suites offline. The bootstrap replaces `fetch` with a
- * guard that lets local addresses through and refuses every other one, so a
- * test that forgets to mock Shopify (or any other host) fails instead of
- * reaching the network. Tests that mock `fetch` wrap this guard, so whatever
- * they do not answer themselves is refused too.
+ * Keeps the test suites offline. The bootstrap replaces `fetch`, and the
+ * `request` and `get` functions of `node:http` and `node:https`, with a guard
+ * that lets local addresses through and refuses every other one, so a test
+ * that forgets to mock Shopify (or any other host) fails instead of reaching
+ * the network. Tests that mock `fetch` wrap this guard, so whatever they do not
+ * answer themselves is refused too.
  */
-const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
 
 export interface NetworkGuard {
   /** Addresses refused so far, in order. */
@@ -21,25 +27,96 @@ function requestUrl(input: RequestInfo | URL): string {
   return input.url
 }
 
+function isLocal(hostname: string | null): boolean {
+  return hostname !== null && (LOCAL_HOSTS.has(hostname) || hostname.endsWith('.localhost'))
+}
+
+interface HostOptions {
+  hostname?: string | null
+  host?: string | null
+}
+
+function hostOfOptions(options: HostOptions): string | null {
+  if (options.hostname) return options.hostname
+  if (options.host) return options.host.replace(/:\d+$/, '')
+  return null
+}
+
+/** The host `http.request(url?, options?, callback?)` would connect to. */
+function nodeRequestTarget(args: unknown[]): { host: string | null; label: string } {
+  const [first, second] = args
+  let host: string | null = null
+  let label = ''
+  if (typeof first === 'string' || first instanceof URL) {
+    label = String(first)
+    try { host = new URL(first).hostname } catch { host = null }
+    if (second && typeof second === 'object') host = hostOfOptions(second as HostOptions) ?? host
+  } else if (first && typeof first === 'object') {
+    // Node defaults to localhost when the options name no host.
+    host = hostOfOptions(first as HostOptions) ?? 'localhost'
+    label = `${host}${(first as { path?: string }).path ?? ''}`
+  }
+  return { host, label: label || String(host) }
+}
+
+type RequestFunction = (...args: unknown[]) => unknown
+
 export function installNetworkGuard(): NetworkGuard {
   const originalFetch = globalThis.fetch
+  const modules = [http, https] as unknown as Array<{ request: RequestFunction; get: RequestFunction }>
+  const originals = modules.map((module) => ({ module, request: module.request, get: module.get }))
+
   const guard: NetworkGuard = {
     blocked: [],
     report: () => {
       if (guard.blocked.length === 0) return
-      console.error(`[network-guard] ${guard.blocked.length} request(s) to the network were refused:`)
-      for (const url of new Set(guard.blocked)) console.error(`  ${url}`)
+      const urls = [...new Set(guard.blocked)]
+      const message = [
+        '',
+        `[network-guard] FAILED: ${guard.blocked.length} request(s) to the network were refused.`,
+        '[network-guard] Tests must mock every non-local address. Refused:',
+        ...urls.map((url) => `  ${url}`),
+        '',
+      ].join('\n')
+      console.error(message)
       process.exitCode = 1
+      // The test summary prints after this hook and may read as a pass: say it
+      // again as the very last line, synchronously, when the process exits.
+      process.once('exit', () => {
+        writeSync(2, `\n[network-guard] Exiting with code 1: ${guard.blocked.length} network request(s) were refused (listed above the summary).\n`)
+      })
     },
-    restore: () => { globalThis.fetch = originalFetch },
+    restore: () => {
+      globalThis.fetch = originalFetch
+      for (const original of originals) {
+        original.module.request = original.request
+        original.module.get = original.get
+      }
+      syncBuiltinESMExports()
+    },
   }
+
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = requestUrl(input)
     let hostname: string | null = null
     try { hostname = new URL(url).hostname } catch { /* refused below */ }
-    if (hostname && (LOCAL_HOSTS.has(hostname) || hostname.endsWith('.localhost'))) return originalFetch(input, init)
+    if (isLocal(hostname)) return originalFetch(input, init)
     guard.blocked.push(url)
     throw new TypeError(`[network-guard] Integration tests must not reach the network: ${url}`)
   }
+
+  for (const original of originals) {
+    const wrap = (target: RequestFunction): RequestFunction => (...args: unknown[]) => {
+      const { host, label } = nodeRequestTarget(args)
+      if (isLocal(host)) return target(...args)
+      guard.blocked.push(label)
+      throw new TypeError(`[network-guard] Integration tests must not reach the network: ${label}`)
+    }
+    original.module.request = wrap(original.request)
+    original.module.get = wrap(original.get)
+  }
+  // Named imports (`import { request } from 'node:http'`) see the guard too.
+  syncBuiltinESMExports()
+
   return guard
 }

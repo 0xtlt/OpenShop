@@ -52,7 +52,7 @@ Shopify's [client credentials grant](https://shopify.dev/docs/apps/build/authent
 issues an Admin API token without a browser, but only when the app and the
 store belong to the **same Shopify organization** and the app is installed on
 the store. It suits a development store of the organization that owns the app,
-exercised by automated tests or a coding agent. A merchant's store of another
+for example one used by automated tests. A merchant's store of another
 organization is always refused (for example with `shop_not_permitted`).
 
 OpenShop requests the token from `https://<shop>/admin/oauth/access_token`
@@ -71,7 +71,11 @@ No variable is needed. When the resolved app has no usable token for the shop
 two cases only:
 
 - an embedded admin load whose query HMAC is valid for one of the configured
-  apps; the `shop` parameter must itself be exactly `<name>.myshopify.com`;
+  apps; the `shop` parameter must itself be exactly `<name>.myshopify.com`, and
+  the signed `timestamp` must be less than 90 seconds away from the server's
+  clock, the tolerance Shopify's own app library uses. A copied launch URL
+  replayed later is still accepted as before, but never grants and never marks
+  an uninstalled shop installed again: it redirects to `/auth`;
 - an `/api` request whose session token is verified; the shop is its `dest`
   claim.
 
@@ -82,16 +86,27 @@ inside the admin frame. On any failure the request continues exactly as before
 the grant existed: the admin load redirects to `/auth`, and an `/api` request
 uses token exchange.
 
-A refusal (any non-2xx answer or network error) is remembered in process memory
-for one hour per app and shop. During that hour no grant is attempted for that
-pair and the usual path is taken at once, so a merchant's store pays one extra
-round trip to Shopify at most once an hour per process. A successful grant
-clears the entry. Nothing about refusals is stored in the database.
+The request to Shopify is abandoned after five seconds. Failures are
+remembered in process memory per app and shop, and during that time no grant is
+attempted for the pair and the usual path is taken at once:
 
-Webhooks never trigger a grant: Shopify's webhook signature covers the body,
-not the `X-Shopify-Shop-Domain` header, so it does not vouch for the shop.
-`/auth`, public routes, proxy routes, and MCP requests are not signed by
-Shopify either and never start a grant for a shop of their choosing.
+- a definite refusal, a `4xx` answer carrying a Shopify error code such as
+  `shop_not_permitted`, for one hour, so a merchant's store pays one extra round
+  trip to Shopify at most once an hour per process;
+- a transient failure, a timeout, a network error, a `429`, a `5xx` or an
+  answer without an error code, for 30 seconds.
+
+A successful grant clears the entry. Nothing about failures is stored in the
+database.
+
+Unsigned input never starts a grant for a shop of its choosing. `/auth`, public
+routes, proxy routes, and MCP requests are not signed by Shopify. A webhook's
+signature covers the body, not the `X-Shopify-Shop-Domain` header, so the
+header does not vouch for the shop: the webhook route answers `400` when it is
+`__global__`, so that a webhook can never name the placeholder of background
+work. A webhook handler that uses a Shopify client is background work like any
+other: it can reach the configured shop below, and the `401` renewal of a token
+already stored for its shop.
 
 ### Background work: `SHOPIFY_CLIENT_CREDENTIALS_SHOP`
 
@@ -110,7 +125,10 @@ With it set, for the `default` app:
   `__global__`; only the Shopify client talks to the configured store;
 - a cron with `shops: 'all'` also targets the configured shop when no
   installation row exists for it at all. A row of any kind is left to decide,
-  so a shop marked uninstalled stays out;
+  so a shop marked uninstalled stays out. A cron that names its shops, as a
+  string or a list, runs for each named shop whether or not it has a row, as it
+  always did; for the configured shop, the client then requests its token, and
+  refuses one when the row says the shop was uninstalled;
 - background work never revives an uninstalled shop: it does not grant for a
   row marked uninstalled and never clears `uninstalled_at`. Only a signed
   request from Shopify does.
@@ -132,7 +150,10 @@ secret.
 - When the Admin API answers `401`, OpenShop requests one grant with the app's
   credentials and retries the request once, never more. When the shop is
   marked uninstalled or the grant fails, the original `401` error is returned.
-- Concurrent callers in one process share one grant request per app and shop.
+- Concurrent callers in one process share one grant request per app and shop,
+  whether a signed request or background work started it. Each stores the
+  answer on its own terms: background work still never marks an uninstalled
+  shop installed again.
 
 The MCP `openshop.admin.graphql` tool resolves its token the same way: it uses
 the stored token of the requested shop (or, for the configured shop, a granted
@@ -143,7 +164,8 @@ never grants for any other shop without a stored token.
 Shops whose grant is refused keep exactly the behaviour they had before: OAuth,
 token exchange, and their stored tokens. The token has the scopes of the app's
 released version. Errors and logs name the HTTP status and Shopify's error code;
-the client ID, secret, and token are never logged.
+the client ID, secret, and token are never logged, and a token that cannot be
+stored is reported without the database query or its parameters.
 
 ## Webhook and proxy bodies
 

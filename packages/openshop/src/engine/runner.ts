@@ -7,7 +7,7 @@ import { registerAbort, cleanupAbort } from '#engine/abort'
 import { computeNextRetryAt } from '#engine/backoff'
 import { FlowCanceledError, FlowTimeoutError, SleepSignal } from '#engine/errors'
 import { buildConnectors, type RuntimeConnectors } from '#server/connectors'
-import { createShopifyClient } from '../shopify/client.ts'
+import { openShopifyClient } from '../shopify/client.ts'
 import { useShopifyAppsConfig } from '../shopify/client-credentials.ts'
 import { getRuntimeLogger } from '../runtime/logger.ts'
 import { DEFAULT_SHOPIFY_APP_HANDLE } from '#server/shopify-apps'
@@ -58,9 +58,10 @@ export async function runFlow(opts: RunFlowOptions): Promise<RunFlowResult> {
     : eq(flowRuns.id, runId)
   const step = createStepExecutor(db, runId, logger, signal, flow.stepTimeout, attempt)
   const connectors = opts.connectors ?? await buildConnectors(config, shop, shopifyApp)
-  // Grants use the API key and secret of this config's apps.
+  // Grants use the API key and secret of this config's apps, unless the server
+  // registered its live config in this process.
   useShopifyAppsConfig(() => config)
-  const shopify = await createShopifyClient(shop, shopifyApp)
+  const shopify = await openShopifyClient(shop, shopifyApp, undefined, { signal })
 
   try {
     let validatedInput: unknown = input

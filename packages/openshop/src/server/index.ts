@@ -18,7 +18,7 @@ import { DEFAULT_SHOPIFY_APP_HANDLE, resolveShopifyAppBySignedQuery } from '#ser
 import { getDb } from '#db/client'
 import { installations } from '#db/schema'
 import type { OpenShopConfig } from '#types'
-import { assertClientCredentialsConfig, grantForSignedRequest, useShopifyAppsConfig } from '../shopify/client-credentials.ts'
+import { assertClientCredentialsConfig, grantForSignedRequest, isFreshSignedTimestamp, useShopifyAppsConfig } from '../shopify/client-credentials.ts'
 import { adminPageFromApiPath, resolveAdminPages } from '../config/pages.ts'
 import { getRuntimeLogger } from '../runtime/logger.ts'
 
@@ -94,7 +94,7 @@ async function tryGrantForSignedRequest(shopifyApp: { handle: string; apiKey: st
   try {
     return await grantForSignedRequest(shopifyApp, shop)
   } catch {
-    // Database errors may quote the query parameters, the sealed token among them.
+    // The grant throws only a generic error (no query parameters, no token).
     getRuntimeLogger().error(`[openshop] Could not store a client credentials token for shop "${shop}"`)
     return false
   }
@@ -103,7 +103,9 @@ async function tryGrantForSignedRequest(shopifyApp: { handle: string; apiKey: st
 export async function createServer(getConfig: ConfigGetter, options?: ServerOptions) {
   // Fail at startup, not on the first request, when SHOPIFY_CLIENT_CREDENTIALS_SHOP cannot be served.
   assertClientCredentialsConfig(getConfig())
-  useShopifyAppsConfig(getConfig)
+  // The server's getter follows config reloads, so it wins over the fixed copies
+  // the scheduler, the worker and the flow runner register.
+  useShopifyAppsConfig(getConfig, { live: true })
   const app = new Hono()
 
   app.use('*', async (c, next) => {
@@ -190,8 +192,13 @@ export async function createServer(getConfig: ConfigGetter, options?: ServerOpti
       if (!(await isInstalledShop(shopifyApp.handle, shop))) {
         // Shopify signed this shop, so the resolved app may try the client
         // credentials grant for it (it only succeeds on a store of the app's own
-        // organization). Any failure keeps the OAuth redirect below.
-        if (strictShopDomain(query.shop) === shop && await tryGrantForSignedRequest(shopifyApp, shop)) {
+        // organization). Only a recent launch may: a copied launch URL replayed
+        // later keeps the OAuth redirect below, as does any failure.
+        if (
+          strictShopDomain(query.shop) === shop
+          && isFreshSignedTimestamp(query.timestamp)
+          && await tryGrantForSignedRequest(shopifyApp, shop)
+        ) {
           ;(c as unknown as { set: (key: string, value: string) => void }).set('shopifyApiKey', shopifyApp.apiKey)
           return next()
         }

@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { hasConfiguredShopifyAppSecret, resolveShopifyAppByWebhookHmac } from '#server/shopify-apps'
 import type { OpenShopConfig } from '#types'
 import { getRuntimeLogger } from '../runtime/logger.ts'
+import { GLOBAL_SHOP } from '../shopify/client-credentials.ts'
 
 /**
  * Creates webhook routes from the config's webhook definitions.
@@ -29,6 +30,11 @@ export function createWebhookRoutes(getConfig: () => OpenShopConfig) {
     } catch {
       return c.json({ error: 'Invalid webhook HMAC' }, 401)
     }
+
+    // The signature covers the body, not this header. `__global__` is the
+    // placeholder of background work, which may map to a configured shop: a
+    // webhook must never be able to name it.
+    if (shop === GLOBAL_SHOP) return c.json({ error: 'Invalid shop domain header' }, 400)
 
     // Normalize topic: Shopify sends "orders/create", config uses "ORDERS_CREATE"
     const normalizedTopic = topic.replace(/\//g, '_').toUpperCase()

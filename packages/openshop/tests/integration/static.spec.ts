@@ -33,7 +33,8 @@ function signedLaunchUrl(path = '/', shop = 'static-test.myshopify.com', signing
   const params: Record<string, string> = {
     host: 'admin.shopify.com/store/static-test',
     shop,
-    timestamp: '1770000000',
+    // Recent, as Shopify signs it: a stale launch never tries the grant.
+    timestamp: String(Math.floor(Date.now() / 1000)),
   }
   const message = Object.keys(params).sort().map((key) => `${key}=${params[key]}`).join('&')
   const hmac = createHmac('sha256', signingSecret).update(message).digest('hex')

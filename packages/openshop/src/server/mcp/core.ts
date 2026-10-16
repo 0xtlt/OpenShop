@@ -108,6 +108,7 @@ async function runAdminGraphql(ctx: McpExecutionContext, input: Record<string, u
   // SHOPIFY_CLIENT_CREDENTIALS_SHOP. A 401 renews a stored token once, as for flows.
   const tokens = await openAdminTokenSource(ctx.appHandle, shop, {
     missingToken: () => new Error(`Shop "${shop}" is not installed for app "${ctx.appHandle}"`),
+    signal: ctx.signal,
   })
   const shopDomain = strictShopDomain(tokens.shop)
   if (!shopDomain) throw new Error('shop must be a myshopify.com domain')

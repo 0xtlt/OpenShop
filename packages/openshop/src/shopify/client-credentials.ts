@@ -16,18 +16,23 @@ import type { OpenShopConfig } from '../types.ts'
  * in three places, and nowhere else:
  *
  * - On a request whose shop Shopify signed (an admin launch whose query HMAC
- *   covers `shop`, or a verified session token's `dest`), when the resolved app
- *   has no usable token for that shop. Any failure falls back to OAuth or token
- *   exchange exactly as before. A refusal is remembered in memory for one hour
- *   per app and shop, so a merchant's store pays the extra round trip at most
- *   once an hour per process.
+ *   covers `shop` and whose `timestamp` is recent, or a verified session
+ *   token's `dest`), when the resolved app has no usable token for that shop.
+ *   Any failure falls back to OAuth or token exchange exactly as before. A
+ *   definite refusal is remembered in memory for one hour per app and shop, so
+ *   a merchant's store pays the extra round trip at most once an hour per
+ *   process; a transient failure only for a few seconds.
  * - For background work on the one shop named by `SHOPIFY_CLIENT_CREDENTIALS_SHOP`
  *   (and the `__global__` placeholder, which maps to it), with the `default` app.
  * - To renew a stored token the Admin API answered 401 to (one grant, one retry),
  *   and to renew a token this process obtained by grant shortly before it expires.
  *
- * A webhook never triggers a grant: its signature covers the body, not the
- * `X-Shopify-Shop-Domain` header, so its shop is not vouched for by Shopify.
+ * Unsigned input never starts a grant for a shop of its choosing. A webhook's
+ * signature covers the body, not the `X-Shopify-Shop-Domain` header, so its
+ * shop is not vouched for by Shopify: the webhook route refuses the
+ * `__global__` placeholder in that header, and a webhook handler reaches a
+ * grant only like any other background work (the configured shop, or the 401
+ * renewal of a token already stored for its shop).
  */
 export const CLIENT_CREDENTIALS_SHOP_ENV = 'SHOPIFY_CLIENT_CREDENTIALS_SHOP'
 
@@ -38,10 +43,29 @@ export const GLOBAL_SHOP = '__global__'
 const DEFAULT_TOKEN_LIFETIME_MS = 86_399_000
 /** A token this process obtained by grant is renewed this long before it expires. */
 export const CLIENT_CREDENTIALS_RENEW_MARGIN_MS = 5 * 60_000
-/** A refused grant is not attempted again for this app and shop during this time. */
+/**
+ * A definite refusal (a 4xx answer carrying a Shopify error code, such as
+ * `shop_not_permitted`) is not attempted again for this app and shop during this time.
+ */
 export const CLIENT_CREDENTIALS_REFUSAL_TTL_MS = 60 * 60_000
+/**
+ * A transient failure (network error, timeout, 429, 5xx, or an answer Shopify
+ * did not explain) is not attempted again for this app and shop during this time.
+ */
+export const CLIENT_CREDENTIALS_RETRY_BACKOFF_MS = 30_000
+/** The token request is abandoned after this long, and counts as a transient failure. */
+export const CLIENT_CREDENTIALS_GRANT_TIMEOUT_MS = 5_000
+/**
+ * A signed admin launch only starts a grant (or revives an uninstalled row)
+ * when its `timestamp` is this close to the current time: the same 90 seconds
+ * Shopify's own app library tolerates, so a copied launch URL cannot be
+ * replayed later. A stale but valid launch keeps the behaviour it had before
+ * the grant existed.
+ */
+export const SIGNED_QUERY_MAX_AGE_MS = 90_000
 
 const ERROR_CODE_RE = /^[a-z0-9_.-]{1,64}$/i
+const TIMESTAMP_RE = /^\d{1,12}$/
 
 interface AppCredentials {
   clientId: string
@@ -51,47 +75,77 @@ interface AppCredentials {
 /** Who vouched for the shop. A background grant never revives an uninstalled shop. */
 type GrantMode = 'signed' | 'background'
 
-type GrantResult = { ok: true; accessToken: string } | { ok: false; reason: string }
+/**
+ * Why a grant gave no token: `refused` is a definite answer from Shopify,
+ * `transient` a failure worth trying again soon, `other` anything decided
+ * locally (invalid shop, missing credentials, uninstalled shop, cancelled call).
+ */
+type FailureKind = 'refused' | 'transient' | 'other'
+
+type GrantResult = { ok: true; accessToken: string } | { ok: false; reason: string; kind: FailureKind }
+
+/** What the token endpoint answered, before any caller stores it. */
+type TokenAnswer =
+  | { ok: true; accessToken: string; scopes: string | null; lifetimeMs: number }
+  | { ok: false; reason: string; kind: FailureKind }
 
 interface GrantedToken {
   accessToken: string
   expiresAt: number
 }
 
-interface Refusal {
+interface Failure {
   until: number
   reason: string
+  kind: FailureKind
+  window: string
 }
 
 const granted = new Map<string, GrantedToken>()
-const refusals = new Map<string, Refusal>()
-const inFlight = new Map<string, Promise<GrantResult>>()
+const failures = new Map<string, Failure>()
+const inFlight = new Map<string, Promise<TokenAnswer>>()
 let now: () => number = () => Date.now()
-let configSource: (() => OpenShopConfig) | null = null
+let grantTimeoutMs = CLIENT_CREDENTIALS_GRANT_TIMEOUT_MS
+let configSource: { get: () => OpenShopConfig; live: boolean } | null = null
 
 function stateKey(shopifyApp: string, shop: string): string {
   return `${shopifyApp}\n${shop}`
 }
 
-/**
- * Clears the in-memory state (granted token lifetimes, remembered refusals,
- * in-flight grants) and optionally replaces the clock. Meant for tests.
- */
-export function resetClientCredentialsState(options?: { now?: () => number }): void {
-  granted.clear()
-  refusals.clear()
-  inFlight.clear()
-  now = options?.now ?? (() => Date.now())
+function formatDuration(ms: number): string {
+  if (ms % 3_600_000 === 0) return ms === 3_600_000 ? '1 hour' : `${ms / 3_600_000} hours`
+  if (ms % 60_000 === 0) return ms === 60_000 ? '1 minute' : `${ms / 60_000} minutes`
+  return `${Math.ceil(ms / 1000)} seconds`
 }
 
 /**
- * Tells the grant where to read each app's API key and secret. The server, the
- * scheduler, the worker and the flow runner call it with their config, so that
+ * Clears the in-memory state (granted token lifetimes, remembered failures,
+ * in-flight grants, the registered config) and optionally replaces the clock
+ * and the grant timeout. Meant for tests.
+ */
+export function resetClientCredentialsState(options?: { now?: () => number; grantTimeoutMs?: number }): void {
+  granted.clear()
+  failures.clear()
+  inFlight.clear()
+  configSource = null
+  now = options?.now ?? (() => Date.now())
+  grantTimeoutMs = options?.grantTimeoutMs ?? CLIENT_CREDENTIALS_GRANT_TIMEOUT_MS
+}
+
+/**
+ * Tells the grant where to read each app's API key and secret, so that
  * `shopify.apps` handles use their own credentials. Without it, only the
  * `default` app can be granted, from `SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET`.
+ *
+ * The server registers its live config getter (`live: true`), which follows
+ * config reloads and always wins. The scheduler, the worker and the flow runner
+ * register a fixed copy, which is only taken when nothing is registered yet: in
+ * a process that runs the server too, they never replace its live getter, and
+ * later fixed copies (one per flow run) never replace the first.
  */
-export function useShopifyAppsConfig(getConfig: () => OpenShopConfig): void {
-  configSource = getConfig
+export function useShopifyAppsConfig(getConfig: () => OpenShopConfig, options?: { live?: boolean }): void {
+  const live = options?.live === true
+  if (live || !configSource) configSource = { get: getConfig, live }
 }
 
 /**
@@ -139,11 +193,20 @@ export function clientCredentialsTarget(shopifyApp: string, shop: string): strin
   return shop === GLOBAL_SHOP || shop === configured ? configured : null
 }
 
+/**
+ * Whether the `timestamp` of a Shopify-signed query (seconds since the epoch)
+ * is within `SIGNED_QUERY_MAX_AGE_MS` of now, in either direction.
+ */
+export function isFreshSignedTimestamp(timestamp: unknown): boolean {
+  if (typeof timestamp !== 'string' || !TIMESTAMP_RE.test(timestamp)) return false
+  return Math.abs(now() - Number(timestamp) * 1000) <= SIGNED_QUERY_MAX_AGE_MS
+}
+
 function credentialsFor(shopifyApp: string): AppCredentials | null {
   if (configSource) {
     let app
     try {
-      app = resolveShopifyApps(configSource()).find((candidate) => candidate.handle === shopifyApp)
+      app = resolveShopifyApps(configSource.get()).find((candidate) => candidate.handle === shopifyApp)
     } catch {
       return null
     }
@@ -155,9 +218,22 @@ function credentialsFor(shopifyApp: string): AppCredentials | null {
   return clientId && clientSecret ? { clientId, clientSecret } : null
 }
 
-async function readErrorCode(response: Response): Promise<string | null> {
+/** Settles like `promise`, or rejects with the signal's reason once it aborts. */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason)
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason)
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(
+      (value) => { signal.removeEventListener('abort', onAbort); resolve(value) },
+      (error: unknown) => { signal.removeEventListener('abort', onAbort); reject(error) },
+    )
+  })
+}
+
+async function readErrorCode(response: Response, signal: AbortSignal): Promise<string | null> {
   try {
-    const body = await response.json() as { error?: unknown; errors?: unknown }
+    const body = await untilAborted(response.json(), signal) as { error?: unknown; errors?: unknown }
     const code = typeof body.error === 'string' ? body.error : typeof body.errors === 'string' ? body.errors : null
     return code && ERROR_CODE_RE.test(code) ? code : null
   } catch {
@@ -165,12 +241,67 @@ async function readErrorCode(response: Response): Promise<string | null> {
   }
 }
 
-function refuse(shopifyApp: string, shop: string, reason: string): GrantResult {
-  refusals.set(stateKey(shopifyApp, shop), { until: now() + CLIENT_CREDENTIALS_REFUSAL_TTL_MS, reason })
+function remember(shopifyApp: string, shop: string, reason: string, kind: 'refused' | 'transient'): TokenAnswer {
+  const ttl = kind === 'refused' ? CLIENT_CREDENTIALS_REFUSAL_TTL_MS : CLIENT_CREDENTIALS_RETRY_BACKOFF_MS
+  const window = formatDuration(ttl)
+  failures.set(stateKey(shopifyApp, shop), { until: now() + ttl, reason, kind, window })
   getRuntimeLogger().info(
-    `[openshop] Client credentials grant refused for app "${shopifyApp}" and shop "${shop}" (${reason}); not attempted again for 1 hour`,
+    `[openshop] Client credentials grant ${kind === 'refused' ? 'refused' : 'failed'} for app "${shopifyApp}" and shop "${shop}" `
+    + `(${reason}); not attempted again for ${window}`,
   )
-  return { ok: false, reason }
+  return { ok: false, reason, kind }
+}
+
+/**
+ * Asks Shopify's token endpoint once, with a timeout. Never throws: every
+ * failure is remembered, for an hour when Shopify refused with an error code,
+ * for `CLIENT_CREDENTIALS_RETRY_BACKOFF_MS` otherwise.
+ */
+async function requestToken(shopifyApp: string, shop: string, credentials: AppCredentials): Promise<TokenAnswer> {
+  const timeout = AbortSignal.timeout(grantTimeoutMs)
+  let response: Response
+  try {
+    // The race keeps the timeout even if a fetch implementation ignored the signal.
+    response = await untilAborted(fetch(`https://${shop}/admin/oauth/access_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
+      }).toString(),
+      signal: timeout,
+    }), timeout)
+  } catch {
+    return remember(shopifyApp, shop, timeout.aborted ? 'timed out' : 'network error', 'transient')
+  }
+
+  if (!response.ok) {
+    const code = await readErrorCode(response, timeout)
+    const definite = response.status >= 400 && response.status < 500 && response.status !== 429 && code !== null
+    return remember(shopifyApp, shop, `HTTP ${response.status}${code ? `, ${code}` : ''}`, definite ? 'refused' : 'transient')
+  }
+
+  let data: { access_token?: unknown; scope?: unknown; expires_in?: unknown }
+  try {
+    data = await untilAborted(response.json(), timeout) as typeof data
+  } catch {
+    data = {}
+  }
+  if (typeof data.access_token !== 'string' || data.access_token === '') {
+    return remember(shopifyApp, shop, 'no access token in the answer', 'transient')
+  }
+
+  failures.delete(stateKey(shopifyApp, shop))
+  const lifetimeMs = typeof data.expires_in === 'number' && Number.isFinite(data.expires_in) && data.expires_in > 0
+    ? data.expires_in * 1000
+    : DEFAULT_TOKEN_LIFETIME_MS
+  return {
+    ok: true,
+    accessToken: data.access_token,
+    scopes: typeof data.scope === 'string' ? data.scope : null,
+    lifetimeMs,
+  }
 }
 
 /** Stores a granted token. Returns false when a background grant met an uninstalled shop. */
@@ -198,81 +329,72 @@ async function storeToken(shopifyApp: string, shop: string, token: string, scope
   return rows.length > 0
 }
 
-async function requestGrant(shopifyApp: string, shop: string, credentials: AppCredentials, mode: GrantMode): Promise<GrantResult> {
-  let response: Response
-  try {
-    response = await fetch(`https://${shop}/admin/oauth/access_token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-      body: new URLSearchParams({
-        grant_type: 'client_credentials',
-        client_id: credentials.clientId,
-        client_secret: credentials.clientSecret,
-      }).toString(),
-    })
-  } catch {
-    return refuse(shopifyApp, shop, 'network error')
-  }
-
-  if (!response.ok) {
-    const code = await readErrorCode(response)
-    return refuse(shopifyApp, shop, `HTTP ${response.status}${code ? `, ${code}` : ''}`)
-  }
-
-  let data: { access_token?: unknown; scope?: unknown; expires_in?: unknown }
-  try {
-    data = await response.json() as typeof data
-  } catch {
-    data = {}
-  }
-  if (typeof data.access_token !== 'string' || data.access_token === '') {
-    return refuse(shopifyApp, shop, 'no access token in the answer')
-  }
-
-  const lifetimeMs = typeof data.expires_in === 'number' && Number.isFinite(data.expires_in) && data.expires_in > 0
-    ? data.expires_in * 1000
-    : DEFAULT_TOKEN_LIFETIME_MS
-  const scopes = typeof data.scope === 'string' ? data.scope : null
-  const stored = await storeToken(shopifyApp, shop, data.access_token, scopes, mode)
-  if (!stored) return { ok: false, reason: 'the shop was uninstalled' }
-
-  const key = stateKey(shopifyApp, shop)
-  refusals.delete(key)
-  granted.set(key, { accessToken: data.access_token, expiresAt: now() + lifetimeMs })
-  return { ok: true, accessToken: data.access_token }
-}
-
 /**
- * Asks Shopify for a token, unless a grant for this app and shop was refused less
- * than an hour ago. Concurrent callers share one request per app, shop and mode.
- * Shopify refusals are returned, never thrown; database errors are thrown.
+ * Gets a token for this app and shop and stores it, unless a grant for them
+ * failed recently (an hour after a refusal, `CLIENT_CREDENTIALS_RETRY_BACKOFF_MS`
+ * after a transient failure).
+ *
+ * Concurrent callers share one request to Shopify per app and shop, whatever
+ * their mode; each then stores the answer with its own mode, so a background
+ * caller never revives an uninstalled row and never keeps a signed caller from
+ * reviving it. `signal` only stops this caller's wait: the shared request runs
+ * until it ends or times out. Shopify failures are returned, never thrown; a
+ * database error is thrown as a generic error that quotes neither the token
+ * nor the query.
  */
-function grant(shopifyApp: string, shop: string, credentials: AppCredentials, mode: GrantMode): Promise<GrantResult> {
+async function grant(
+  shopifyApp: string,
+  shop: string,
+  credentials: AppCredentials,
+  mode: GrantMode,
+  signal?: AbortSignal,
+): Promise<GrantResult> {
   const validShop = strictShopDomain(shop)
-  if (!validShop) return Promise.resolve({ ok: false, reason: 'invalid shop domain' })
+  if (!validShop) return { ok: false, reason: 'invalid shop domain', kind: 'other' }
 
   const key = stateKey(shopifyApp, validShop)
-  const refusal = refusals.get(key)
-  if (refusal) {
-    if (refusal.until > now()) return Promise.resolve({ ok: false, reason: `${refusal.reason}, less than 1 hour ago` })
-    refusals.delete(key)
+  const failure = failures.get(key)
+  if (failure) {
+    if (failure.until > now()) return { ok: false, reason: `${failure.reason}, less than ${failure.window} ago`, kind: failure.kind }
+    failures.delete(key)
   }
 
-  const flightKey = `${mode}\n${key}`
-  const pending = inFlight.get(flightKey)
-  if (pending) return pending
-  const request = requestGrant(shopifyApp, validShop, credentials, mode).finally(() => inFlight.delete(flightKey))
-  inFlight.set(flightKey, request)
-  return request
+  let pending = inFlight.get(key)
+  if (!pending) {
+    const request: Promise<TokenAnswer> = requestToken(shopifyApp, validShop, credentials)
+      .finally(() => { if (inFlight.get(key) === request) inFlight.delete(key) })
+    inFlight.set(key, request)
+    pending = request
+  }
+
+  let answer: TokenAnswer
+  try {
+    answer = signal ? await untilAborted(pending, signal) : await pending
+  } catch {
+    return { ok: false, reason: 'cancelled', kind: 'other' }
+  }
+  if (!answer.ok) return answer
+
+  let stored: boolean
+  try {
+    stored = await storeToken(shopifyApp, validShop, answer.accessToken, answer.scopes, mode)
+  } catch {
+    // Database errors quote the query parameters, the sealed token among them.
+    throw new Error(`[openshop] Could not store the client credentials token for app "${shopifyApp}" and shop "${validShop}"`)
+  }
+  if (!stored) return { ok: false, reason: 'the shop was uninstalled', kind: 'other' }
+
+  granted.set(key, { accessToken: answer.accessToken, expiresAt: now() + answer.lifetimeMs })
+  return { ok: true, accessToken: answer.accessToken }
 }
 
 /**
  * Tries the grant for a shop Shopify vouched for in this request: an admin launch
- * whose query HMAC covers `shop`, or a verified session token's `dest`. The
- * caller passes the app resolved from that signature and checks beforehand that
- * it has no usable token. Returns true when a token was stored (an uninstalled
- * row is revived, since Shopify says the app is open on the shop); false sends
- * the caller to its usual OAuth or token exchange path.
+ * whose query HMAC covers `shop` and whose timestamp is fresh, or a verified
+ * session token's `dest`. The caller passes the app resolved from that signature
+ * and checks beforehand that it has no usable token. Returns true when a token
+ * was stored (an uninstalled row is revived, since Shopify says the app is open
+ * on the shop); false sends the caller to its usual OAuth or token exchange path.
  */
 export async function grantForSignedRequest(
   app: { handle: string; apiKey: string; apiSecret: string },
@@ -283,11 +405,13 @@ export async function grantForSignedRequest(
   return result.ok
 }
 
-function grantFailure(shop: string, reason: string): Error {
-  return new Error(
-    `[openshop] Client credentials grant refused for shop "${shop}" (${reason}). `
-    + 'The app and the store must belong to the same Shopify organization and the app must be installed on the store.',
-  )
+function grantFailure(shop: string, result: { reason: string; kind: FailureKind }): Error {
+  const hint = result.kind === 'refused'
+    ? ' The app and the store must belong to the same Shopify organization and the app must be installed on the store.'
+    : result.kind === 'transient'
+      ? ` Shopify could not be reached or did not grant a token; the grant is attempted again after ${formatDuration(CLIENT_CREDENTIALS_RETRY_BACKOFF_MS)}.`
+      : ''
+  return new Error(`[openshop] Client credentials grant ${result.kind === 'refused' ? 'refused' : 'failed'} for shop "${shop}" (${result.reason}).${hint}`)
 }
 
 /** The token an Admin API call uses, and how to replace it after a 401. */
@@ -310,11 +434,13 @@ export interface AdminTokenSource {
  *   it was uninstalled;
  * - a token this process granted is renewed 5 minutes before it expires;
  * - after a 401, one grant replaces the token, unless the shop is uninstalled.
+ *
+ * `signal` (an MCP call's or a flow run's) stops waiting for a grant.
  */
 export async function openAdminTokenSource(
   shopifyApp: string,
   shop: string,
-  options?: { missingToken?: () => Error },
+  options?: { missingToken?: () => Error; signal?: AbortSignal },
 ): Promise<AdminTokenSource> {
   const configuredShop = clientCredentialsTarget(shopifyApp, shop)
   const tokenShop = configuredShop ?? shop
@@ -332,8 +458,8 @@ export async function openAdminTokenSource(
 
   async function backgroundGrant(): Promise<GrantResult> {
     const credentials = credentialsFor(shopifyApp)
-    if (!credentials) return { ok: false, reason: `no API key and secret for app "${shopifyApp}"` }
-    return grant(shopifyApp, tokenShop, credentials, 'background')
+    if (!credentials) return { ok: false, reason: `no API key and secret for app "${shopifyApp}"`, kind: 'other' }
+    return grant(shopifyApp, tokenShop, credentials, 'background', options?.signal)
   }
 
   return {
@@ -343,7 +469,9 @@ export async function openAdminTokenSource(
       if (current) {
         const own = granted.get(key)
         if (own && own.accessToken === current && own.expiresAt - CLIENT_CREDENTIALS_RENEW_MARGIN_MS <= now()) {
-          // A failed renewal keeps the current token: it may still have minutes left.
+          // A failed renewal keeps the current token: it may still have minutes
+          // left, and a transient failure only holds the next attempt (here or
+          // after a 401) for CLIENT_CREDENTIALS_RETRY_BACKOFF_MS.
           const renewed = await backgroundGrant()
           if (renewed.ok) current = renewed.accessToken
         }
@@ -352,7 +480,7 @@ export async function openAdminTokenSource(
 
       if (configuredShop && !uninstalled) {
         const result = await backgroundGrant()
-        if (!result.ok) throw grantFailure(tokenShop, result.reason)
+        if (!result.ok) throw grantFailure(tokenShop, result)
         current = result.accessToken
         return current
       }

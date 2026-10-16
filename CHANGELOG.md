@@ -10,9 +10,13 @@ All notable changes to OpenShop will be documented in this file.
   organization that owns the app. On an embedded admin load with a valid query
   HMAC, or an `/api` request with a verified session token, a shop without a
   usable token is granted one with the resolved app's own credentials before
-  falling back to OAuth or token exchange as before; a refusal is remembered in
-  memory for one hour per app and shop. Webhooks and unsigned routes never
-  start a grant.
+  falling back to OAuth or token exchange as before. A signed launch only
+  starts a grant when its `timestamp` is less than 90 seconds old. A definite
+  refusal from Shopify is remembered in memory for one hour per app and shop; a
+  transient failure (a request taking more than five seconds, a network error,
+  a `429` or a `5xx`) for 30 seconds. Unsigned input never starts a grant for a
+  shop of its choosing, and the webhook route refuses `__global__` as its shop
+  header.
 - Added the optional `SHOPIFY_CLIENT_CREDENTIALS_SHOP` for background work: the
   `default` app gets a token for that one store, `__global__` maps to it, and
   `shops: 'all'` includes it until an installation row exists for it.

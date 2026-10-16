@@ -6,7 +6,7 @@ import type {
   JsonValue,
 } from '../admin/index.ts'
 import { getDb } from '../db/client.ts'
-import { createShopifyClient } from '../shopify/client.ts'
+import { openShopifyClient } from '../shopify/client.ts'
 import { buildConnectors } from '../server/connectors.ts'
 import type { OpenShopConfig } from '../types.ts'
 
@@ -26,7 +26,7 @@ export async function createAdminFunctionTestContext(options: {
     actor: { id: options.actorId ?? 'test-actor', sessionId: 'test-session' },
     params: options.params ?? {},
     db: getDb(),
-    shopify: await createShopifyClient(shop, shopifyApp),
+    shopify: await openShopifyClient(shop, shopifyApp, { getConfig: () => options.config }),
     connectors: await buildConnectors(options.config, shop, shopifyApp),
     requestId: options.requestId ?? 'test-request',
   }

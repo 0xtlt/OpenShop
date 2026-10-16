@@ -52,8 +52,8 @@ export interface ShopifyTokenEndpoints {
 
 /**
  * Answers Shopify's token endpoint offline, the way Shopify answers an app
- * that is not installed on a store of its organization: the client credentials
- * grant and token exchange are both refused, so a session token for a shop
+ * that is not installed on a store of its organization: token exchange and the
+ * client credentials grant are both refused, so a session token for a shop
  * without a stored token leaves it without one, as before these requests were
  * mocked. Every request is recorded; any other non-local request is refused by
  * the bootstrap's network guard. Also clears the in-memory grant state, so

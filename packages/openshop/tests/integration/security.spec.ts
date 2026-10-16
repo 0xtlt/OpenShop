@@ -106,10 +106,10 @@ test.group('Security: cross-shop isolation', (group) => {
     const dataB = await resB.json()
     assert.isTrue(dataB.every((r: any) => r.shop === SHOP_B))
     assert.deepEqual(tokenEndpoints.calls, [
-      { shop: SHOP_A, grantType: CLIENT_CREDENTIALS_GRANT },
       { shop: SHOP_A, grantType: TOKEN_EXCHANGE_GRANT },
-      { shop: SHOP_B, grantType: CLIENT_CREDENTIALS_GRANT },
+      { shop: SHOP_A, grantType: CLIENT_CREDENTIALS_GRANT },
       { shop: SHOP_B, grantType: TOKEN_EXCHANGE_GRANT },
+      { shop: SHOP_B, grantType: CLIENT_CREDENTIALS_GRANT },
     ])
   })
 
@@ -319,11 +319,11 @@ test.group('Security: cross-app isolation', (group) => {
     assert.deepEqual(dataB.map((run: any) => run.appHandle), ['clientB'])
     // Refusals are remembered per app: clientB still tries its own grant.
     assert.deepEqual(tokenEndpoints.calls, [
-      { shop: MULTI_APP_SHOP, grantType: CLIENT_CREDENTIALS_GRANT },
-      { shop: MULTI_APP_SHOP, grantType: TOKEN_EXCHANGE_GRANT },
       { shop: MULTI_APP_SHOP, grantType: TOKEN_EXCHANGE_GRANT },
       { shop: MULTI_APP_SHOP, grantType: CLIENT_CREDENTIALS_GRANT },
       { shop: MULTI_APP_SHOP, grantType: TOKEN_EXCHANGE_GRANT },
+      { shop: MULTI_APP_SHOP, grantType: TOKEN_EXCHANGE_GRANT },
+      { shop: MULTI_APP_SHOP, grantType: CLIENT_CREDENTIALS_GRANT },
     ])
   })
 

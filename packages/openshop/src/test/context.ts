@@ -11,7 +11,7 @@ import { getDb } from '#db/client'
 import { flowRuns, installations } from '#db/schema'
 import { createFakeProviders, resetFakeProviders, type TypedFakeProviders } from './fake.ts'
 import { FactoryScope, type Factory } from './factory.ts'
-import { createShopifyClient } from '../shopify/client.ts'
+import { openShopifyClient } from '../shopify/client.ts'
 
 // ─── Proxy test client ──────────────────────────────────────────────
 
@@ -217,7 +217,7 @@ export async function createTestContext(options: TestOptions = {}): Promise<Test
   // Factory scope — uses real Shopify client for the test shop
   let factoryScope: FactoryScope | null = null
   try {
-    const shopify = await createShopifyClient(shop)
+    const shopify = await openShopifyClient(shop, 'default', { getConfig })
     factoryScope = new FactoryScope(shopify)
   } catch {
     // No Shopify client available (no installation) — factories won't work

@@ -16,14 +16,12 @@ import { cancelRun } from '#engine/abort'
 import { dispatchFlow } from '#engine/dispatch'
 import { runFlow } from '#engine/runner'
 import { createCoreMcpCapabilities } from '#server/mcp/core'
-import { createShopifyClient } from '../../src/shopify/client.ts'
+import { createShopifyClient, openShopifyClient } from '../../src/shopify/client.ts'
 import { setRuntimeLogger, type RuntimeLogger } from '../../src/runtime/logger.ts'
 import { sql } from 'drizzle-orm'
 import {
   CLIENT_CREDENTIALS_SHOP_ENV,
-  clientCredentialsWaiters,
   resetClientCredentialsState,
-  useShopifyAppsConfig,
 } from '../../src/shopify/client-credentials.ts'
 import type { FlowRunContext, McpExecutionContext, OpenShopConfig } from '#types'
 import { createConfig, truncateAll } from './helpers.ts'
@@ -149,8 +147,12 @@ function mcpContext(signal: AbortSignal): McpExecutionContext {
   }
 }
 
+function mcpTool(name: string) {
+  return createCoreMcpCapabilities(() => createConfig({})).tools[name]!
+}
+
 function adminGraphqlTool() {
-  return createCoreMcpCapabilities(() => createConfig({})).tools['openshop.admin.graphql']!
+  return mcpTool('openshop.admin.graphql')
 }
 
 function setClientCredentialsShop(value: string | undefined): () => void {
@@ -229,15 +231,33 @@ function errorMessage(error: unknown): string {
 }
 
 let clock = Date.now()
+/**
+ * How many times the grant code read the clock. A signed launch reads it to
+ * check its timestamp, then joins or starts the token request in the same turn
+ * of the event loop: once the count moves, the launch is waiting on Shopify.
+ */
+let clockReads = 0
 
 /**
- * Common per-test state: empty tables, a fixed clock, no registered config
- * (the `default` app then uses SHOPIFY_API_KEY / SHOPIFY_API_SECRET).
+ * Common per-test state: empty tables and a fixed clock. `createShopifyClient`
+ * has no config, so its `default` app uses SHOPIFY_API_KEY / SHOPIFY_API_SECRET.
  */
 async function freshState(options?: { grantTimeoutMs?: number }): Promise<void> {
   await truncateAll()
   clock = Date.now()
-  resetClientCredentialsState({ now: () => clock, ...options })
+  resetClientCredentialsState({ now: () => { clockReads += 1; return clock }, ...options })
+}
+
+/** Runs a flow on `shop` with `config`, as the worker does, and returns its run. */
+async function runFlowWith(config: OpenShopConfig, flowName: string, shop: string) {
+  const { runId } = await dispatchFlow({ flowName, config, shop, options: { retryPolicy: { maxAttempts: 0 } } })
+  return runFlow({ runId, flowName, config, shop })
+}
+
+/** A flow that sends one Admin API query. */
+const queryFlow = {
+  name: 'query-flow',
+  run: async ({ shopify }: FlowRunContext) => { await shopify.graphql(query) },
 }
 
 /** Makes every write to `installations` fail, as a database error would. */
@@ -360,6 +380,27 @@ test.group('Client credentials: background work on the configured shop', (group)
     }
   })
 
+  test('a token granted for less than the renewal margin is asked for once per call, not twice', async ({ assert }) => {
+    let issued = 0
+    const shopify = fakeShopify({
+      onToken: () => {
+        issued += 1
+        return Response.json({ access_token: `brief-token-${issued}`, scope: 'read_orders', expires_in: 120 })
+      },
+    })
+    try {
+      await (await createShopifyClient(SHOP)).graphql(query)
+      assert.lengthOf(shopify.tokenRequests, 1)
+      assert.deepEqual(shopify.graphqlRequests.map((call) => call.headers.get('x-shopify-access-token')), ['brief-token-1'])
+
+      await (await createShopifyClient(SHOP)).graphql(query)
+      assert.lengthOf(shopify.tokenRequests, 2)
+      assert.equal(shopify.graphqlRequests.at(-1)!.headers.get('x-shopify-access-token'), 'brief-token-2')
+    } finally {
+      shopify.restore()
+    }
+  })
+
   test('concurrent callers share a single grant request', async ({ assert }) => {
     let release: () => void = () => {}
     const gate = new Promise<void>((resolve) => { release = resolve })
@@ -371,9 +412,9 @@ test.group('Client credentials: background work on the configured shop', (group)
     })
     try {
       const clients = await Promise.all([createShopifyClient(SHOP), createShopifyClient(SHOP), createShopifyClient('__global__')])
+      // Each caller starts or joins the request before its first await, so all
+      // three are waiting on Shopify when the answer is released.
       const pending = Promise.all(clients.map((client) => client.graphql(query)))
-      // Each caller joins the shared request before its first await.
-      assert.equal(clientCredentialsWaiters('default', SHOP), 3)
       release()
       await pending
 
@@ -661,12 +702,12 @@ test.group('Client credentials: background work on the configured shop', (group)
       const call = (async () => adminGraphqlTool().run(mcpContext(controller.signal), { shop: SHOP, apiVersion: '2026-04', query }))()
         .then(() => 'answered', (error: unknown) => errorMessage(error))
       await token.received
-      const other = (await createShopifyClient(SHOP)).graphql(query)
-      assert.equal(clientCredentialsWaiters('default', SHOP), 2)
+      const client = await createShopifyClient(SHOP)
+      // Joins the request the MCP call started, before its first await.
+      const other = client.graphql(query)
 
       controller.abort()
       assert.include(await call, 'cancelled')
-      assert.equal(clientCredentialsWaiters('default', SHOP), 1)
       assert.isFalse(shopify.tokenRequests[0]!.signal!.aborted)
 
       token.release()
@@ -694,12 +735,12 @@ test.group('Client credentials: background work on the configured shop', (group)
       })
       const run = runFlow({ runId, flowName: 'grant-flow', config, shop: '__global__' })
       await token.received
-      const other = (await createShopifyClient(SHOP)).graphql(query)
-      assert.equal(clientCredentialsWaiters('default', SHOP), 2)
+      const client = await createShopifyClient(SHOP)
+      // Joins the request the run started, before its first await.
+      const other = client.graphql(query)
 
       assert.isTrue(cancelRun(runId))
       assert.equal((await run).status, 'canceled')
-      assert.equal(clientCredentialsWaiters('default', SHOP), 1)
       assert.isFalse(fake.tokenRequests[0]!.signal!.aborted)
 
       token.release()
@@ -862,7 +903,6 @@ test.group('Client credentials: 401 renewal', (group) => {
   })
 
   test('another app handle renews with its own credentials', async ({ assert }) => {
-    useShopifyAppsConfig(() => createConfig({}, { shopify: MULTI_APPS }))
     await insertInstallation({ appHandle: 'second', token: 'revoked-token' })
     const shopify = fakeShopify({
       onGraphql: (call) => call.headers.get('x-shopify-access-token') === 'revoked-token'
@@ -870,11 +910,69 @@ test.group('Client credentials: 401 renewal', (group) => {
         : Response.json({ data: { shop: { name: 'Dev store' } } }),
     })
     try {
-      await (await createShopifyClient(SHOP, 'second')).graphql(query)
+      const config = createConfig({ 'query-flow': queryFlow }, { shopify: MULTI_APPS })
+      const { runId } = await dispatchFlow({ flowName: 'query-flow', config, shopifyApp: 'second', shop: SHOP })
+      const run = await runFlow({ runId, flowName: 'query-flow', config, shopifyApp: 'second', shop: SHOP })
+      assert.equal(run.status, 'completed')
       const form = grantForm(shopify.tokenRequests[0]!)
       assert.equal(form.get('client_id'), 'second-app-key')
       assert.equal(form.get('client_secret'), 'second-app-secret')
       assert.equal(decryptString((await storedInstallation(SHOP, 'second'))!.accessToken), 'granted-token-1')
+    } finally {
+      shopify.restore()
+    }
+  })
+
+  test('a webhook handler\'s client renews the stored token of its shop once after a 401', async ({ assert }) => {
+    await insertInstallation({ token: 'revoked-token' })
+    const answers: string[] = []
+    const config = createConfig({}, {
+      webhooks: {
+        ORDERS_CREATE: {
+          run: async ({ shop, shopifyApp }) => {
+            try {
+              await (await createShopifyClient(shop, shopifyApp)).graphql(query)
+              answers.push(`${shop}: answered`)
+            } catch (error) {
+              answers.push(`${shop}: ${errorMessage(error)}`)
+            }
+          },
+        },
+      },
+    })
+    const shopify = fakeShopify({
+      onGraphql: (call) => call.headers.get('x-shopify-access-token') === 'revoked-token'
+        ? new Response('unauthorized', { status: 401 })
+        : Response.json({ data: { shop: { name: 'Dev store' } } }),
+    })
+    try {
+      const app = await createServer(() => config)
+      const body = JSON.stringify({ id: 1 })
+      const deliver = (shop: string) => app.request('http://localhost/webhooks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-shopify-hmac-sha256': signWebhook(body),
+          'x-shopify-topic': 'orders/create',
+          'x-shopify-shop-domain': shop,
+          'x-shopify-api-version': '2026-04',
+        },
+        body,
+      })
+
+      assert.equal((await deliver(SHOP)).status, 200)
+      // One grant, one retry with the new token, which is stored.
+      assert.lengthOf(shopify.tokenRequests, 1)
+      assert.deepEqual(
+        shopify.graphqlRequests.map((call) => call.headers.get('x-shopify-access-token')),
+        ['revoked-token', 'granted-token-1'],
+      )
+      assert.equal(decryptString((await storedInstallation())!.accessToken), 'granted-token-1')
+
+      // A shop without a row gets no token, and Shopify is not asked.
+      assert.equal((await deliver(OTHER_SHOP)).status, 200)
+      assert.lengthOf(shopify.requests, 3)
+      assert.deepEqual(answers, [`${SHOP}: answered`, `${OTHER_SHOP}: [openshop] No access token found for app "default" and shop "${OTHER_SHOP}". Is the app installed?`])
     } finally {
       shopify.restore()
     }
@@ -925,10 +1023,10 @@ test.group('Client credentials: multi-app startup', (group) => {
   })
 
   test('background work uses the default handle\'s config credentials, not the environment', async ({ assert }) => {
-    await createServer(() => createConfig({}, { shopify: MULTI_APPS }))
     const shopify = fakeShopify()
     try {
-      await (await createShopifyClient('__global__')).graphql(query)
+      const run = await runFlowWith(createConfig({ 'query-flow': queryFlow }, { shopify: MULTI_APPS }), 'query-flow', '__global__')
+      assert.equal(run.status, 'completed')
       const form = grantForm(shopify.tokenRequests[0]!)
       assert.equal(form.get('client_id'), 'default-app-key')
       assert.equal(form.get('client_secret'), 'default-app-secret')
@@ -1234,22 +1332,16 @@ test.group('Client credentials: Shopify-signed requests', (group) => {
   test('a signed launch and background work on the same shop share one grant request', async ({ assert }) => {
     restoreEnv()
     restoreEnv = setClientCredentialsShop(SHOP)
-    let release: () => void = () => {}
-    const gate = new Promise<void>((resolve) => { release = resolve })
-    const shopify = fakeShopify({
-      onToken: async () => {
-        await gate
-        return Response.json({ access_token: 'shared-token', scope: 'read_orders', expires_in: 86399 })
-      },
-    })
+    const token = gatedToken()
+    const shopify = fakeShopify({ onToken: token.onToken })
     try {
       const app = await appWith()
       const client = await createShopifyClient('__global__')
-      const background = client.graphql(query)
       const launch = app.request(launchUrl(SHOP), { redirect: 'manual' })
-      // Released only once the launch joined the request background work started.
-      await until(() => clientCredentialsWaiters('default', SHOP) === 2)
-      release()
+      await token.received
+      // Joins the request the launch started, before its first await.
+      const background = client.graphql(query)
+      token.release()
       const [data, res] = await Promise.all([background, launch])
 
       assert.deepEqual(data, { shop: { name: 'Dev store' } })
@@ -1259,6 +1351,7 @@ test.group('Client credentials: Shopify-signed requests', (group) => {
       assert.equal(decryptString(row!.accessToken), 'shared-token')
       assert.isNull(row!.uninstalledAt)
     } finally {
+      token.release()
       shopify.restore()
     }
   })
@@ -1351,14 +1444,16 @@ test.group('Client credentials: Shopify-signed requests', (group) => {
           background = startBackground()
           await token.received
           await insertInstallation({ token: null, uninstalledAt: new Date() })
+          const reads = clockReads
           launch = app.request(launchUrl(SHOP), { redirect: 'manual' })
-          await until(() => clientCredentialsWaiters('default', SHOP) === 2)
+          // The launch checks its timestamp, then joins the request in that turn.
+          await until(() => clockReads > reads)
         } else {
           await insertInstallation({ token: null, uninstalledAt: new Date() })
           launch = app.request(launchUrl(SHOP), { redirect: 'manual' })
           await token.received
+          // Joins the request the launch started, before its first await.
           background = startBackground()
-          assert.equal(clientCredentialsWaiters('default', SHOP), 2)
         }
         token.release()
 
@@ -1390,38 +1485,79 @@ test.group('Client credentials: Shopify-signed requests', (group) => {
     }
   })
 
-  test('a verified session token grants before token exchange', async ({ assert }) => {
-    const shopify = fakeShopify()
+  test('a session token for a dev store stores the token exchange token and sends no grant', async ({ assert }) => {
+    // Token exchange runs first, as before the grant existed: its offline token
+    // does not expire, so nothing has to renew it.
+    const shopify = fakeShopify({
+      onToken: (call) => call.headers.get('content-type') === 'application/json'
+        ? Response.json({ access_token: 'exchanged-token', scope: 'read_orders' })
+        : Response.json({ access_token: 'granted-token', scope: 'read_orders', expires_in: 86399 }),
+    })
     try {
       const app = await appWith()
       const res = await app.request('/api/flows', { headers: { Authorization: `Bearer ${sessionToken(SHOP)}` } })
       assert.equal(res.status, 200)
       assert.lengthOf(shopify.tokenRequests, 1)
-      assert.equal(grantForm(shopify.tokenRequests[0]!).get('grant_type'), 'client_credentials')
-      assert.equal(decryptString((await storedInstallation())!.accessToken), 'granted-token-1')
+      assert.equal(JSON.parse(shopify.tokenRequests[0]!.body).grant_type, 'urn:ietf:params:oauth:grant-type:token-exchange')
+      assert.equal(decryptString((await storedInstallation())!.accessToken), 'exchanged-token')
+
+      // The token is stored: later requests ask Shopify for nothing.
+      await app.request('/api/flows', { headers: { Authorization: `Bearer ${sessionToken(SHOP)}` } })
+      assert.lengthOf(shopify.tokenRequests, 1)
     } finally {
       shopify.restore()
     }
   })
 
-  test('a refused grant on a session token falls back to token exchange', async ({ assert }) => {
+  test('a refused token exchange on a session token falls back to the grant', async ({ assert }) => {
     const shopify = fakeShopify({
-      onToken: (call) => call.headers.get('content-type') === 'application/x-www-form-urlencoded'
-        ? Response.json({ error: 'shop_not_permitted' }, { status: 400 })
-        : Response.json({ access_token: 'exchanged-token', scope: 'read_orders' }),
+      onToken: (call) => call.headers.get('content-type') === 'application/json'
+        ? Response.json({ error: 'invalid_subject_token' }, { status: 400 })
+        : Response.json({ access_token: 'granted-token', scope: 'read_orders', expires_in: 86399 }),
     })
     try {
       const app = await appWith()
-      const res = await app.request('/api/flows', { headers: { Authorization: `Bearer ${sessionToken(OTHER_SHOP)}` } })
+      const res = await app.request('/api/flows', { headers: { Authorization: `Bearer ${sessionToken(SHOP)}` } })
       assert.equal(res.status, 200)
       assert.lengthOf(shopify.tokenRequests, 2)
-      assert.equal(grantForm(shopify.tokenRequests[0]!).get('grant_type'), 'client_credentials')
-      assert.equal(
-        JSON.parse(shopify.tokenRequests[1]!.body).grant_type,
-        'urn:ietf:params:oauth:grant-type:token-exchange',
-      )
-      assert.equal(decryptString((await storedInstallation(OTHER_SHOP))!.accessToken), 'exchanged-token')
+      assert.equal(JSON.parse(shopify.tokenRequests[0]!.body).grant_type, 'urn:ietf:params:oauth:grant-type:token-exchange')
+      assert.equal(grantForm(shopify.tokenRequests[1]!).get('grant_type'), 'client_credentials')
+      assert.equal(decryptString((await storedInstallation())!.accessToken), 'granted-token')
     } finally {
+      shopify.restore()
+    }
+  })
+
+  test('a granted token that cannot be stored is logged without the token, on launches and session tokens alike', async ({ assert }) => {
+    const errors: string[] = []
+    const previousLogger = setRuntimeLogger({
+      info: () => {},
+      warn: () => {},
+      error: (message: string, meta?: unknown) => { errors.push(`${message} ${JSON.stringify(meta ?? null)}`) },
+    } satisfies RuntimeLogger)
+    const shopify = fakeShopify({
+      onToken: (call) => call.headers.get('content-type') === 'application/json'
+        ? Response.json({ error: 'invalid_subject_token' }, { status: 400 })
+        : Response.json({ access_token: 'granted-secret-token', scope: 'read_orders', expires_in: 86399 }),
+    })
+    const restoreWrites = await refuseInstallationWrites()
+    try {
+      const app = await appWith()
+      assert.equal((await app.request(launchUrl(SHOP), { redirect: 'manual' })).status, 302)
+      const res = await app.request('/api/flows', { headers: { Authorization: `Bearer ${sessionToken(OTHER_SHOP)}` } })
+      assert.equal(res.status, 200)
+
+      assert.deepEqual(errors, [
+        `[openshop] Could not store a client credentials token for shop "${SHOP}" null`,
+        `[openshop] Could not store a client credentials token for shop "${OTHER_SHOP}" null`,
+      ])
+      for (const error of errors) {
+        assert.notInclude(error, 'granted-secret-token')
+        assert.notInclude(error, 'enc:')
+      }
+    } finally {
+      await restoreWrites()
+      setRuntimeLogger(previousLogger)
       shopify.restore()
     }
   })
@@ -1481,7 +1617,7 @@ test.group('Client credentials: unsigned input', (group) => {
   })
 })
 
-test.group('Client credentials: config registration', (group) => {
+test.group('Client credentials: each caller\'s config', (group) => {
   let restoreEnv: () => void = () => {}
 
   group.each.setup(async () => {
@@ -1494,39 +1630,106 @@ test.group('Client credentials: config registration', (group) => {
     }
   })
 
-  async function grantedClientId(shopify: FakeShopify): Promise<string | null> {
+  async function grantedClientId(shopify: FakeShopify, ask: () => Promise<unknown>): Promise<string | null> {
     await truncateAll()
     const before = shopify.tokenRequests.length
-    await (await createShopifyClient('__global__')).graphql(query)
+    await ask()
     return grantForm(shopify.tokenRequests[before]!).get('client_id')
   }
 
-  test('the scheduler, the worker and the flow runner never replace the server\'s live config', async ({ assert }) => {
+  test('two configs in one process each grant with their own credentials, whatever started first', async ({ assert }) => {
     const shopify = fakeShopify()
     try {
-      await createServer(() => createConfig({}, { shopify: MULTI_APPS }))
-      startScheduler(createConfig({}))
-      assert.instanceOf(new Worker(createConfig({})), Worker)
-      useShopifyAppsConfig(() => createConfig({}))
-      assert.equal(await grantedClientId(shopify), 'default-app-key')
+      const multi = createConfig({ 'query-flow': queryFlow }, { shopify: MULTI_APPS })
+      const single = createConfig({ 'query-flow': queryFlow })
+      await createServer(() => multi)
+      startScheduler(single)
+      assert.instanceOf(new Worker(single), Worker)
 
-      // A reset forgets it: the environment's credentials apply again.
-      resetClientCredentialsState({ now: () => clock })
-      assert.equal(await grantedClientId(shopify), API_KEY)
+      assert.equal(await grantedClientId(shopify, () => runFlowWith(single, 'query-flow', '__global__')), API_KEY)
+      assert.equal(await grantedClientId(shopify, () => runFlowWith(multi, 'query-flow', '__global__')), 'default-app-key')
+      assert.equal(await grantedClientId(shopify, () => runFlowWith(single, 'query-flow', '__global__')), API_KEY)
     } finally {
       shopify.restore()
     }
   })
 
-  test('the first fixed config is kept until the server registers its live one', async ({ assert }) => {
+  test('the public createShopifyClient has no config: its default app uses the environment', async ({ assert }) => {
     const shopify = fakeShopify()
     try {
-      useShopifyAppsConfig(() => createConfig({}, { shopify: MULTI_APPS }))
-      useShopifyAppsConfig(() => createConfig({}))
-      assert.equal(await grantedClientId(shopify), 'default-app-key')
+      await createServer(() => createConfig({}, { shopify: MULTI_APPS }))
+      assert.equal(await grantedClientId(shopify, async () => (await createShopifyClient('__global__')).graphql(query)), API_KEY)
+      // An internal caller with that config uses the default handle's credentials.
+      const config = createConfig({}, { shopify: MULTI_APPS })
+      assert.equal(
+        await grantedClientId(shopify, async () => (await openShopifyClient('__global__', 'default', { getConfig: () => config })).graphql(query)),
+        'default-app-key',
+      )
+    } finally {
+      shopify.restore()
+    }
+  })
+})
 
-      await createServer(() => createConfig({}))
-      assert.equal(await grantedClientId(shopify), API_KEY)
+test.group('Client credentials: MCP tools', (group) => {
+  let restoreEnv: () => void = () => {}
+
+  group.each.setup(async () => {
+    await freshState()
+    restoreEnv = setClientCredentialsShop(SHOP)
+    return () => restoreEnv()
+  })
+
+  async function listedShops(): Promise<string[]> {
+    const result = await mcpTool('openshop.shops.list').run(mcpContext(new AbortController().signal), {}) as {
+      structuredContent: { shops: Array<{ shop: string }> }
+    }
+    return result.structuredContent.shops.map((entry) => entry.shop)
+  }
+
+  test('the configured shop without a row is listed, and admin.graphql reaches it', async ({ assert }) => {
+    await insertInstallation({ shop: OTHER_SHOP, token: 'merchant-token' })
+    const shopify = fakeShopify()
+    try {
+      assert.deepEqual(await listedShops(), [SHOP, OTHER_SHOP])
+      await adminGraphqlTool().run(mcpContext(new AbortController().signal), { shop: SHOP, apiVersion: '2026-04', query })
+      assert.lengthOf(shopify.tokenRequests, 1)
+      assert.equal(shopify.graphqlRequests[0]!.headers.get('x-shopify-access-token'), 'granted-token-1')
+      assert.deepEqual(await listedShops(), [SHOP, OTHER_SHOP])
+    } finally {
+      shopify.restore()
+    }
+  })
+
+  test('a shop marked uninstalled is neither listed nor reached, even with a token left in its row', async ({ assert }) => {
+    await insertInstallation({ token: 'stale-token', uninstalledAt: new Date() })
+    await insertInstallation({ shop: OTHER_SHOP, token: 'stale-token', uninstalledAt: new Date() })
+    const shopify = fakeShopify()
+    try {
+      assert.deepEqual(await listedShops(), [])
+      for (const shop of [SHOP, OTHER_SHOP]) {
+        await assert.rejects(
+          async () => adminGraphqlTool().run(mcpContext(new AbortController().signal), { shop, apiVersion: '2026-04', query }),
+          new RegExp(`Shop "${shop}" is not installed for app "default"`),
+        )
+      }
+      assert.lengthOf(shopify.requests, 0)
+    } finally {
+      shopify.restore()
+    }
+  })
+
+  test('with the variable unset, only installed rows are listed and reached', async ({ assert }) => {
+    restoreEnv()
+    restoreEnv = setClientCredentialsShop(undefined)
+    const shopify = fakeShopify()
+    try {
+      assert.deepEqual(await listedShops(), [])
+      await assert.rejects(
+        async () => adminGraphqlTool().run(mcpContext(new AbortController().signal), { shop: SHOP, apiVersion: '2026-04', query }),
+        /Shop "dev-store.myshopify.com" is not installed for app "default"/,
+      )
+      assert.lengthOf(shopify.requests, 0)
     } finally {
       shopify.restore()
     }
@@ -1610,6 +1813,7 @@ test.group('Client credentials: redirects', (group) => {
       }
       assert.include(message, 'redirect refused')
       assert.include(message, 'attempted again after 30 seconds')
+      assert.notInclude(message, '127.0.0.1')
       assert.deepEqual(shopify.redirected, ['POST /admin/oauth/access_token'])
       assert.deepEqual(shopify.stolen, [])
 
@@ -1629,8 +1833,18 @@ test.group('Client credentials: redirects', (group) => {
     await insertInstallation({ token: 'stored-secret-token' })
     const shopify = await redirectingShopify()
     try {
-      await assert.rejects(async () => (await createShopifyClient(SHOP)).graphql(query))
-      await assert.rejects(async () => adminGraphqlTool().run(mcpContext(new AbortController().signal), { shop: SHOP, apiVersion: '2026-04', query }))
+      const messages: string[] = []
+      for (const call of [
+        async () => (await createShopifyClient(SHOP)).graphql(query),
+        async () => adminGraphqlTool().run(mcpContext(new AbortController().signal), { shop: SHOP, apiVersion: '2026-04', query }),
+      ]) {
+        try {
+          await call()
+        } catch (error) {
+          messages.push(errorMessage(error))
+        }
+      }
+      assert.deepEqual(messages, Array(2).fill('[openshop] Shopify answered a redirect, not followed'))
       assert.deepEqual(shopify.redirected, ['POST /admin/api/2026-04/graphql.json', 'POST /admin/api/2026-04/graphql.json'])
       assert.deepEqual(shopify.stolen, [])
     } finally {
@@ -1644,10 +1858,28 @@ test.group('Client credentials: redirects', (group) => {
       const app = await createServer(() => createConfig({}))
       const res = await app.request('/api/flows', { headers: { Authorization: `Bearer ${sessionToken(OTHER_SHOP)}` } })
       assert.equal(res.status, 200)
-      // The grant, then token exchange, each redirected once and followed by neither.
+      // Token exchange, then the grant, each redirected once and followed by neither.
       assert.deepEqual(shopify.redirected, ['POST /admin/oauth/access_token', 'POST /admin/oauth/access_token'])
       assert.deepEqual(shopify.stolen, [])
       assert.isUndefined(await storedInstallation(OTHER_SHOP))
+    } finally {
+      await shopify.close()
+    }
+  })
+
+  test('a redirect of the OAuth callback\'s token request is never followed and answers a clear error', async ({ assert }) => {
+    await insertInstallation({ shop: OTHER_SHOP, token: null, nonce: 'oauth-nonce' })
+    const shopify = await redirectingShopify()
+    try {
+      const app = await createServer(() => createConfig({}))
+      const query = new URLSearchParams(signQuery({ code: 'oauth-code', shop: OTHER_SHOP, state: 'oauth-nonce', timestamp: String(Math.floor(clock / 1000)) }))
+      const res = await app.request(`http://localhost/auth/callback?${query.toString()}`, { redirect: 'manual' })
+
+      assert.equal(res.status, 502)
+      assert.deepEqual(await res.json(), { error: '[openshop] Shopify answered a redirect, not followed' })
+      assert.deepEqual(shopify.redirected, ['POST /admin/oauth/access_token'])
+      assert.deepEqual(shopify.stolen, [])
+      assert.isNull((await storedInstallation(OTHER_SHOP))!.accessToken)
     } finally {
       await shopify.close()
     }

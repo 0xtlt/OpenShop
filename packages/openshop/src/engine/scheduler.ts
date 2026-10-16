@@ -5,7 +5,7 @@ import { installations, cronOverrides } from '#db/schema'
 import { dispatchFlow } from '#engine/dispatch'
 import { getRuntimeLogger } from '../runtime/logger.ts'
 import { DEFAULT_SHOPIFY_APP_HANDLE } from '#server/shopify-apps'
-import { assertClientCredentialsConfig, clientCredentialsShop, GLOBAL_SHOP, useShopifyAppsConfig } from '../shopify/client-credentials.ts'
+import { assertClientCredentialsConfig, clientCredentialsShop, GLOBAL_SHOP } from '../shopify/client-credentials.ts'
 import type { OpenShopConfig, CronEntry } from '#types'
 
 const activeCrons: Cron[] = []
@@ -71,7 +71,6 @@ export async function resolveTargets(entry: Pick<CronEntry, 'shops'>): Promise<C
 
 export function startScheduler(config: OpenShopConfig) {
   assertClientCredentialsConfig(config)
-  useShopifyAppsConfig(() => config)
   if (!config.crons?.length) return
   const logger = getRuntimeLogger()
 

@@ -5,7 +5,9 @@ import { cronOverrides, flowRuns, installations } from '#db/schema'
 import type { McpExecutionContext, McpResourceDefinition, McpToolDefinition, OpenShopConfig } from '#types'
 import { getFilteredRunLogs } from '#server/api-routes/run-logs'
 import { normalizeShopDomain, strictShopDomain } from '#server/shop-domain'
-import { openAdminTokenSource, sendWithAdminToken } from '../../shopify/client-credentials.ts'
+import { clientCredentialsShop, openAdminTokenSource, sendWithAdminToken } from '../../shopify/client-credentials.ts'
+import { fetchWithoutRedirect } from '../../shopify/no-redirect.ts'
+import { DEFAULT_SHOPIFY_APP_HANDLE } from '#server/shopify-apps'
 import { coreMcpPermissions } from './registry.ts'
 
 interface CoreCapabilities {
@@ -78,8 +80,15 @@ function apiVersionInput(input: Record<string, unknown>): string {
   return value
 }
 
+/**
+ * The shops `openshop.admin.graphql` can reach: those with a token and not
+ * marked uninstalled, and, for the `default` app, the shop of
+ * SHOPIFY_CLIENT_CREDENTIALS_SHOP unless its row says it was uninstalled (its
+ * token is granted on first use).
+ */
 async function listInstalledShops(appHandle: string) {
-  return getDb().select({
+  const db = getDb()
+  const shops: Array<{ shop: string; scopes: string | null; installedAt: Date | null }> = await db.select({
     shop: installations.shop,
     scopes: installations.scopes,
     installedAt: installations.installedAt,
@@ -91,9 +100,22 @@ async function listInstalledShops(appHandle: string) {
       isNull(installations.uninstalledAt),
     ))
     .orderBy(asc(installations.shop))
+
+  const configured = appHandle === DEFAULT_SHOPIFY_APP_HANDLE ? clientCredentialsShop() : null
+  if (configured && !shops.some((entry) => entry.shop === configured)) {
+    const [existing] = await db.select({ scopes: installations.scopes, installedAt: installations.installedAt, uninstalledAt: installations.uninstalledAt })
+      .from(installations)
+      .where(and(eq(installations.appHandle, appHandle), eq(installations.shop, configured)))
+      .limit(1)
+    if (!existing?.uninstalledAt) {
+      shops.push({ shop: configured, scopes: existing?.scopes ?? null, installedAt: existing?.installedAt ?? null })
+      shops.sort((a, b) => a.shop.localeCompare(b.shop))
+    }
+  }
+  return shops
 }
 
-async function runAdminGraphql(ctx: McpExecutionContext, input: Record<string, unknown>) {
+async function runAdminGraphql(getConfig: () => OpenShopConfig, ctx: McpExecutionContext, input: Record<string, unknown>) {
   const shopInput = stringInput(input, 'shop')
   const shop = normalizeShopDomain(shopInput)
   if (!shop) throw new Error('shop must be a myshopify.com domain')
@@ -103,25 +125,27 @@ async function runAdminGraphql(ctx: McpExecutionContext, input: Record<string, u
 
   const variables = objectInput(input, 'variables')
   const apiVersion = apiVersionInput(input)
-  // The shop comes from the caller, not from Shopify: a shop without a stored
-  // token is never granted one, except the single shop of
-  // SHOPIFY_CLIENT_CREDENTIALS_SHOP. A 401 renews a stored token once, as for flows.
+  // The shop comes from the caller, not from Shopify: only a shop installed for
+  // the app (a token, not marked uninstalled) has a token, and a shop without a
+  // stored token is never granted one, except the single shop of
+  // SHOPIFY_CLIENT_CREDENTIALS_SHOP, as `openshop.shops.list` shows. A 401
+  // renews a stored token once, as for flows.
   const tokens = await openAdminTokenSource(ctx.appHandle, shop, {
+    getConfig,
+    installedOnly: true,
     missingToken: () => new Error(`Shop "${shop}" is not installed for app "${ctx.appHandle}"`),
     signal: ctx.signal,
   })
   const shopDomain = strictShopDomain(tokens.shop)
   if (!shopDomain) throw new Error('shop must be a myshopify.com domain')
 
-  const response = await sendWithAdminToken(tokens, (accessToken) => fetch(`https://${shopDomain}/admin/api/${apiVersion}/graphql.json`, {
+  const response = await sendWithAdminToken(tokens, (accessToken) => fetchWithoutRedirect(`https://${shopDomain}/admin/api/${apiVersion}/graphql.json`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Shopify-Access-Token': accessToken,
     },
     body: JSON.stringify({ query, variables }),
-    // A redirect would carry the access token to another address.
-    redirect: 'error',
     signal: ctx.signal,
   }))
   const text = await response.text()
@@ -163,7 +187,7 @@ export function createCoreMcpCapabilities(getConfig: () => OpenShopConfig): Core
           apiVersion: { type: 'string', description: 'Shopify Admin API version, for example 2026-04. Defaults to the latest stable version when omitted or set to "latest".' },
         },
       },
-      run: runAdminGraphql,
+      run: (ctx, input) => runAdminGraphql(getConfig, ctx, input),
     },
 
     'openshop.logs.search': {

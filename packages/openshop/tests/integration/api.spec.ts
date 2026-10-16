@@ -83,11 +83,11 @@ test.group('API routes', (group) => {
     assert.isArray(data)
     assert.equal(data[0].name, 'test-flow')
     assert.property(data[0], 'inputSchema')
-    // A session token for a shop without a token tries the client credentials
-    // grant, then token exchange; both are refused offline.
+    // A session token for a shop without a token tries token exchange, then
+    // the client credentials grant; both are refused offline.
     assert.deepEqual(tokenEndpoints.calls, [
-      { shop: TEST_SHOP, grantType: CLIENT_CREDENTIALS_GRANT },
       { shop: TEST_SHOP, grantType: TOKEN_EXCHANGE_GRANT },
+      { shop: TEST_SHOP, grantType: CLIENT_CREDENTIALS_GRANT },
     ])
   })
 

@@ -67,7 +67,7 @@ and the Admin API address are built from that value.
 ### On requests signed by Shopify
 
 No variable is needed. When the resolved app has no usable token for the shop
-(no row, no token, or uninstalled), OpenShop tries the grant for that shop in
+(no row, no token, or uninstalled), OpenShop may try the grant for that shop in
 two cases only:
 
 - an embedded admin load whose query HMAC is valid for one of the configured
@@ -78,14 +78,17 @@ two cases only:
   replayed later is still accepted as before, but never grants and never marks
   an uninstalled shop installed again: it redirects to `/auth`;
 - an `/api` request whose session token is verified; the shop is its `dest`
-  claim.
+  claim. Token exchange runs first, exactly as before the grant existed: its
+  offline token does not expire, and a merchant's store sends no other
+  request. The grant is only tried when token exchange fails.
 
 On success the token is stored, an uninstalled row is marked installed again
 (Shopify just showed the app open on that shop), and the request continues: the
 app renders without the `/auth` redirect, which Shopify refuses to display
 inside the admin frame. On any failure the request continues exactly as before
 the grant existed: the admin load redirects to `/auth`, and an `/api` request
-uses token exchange.
+goes on without a stored token. A granted token that cannot be stored is logged
+with a generic message naming the shop, never the token.
 
 The request to Shopify is abandoned after five seconds, and a redirect is
 never followed: it would send the client secret to another address. Failures
@@ -116,7 +119,8 @@ header does not vouch for the shop: the webhook route answers `400` when it is
 `__global__`, so that a webhook can never name the placeholder of background
 work. A webhook handler that uses a Shopify client is background work like any
 other: it can reach the configured shop below, and the `401` renewal of a token
-already stored for its shop.
+already stored for its shop (one grant, one retry), never a grant for a shop
+without a row.
 
 ### Background work: `SHOPIFY_CLIENT_CREDENTIALS_SHOP`
 
@@ -172,13 +176,23 @@ every other shop works as before.
   still ends by itself for the other callers.
 - Neither the Admin API requests, the grant, token exchange nor the OAuth
   callback follow a redirect, so a token or secret never reaches another
-  address.
+  address. A redirect fails with `[openshop] Shopify answered a redirect, not
+  followed`, and the OAuth callback answers `502` with that message.
+- The grant reads the app's client ID and secret from the config of the code
+  that asks: flows, crons, admin pages, API handlers and MCP each pass their
+  own, so two servers in one process never share credentials. The public
+  `createShopifyClient` takes no config, so it only has the `default` app's
+  credentials, from `SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET`; in multi-app
+  mode, run Shopify work that may need a grant in a flow.
 
-The MCP `openshop.admin.graphql` tool resolves its token the same way: it uses
-the stored token of the requested shop (or, for the configured shop, a granted
+The MCP `openshop.admin.graphql` tool resolves its token the same way, for a
+shop installed for the app only: it uses the stored token of the requested shop
+unless its row is marked uninstalled (or, for the configured shop, a granted
 one), renews it once after a `401`, and returns the original `401` response when
 that fails. Its `shop` argument comes from the caller, not from Shopify, so it
-never grants for any other shop without a stored token.
+never grants for any other shop without a stored token. `openshop.shops.list`
+agrees with it: it lists the shops with a token and not marked uninstalled, and
+the configured shop unless its row is marked uninstalled.
 
 Shops whose grant is refused keep exactly the behaviour they had before: OAuth,
 token exchange, and their stored tokens. The token has the scopes of the app's

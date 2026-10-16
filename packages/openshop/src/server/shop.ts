@@ -6,6 +6,7 @@ import { installations } from '#db/schema'
 import { encryptString } from '#server/crypto'
 import { getRuntimeLogger } from '../runtime/logger.ts'
 import { grantForSignedRequest } from '../shopify/client-credentials.ts'
+import { fetchWithoutRedirect } from '../shopify/no-redirect.ts'
 import { readJwtAudience, resolveShopifyAppByApiKey, type ResolvedShopifyApp } from '#server/shopify-apps'
 import type { OpenShopConfig } from '#types'
 import type { AdminActor } from '../admin/index.ts'
@@ -64,17 +65,18 @@ async function ensureInstallation(shopifyApp: ResolvedShopifyApp, shop: string, 
 
   if (!shopifyApp.apiKey || !shopifyApp.apiSecret) return
 
-  // The verified session token's `dest` is a shop Shopify vouched for: try the
-  // client credentials grant first (it only succeeds on a store of the app's own
-  // organization), then token exchange as before.
-  if (destIsExactShop) {
-    try {
-      if (await grantForSignedRequest(shopifyApp, shop)) return
-    } catch { /* fall back to token exchange */ }
-  }
+  // Token exchange first, as always: it gives an offline token that does not
+  // expire. Only when it fails, and the verified session token's `dest` is a
+  // shop Shopify vouched for, is the client credentials grant tried (it only
+  // succeeds on a store of the app's own organization). It never throws.
+  if (await exchangeSessionToken(shopifyApp, shop, sessionToken)) return
+  if (destIsExactShop) await grantForSignedRequest(shopifyApp, shop)
+}
 
+/** Token exchange for an offline token. Returns whether a token was stored. */
+async function exchangeSessionToken(shopifyApp: ResolvedShopifyApp, shop: string, sessionToken: string): Promise<boolean> {
   try {
-    const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
+    const response = await fetchWithoutRedirect(`https://${shop}/admin/oauth/access_token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -85,16 +87,14 @@ async function ensureInstallation(shopifyApp: ResolvedShopifyApp, shop: string, 
         subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
         requested_token_type: 'urn:shopify:params:oauth:token-type:offline-access-token',
       }),
-      // A redirect would carry the client secret to another address.
-      redirect: 'error',
     })
 
-    if (!response.ok) return
+    if (!response.ok) return false
 
     const data = await response.json() as { access_token: string; scope: string }
     const accessToken = encryptString(data.access_token)
 
-    await db.insert(installations)
+    await getDb().insert(installations)
       .values({ appHandle: shopifyApp.handle, shop, accessToken, scopes: data.scope })
       .onConflictDoUpdate({
         target: [installations.appHandle, installations.shop],
@@ -102,7 +102,10 @@ async function ensureInstallation(shopifyApp: ResolvedShopifyApp, shop: string, 
       })
 
     getRuntimeLogger().info(`[openshop] Token exchange successful for ${shop}`)
-  } catch { /* silent */ }
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function getShop(c: Context): string {

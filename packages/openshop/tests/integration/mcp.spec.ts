@@ -121,8 +121,8 @@ test.group('MCP', (group) => {
     assert.equal(new Date(list[0].expiresAt).getTime() > Date.now(), true)
     // The refused grant is remembered: the second request only tries token exchange.
     assert.deepEqual(tokenEndpoints.calls, [
-      { shop: TEST_SHOP, grantType: CLIENT_CREDENTIALS_GRANT },
       { shop: TEST_SHOP, grantType: TOKEN_EXCHANGE_GRANT },
+      { shop: TEST_SHOP, grantType: CLIENT_CREDENTIALS_GRANT },
       { shop: TEST_SHOP, grantType: TOKEN_EXCHANGE_GRANT },
     ])
   })

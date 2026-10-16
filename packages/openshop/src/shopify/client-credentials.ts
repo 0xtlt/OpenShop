@@ -7,6 +7,7 @@ import { strictShopDomain } from '../server/shop-domain.ts'
 import { DEFAULT_SHOPIFY_APP_HANDLE, resolveShopifyApps } from '../server/shopify-apps.ts'
 import { getRuntimeLogger } from '../runtime/logger.ts'
 import type { OpenShopConfig } from '../types.ts'
+import { fetchWithoutRedirect, RedirectRefusedError } from './no-redirect.ts'
 
 /**
  * Shopify's client credentials grant.
@@ -16,10 +17,11 @@ import type { OpenShopConfig } from '../types.ts'
  * (a development store of the organization that owns the app). OpenShop uses it
  * in three places, and nowhere else:
  *
- * - On a request whose shop Shopify signed (an admin launch whose query HMAC
- *   covers `shop` and whose `timestamp` is recent, or a verified session
- *   token's `dest`), when the resolved app has no usable token for that shop.
- *   Any failure falls back to OAuth or token exchange exactly as before. A
+ * - On a request whose shop Shopify signed, when the resolved app has no usable
+ *   token for that shop: an admin launch whose query HMAC covers `shop` and
+ *   whose `timestamp` is recent (before the OAuth redirect, which any failure
+ *   keeps), or a verified session token's `dest` once token exchange failed
+ *   (token exchange runs first and gives a token that does not expire). A
  *   definite refusal is remembered in memory for one hour per app, shop and
  *   credentials, so a merchant's store pays the extra round trip at most once
  *   an hour per process; a transient failure only for 30 seconds. A failure of
@@ -108,18 +110,11 @@ interface Failure {
   window: string
 }
 
-interface PendingRequest {
-  promise: Promise<TokenAnswer>
-  /** Callers currently waiting for this request. */
-  waiters: number
-}
-
 const granted = new Map<string, GrantedToken>()
 const failures = new Map<string, Failure>()
-const inFlight = new Map<string, PendingRequest>()
+const inFlight = new Map<string, Promise<TokenAnswer>>()
 let now: () => number = () => Date.now()
 let grantTimeoutMs = CLIENT_CREDENTIALS_GRANT_TIMEOUT_MS
-let configSource: { get: () => OpenShopConfig; live: boolean } | null = null
 let warnedMalformedShop: string | null = null
 
 /** Key of the token this process holds for an app and shop. */
@@ -165,44 +160,16 @@ function formatDuration(ms: number): string {
 
 /**
  * Clears the in-memory state (granted token lifetimes, remembered failures,
- * in-flight grants, the registered config) and optionally replaces the clock
- * and the grant timeout. Meant for tests.
+ * in-flight grants) and optionally replaces the clock and the grant timeout.
+ * Meant for tests.
  */
 export function resetClientCredentialsState(options?: { now?: () => number; grantTimeoutMs?: number }): void {
   granted.clear()
   failures.clear()
   inFlight.clear()
-  configSource = null
   warnedMalformedShop = null
   now = options?.now ?? (() => Date.now())
   grantTimeoutMs = options?.grantTimeoutMs ?? CLIENT_CREDENTIALS_GRANT_TIMEOUT_MS
-}
-
-/**
- * Tells the grant where to read each app's API key and secret, so that
- * `shopify.apps` handles use their own credentials. Without it, only the
- * `default` app can be granted, from `SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET`.
- *
- * The server registers its live config getter (`live: true`), which follows
- * config reloads and always wins. The scheduler, the worker and the flow runner
- * register a fixed copy, which is only taken when nothing is registered yet: in
- * a process that runs the server too, they never replace its live getter, and
- * later fixed copies (one per flow run) never replace the first.
- */
-export function useShopifyAppsConfig(getConfig: () => OpenShopConfig, options?: { live?: boolean }): void {
-  const live = options?.live === true
-  if (live || !configSource) configSource = { get: getConfig, live }
-}
-
-/**
- * Callers currently waiting for a token request for this app and shop, whatever
- * their credentials. Meant for tests, to know a caller joined a shared request.
- */
-export function clientCredentialsWaiters(shopifyApp: string, shop: string): number {
-  const prefix = `${stateKey(shopifyApp, shop)}\n`
-  let waiters = 0
-  for (const [key, pending] of inFlight) if (key.startsWith(prefix)) waiters += pending.waiters
-  return waiters
 }
 
 const MALFORMED_SHOP_MESSAGE = `[openshop] ${CLIENT_CREDENTIALS_SHOP_ENV} must be exactly <name>.myshopify.com (lowercase, no scheme, port or path)`
@@ -271,11 +238,17 @@ export function isFreshSignedTimestamp(timestamp: unknown): boolean {
   return Math.abs(now() - Number(timestamp) * 1000) <= SIGNED_QUERY_MAX_AGE_MS
 }
 
-function credentialsFor(shopifyApp: string): AppCredentials | null {
-  if (configSource) {
+/**
+ * The API key and secret of an app, read from the caller's config, so that
+ * `shopify.apps` handles use their own. Without a config (the public
+ * `createShopifyClient`), only the `default` app has credentials, from
+ * `SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET`.
+ */
+function credentialsFor(shopifyApp: string, getConfig: (() => OpenShopConfig) | undefined): AppCredentials | null {
+  if (getConfig) {
     let app
     try {
-      app = resolveShopifyApps(configSource.get()).find((candidate) => candidate.handle === shopifyApp)
+      app = resolveShopifyApps(getConfig()).find((candidate) => candidate.handle === shopifyApp)
     } catch {
       return null
     }
@@ -308,12 +281,6 @@ async function readErrorCode(response: Response, signal: AbortSignal): Promise<s
   } catch {
     return null
   }
-}
-
-/** Whether fetch failed because the answer was a redirect (`redirect: 'error'`). */
-function isRedirectError(error: unknown): boolean {
-  const cause = error instanceof Error ? error.cause : undefined
-  return cause instanceof Error && /redirect/i.test(cause.message)
 }
 
 /**
@@ -352,7 +319,7 @@ async function requestToken(request: TokenRequest): Promise<TokenAnswer> {
   let response: Response
   try {
     // The race keeps the timeout even if a fetch implementation ignored the signal.
-    response = await untilAborted(fetch(`https://${request.shop}/admin/oauth/access_token`, {
+    response = await untilAborted(fetchWithoutRedirect(`https://${request.shop}/admin/oauth/access_token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
       body: new URLSearchParams({
@@ -360,11 +327,10 @@ async function requestToken(request: TokenRequest): Promise<TokenAnswer> {
         client_id: request.credentials.clientId,
         client_secret: request.credentials.clientSecret,
       }).toString(),
-      redirect: 'error',
       signal: timeout,
     }), timeout)
   } catch (error) {
-    const reason = timeout.aborted ? 'timed out' : isRedirectError(error) ? 'redirect refused' : 'network error'
+    const reason = timeout.aborted ? 'timed out' : error instanceof RedirectRefusedError ? 'redirect refused' : 'network error'
     return remember(request, reason, 'transient')
   }
 
@@ -458,23 +424,17 @@ async function grant(
 
   let pending = inFlight.get(request)
   if (!pending) {
-    const created: PendingRequest = {
-      promise: requestToken({ shopifyApp, shop: validShop, credentials, key: request, mode })
-        .finally(() => { if (inFlight.get(request) === created) inFlight.delete(request) }),
-      waiters: 0,
-    }
+    const created: Promise<TokenAnswer> = requestToken({ shopifyApp, shop: validShop, credentials, key: request, mode })
+      .finally(() => { if (inFlight.get(request) === created) inFlight.delete(request) })
     inFlight.set(request, created)
     pending = created
   }
 
   let answer: TokenAnswer
-  pending.waiters += 1
   try {
-    answer = signal ? await untilAborted(pending.promise, signal) : await pending.promise
+    answer = signal ? await untilAborted(pending, signal) : await pending
   } catch {
     return { ok: false, reason: 'cancelled', kind: 'other' }
-  } finally {
-    pending.waiters -= 1
   }
   if (!answer.ok) return answer
 
@@ -494,18 +454,25 @@ async function grant(
 /**
  * Tries the grant for a shop Shopify vouched for in this request: an admin launch
  * whose query HMAC covers `shop` and whose timestamp is fresh, or a verified
- * session token's `dest`. The caller passes the app resolved from that signature
- * and checks beforehand that it has no usable token. Returns true when a token
- * was stored (an uninstalled row is revived, since Shopify says the app is open
- * on the shop); false sends the caller to its usual OAuth or token exchange path.
+ * session token's `dest` whose token exchange failed. The caller passes the app
+ * resolved from that signature and checks beforehand that it has no usable
+ * token. Returns true when a token was stored (an uninstalled row is revived,
+ * since Shopify says the app is open on the shop); false sends the caller to
+ * its usual path. Never throws: a token that cannot be stored is logged with a
+ * generic message (no query parameters, no token).
  */
 export async function grantForSignedRequest(
   app: { handle: string; apiKey: string; apiSecret: string },
   shop: string,
 ): Promise<boolean> {
   if (!app.apiKey || !app.apiSecret) return false
-  const result = await grant(app.handle, shop, { clientId: app.apiKey, clientSecret: app.apiSecret }, 'signed')
-  return result.ok
+  try {
+    const result = await grant(app.handle, shop, { clientId: app.apiKey, clientSecret: app.apiSecret }, 'signed')
+    return result.ok
+  } catch {
+    getRuntimeLogger().error(`[openshop] Could not store a client credentials token for shop "${shop}"`)
+    return false
+  }
 }
 
 function grantFailure(shop: string, result: { reason: string; kind: FailureKind }): Error {
@@ -527,23 +494,42 @@ export interface AdminTokenSource {
   renewAfterUnauthorized(rejected: string): Promise<string | null>
 }
 
+export interface AdminTokenOptions {
+  /**
+   * The config the app's API key and secret are read from. Every caller inside
+   * OpenShop passes its own; only the public `createShopifyClient` passes
+   * `undefined`, which leaves the `default` app with the environment's.
+   */
+  getConfig: (() => OpenShopConfig) | undefined
+  /** The error thrown when there is no token. */
+  missingToken?: () => Error
+  /** An MCP call's or a flow run's signal: stops waiting for a grant. */
+  signal?: AbortSignal
+  /**
+   * Only a shop installed for the app has a token (the MCP tool): a row marked
+   * uninstalled is refused even when it still holds one. The configured shop
+   * without a row is still granted.
+   */
+  installedOnly?: boolean
+}
+
 /**
  * Resolves the Admin API token of an app on a shop, for work that has no
- * Shopify-signed request behind it (flows, crons, admin API handlers, MCP):
+ * Shopify-signed request behind it (flows, crons, webhook handlers, admin API
+ * handlers, MCP):
  *
  * - a stored token, whatever obtained it, is used as is;
  * - with no stored token, only the shop of `SHOPIFY_CLIENT_CREDENTIALS_SHOP`
  *   (or `__global__`) for the `default` app is granted, unless its row says
  *   it was uninstalled;
  * - a token this process granted is renewed 5 minutes before it expires;
- * - after a 401, one grant replaces the token, unless the shop is uninstalled.
- *
- * `signal` (an MCP call's or a flow run's) stops waiting for a grant.
+ * - after a 401, one grant replaces a stored token (or the configured shop's),
+ *   unless the shop is uninstalled.
  */
 export async function openAdminTokenSource(
   shopifyApp: string,
   shop: string,
-  options?: { missingToken?: () => Error; signal?: AbortSignal },
+  options: AdminTokenOptions,
 ): Promise<AdminTokenSource> {
   const configuredShop = clientCredentialsTarget(shopifyApp, shop)
   const tokenShop = configuredShop ?? shop
@@ -554,15 +540,15 @@ export async function openAdminTokenSource(
     .where(and(eq(installations.appHandle, shopifyApp), eq(installations.shop, tokenShop)))
     .limit(1)
 
-  let current = decryptString(installation?.accessToken)
   const uninstalled = Boolean(installation?.uninstalledAt)
-  const missingToken = options?.missingToken
+  let current = uninstalled && options.installedOnly ? null : decryptString(installation?.accessToken)
+  const missingToken = options.missingToken
     ?? (() => new Error(`[openshop] No access token found for app "${shopifyApp}" and shop "${shop}". Is the app installed?`))
 
   async function backgroundGrant(): Promise<GrantResult> {
-    const credentials = credentialsFor(shopifyApp)
+    const credentials = credentialsFor(shopifyApp, options.getConfig)
     if (!credentials) return { ok: false, reason: `no API key and secret for app "${shopifyApp}"`, kind: 'other' }
-    return grant(shopifyApp, tokenShop, credentials, 'background', options?.signal)
+    return grant(shopifyApp, tokenShop, credentials, 'background', options.signal)
   }
 
   return {

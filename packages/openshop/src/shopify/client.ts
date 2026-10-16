@@ -1,6 +1,8 @@
 import { strictShopDomain } from '../server/shop-domain.ts'
 import { DEFAULT_SHOPIFY_APP_HANDLE } from '../server/shopify-apps.ts'
+import type { OpenShopConfig } from '../types.ts'
 import { openAdminTokenSource, sendWithAdminToken } from './client-credentials.ts'
+import { fetchWithoutRedirect } from './no-redirect.ts'
 
 const SHOPIFY_API_VERSION = '2026-04'
 
@@ -40,41 +42,44 @@ export interface ShopifyClient {
  * when that fails, the 401 error is thrown. When `SHOPIFY_CLIENT_CREDENTIALS_SHOP`
  * names this shop (or the shop is the `__global__` placeholder) and the app is
  * `default`, a missing token is obtained by that grant and the client talks to
- * the configured shop.
+ * the configured shop. This function has no config, so the grant only has the
+ * `default` app's credentials, from `SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET`.
  */
 export async function createShopifyClient(
   shop: string,
   shopifyAppOrApiVersion = DEFAULT_SHOPIFY_APP_HANDLE,
   apiVersion = SHOPIFY_API_VERSION,
 ): Promise<ShopifyClient> {
-  return openShopifyClient(shop, shopifyAppOrApiVersion, apiVersion)
+  const isApiVersion = /^\d{4}-\d{2}$/.test(shopifyAppOrApiVersion)
+  return openShopifyClient(shop, isApiVersion ? DEFAULT_SHOPIFY_APP_HANDLE : shopifyAppOrApiVersion, {
+    getConfig: undefined,
+    apiVersion: isApiVersion ? shopifyAppOrApiVersion : apiVersion,
+  })
 }
 
 /**
- * `createShopifyClient` for the flow runner: `signal` (the run's) stops waiting
- * for a client credentials grant when the run is cancelled.
+ * The Shopify client of OpenShop's own callers, which pass their config so that
+ * a grant uses the app's own API key and secret. `signal` (a flow run's) stops
+ * waiting for a grant when the run is cancelled.
  */
 export async function openShopifyClient(
   shop: string,
-  shopifyAppOrApiVersion = DEFAULT_SHOPIFY_APP_HANDLE,
-  apiVersion = SHOPIFY_API_VERSION,
-  options?: { signal?: AbortSignal },
+  shopifyApp: string,
+  options: { getConfig: (() => OpenShopConfig) | undefined; apiVersion?: string; signal?: AbortSignal },
 ): Promise<ShopifyClient> {
-  const isApiVersion = /^\d{4}-\d{2}$/.test(shopifyAppOrApiVersion)
-  const shopifyApp = isApiVersion ? DEFAULT_SHOPIFY_APP_HANDLE : shopifyAppOrApiVersion
-  const resolvedApiVersion = isApiVersion ? shopifyAppOrApiVersion : apiVersion
-  const tokens = await openAdminTokenSource(shopifyApp, shop, options?.signal ? { signal: options.signal } : undefined)
+  const apiVersion = options.apiVersion ?? SHOPIFY_API_VERSION
+  const tokens = await openAdminTokenSource(shopifyApp, shop, {
+    getConfig: options.getConfig,
+    ...(options.signal ? { signal: options.signal } : {}),
+  })
 
-  const graphql = async (query: string, options?: { variables?: Record<string, unknown> }) => {
-    // The token comes first, so a shop without one keeps today's error.
-    await tokens.token()
-    const shopDomain = strictShopDomain(tokens.shop.includes('.') ? tokens.shop : `${tokens.shop}.myshopify.com`)
-    if (!shopDomain) throw new Error(`[openshop] Invalid shop domain "${tokens.shop}": expected <name>.myshopify.com`)
-
-    const response = await sendWithAdminToken(
-      tokens,
-      (accessToken) => postGraphql(shopDomain, resolvedApiVersion, accessToken, query, options),
-    )
+  const graphql = async (query: string, graphqlOptions?: { variables?: Record<string, unknown> }) => {
+    const response = await sendWithAdminToken(tokens, (accessToken) => {
+      // Checked once a token is in hand, so a shop without one keeps today's error.
+      const shopDomain = strictShopDomain(tokens.shop.includes('.') ? tokens.shop : `${tokens.shop}.myshopify.com`)
+      if (!shopDomain) throw new Error(`[openshop] Invalid shop domain "${tokens.shop}": expected <name>.myshopify.com`)
+      return postGraphql(shopDomain, apiVersion, accessToken, query, graphqlOptions)
+    })
     return readGraphqlResponse(response)
   }
 
@@ -88,7 +93,7 @@ function postGraphql(
   query: string,
   options?: { variables?: Record<string, unknown> },
 ): Promise<Response> {
-  return fetch(
+  return fetchWithoutRedirect(
     `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`,
     {
       method: 'POST',
@@ -100,8 +105,6 @@ function postGraphql(
         query,
         variables: options?.variables,
       }),
-      // A redirect would carry the access token to another address.
-      redirect: 'error',
     },
   )
 }

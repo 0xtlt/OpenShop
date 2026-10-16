@@ -8,9 +8,10 @@ All notable changes to OpenShop will be documented in this file.
 
 - Added Shopify's client credentials grant for development stores of the
   organization that owns the app. On an embedded admin load with a valid query
-  HMAC, or an `/api` request with a verified session token, a shop without a
-  usable token is granted one with the resolved app's own credentials before
-  falling back to OAuth or token exchange as before. A signed launch only
+  HMAC, a shop without a usable token is granted one with the resolved app's
+  own credentials before falling back to OAuth as before. On an `/api` request
+  with a verified session token, token exchange still runs first and the grant
+  is only tried when it fails. A signed launch only
   starts a grant when its `timestamp` is within 90 seconds of the server's
   clock, either way (90 seconds included). A definite refusal from Shopify (a
   `4xx` with an error code) is remembered in memory for one hour per app, shop
@@ -29,13 +30,17 @@ All notable changes to OpenShop will be documented in this file.
 - Shopify clients and the MCP `openshop.admin.graphql` tool now renew a stored
   token once with the grant after a `401` and retry once; a token granted by
   the running process is renewed five minutes before it expires. Stored OAuth
-  tokens are used as before.
+  tokens are used as before. The grant uses the credentials of the caller's
+  config; `createShopifyClient`, which has none, uses the `default` app's from
+  the environment. `openshop.shops.list` also lists the configured shop unless
+  its row is marked uninstalled.
 
 ### Security
 
 - Admin API requests, the client credentials grant, token exchange and the
   OAuth callback no longer follow redirects, which could carry an access token
-  or the client secret to another address.
+  or the client secret to another address. They fail with `[openshop] Shopify
+  answered a redirect, not followed`.
 
 ## [0.0.12-beta.0] - 2026-09-21
 

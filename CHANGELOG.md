@@ -4,6 +4,20 @@ All notable changes to OpenShop will be documented in this file.
 
 ## [Unreleased]
 
+## [0.0.14-beta.0] - 2026-10-21
+
+### Security
+
+- Upgraded Node to 26.12.1 (security release) and pnpm to 11.28.6, and
+  resolved the fixable `pnpm audit` advisories.
+
+### Changed
+
+- Raised the dependencies of the `openshop` package: `hono` 4.13.13, `vite`
+  8.3.4, `drizzle-orm` 0.45.4, `@hono/node-server` 2.1.5, `arktype` 2.2.8,
+  `pg` 8.23.1 and `drizzle-kit` 0.31.11.
+- Refreshed the dependencies of the `minimal` app template.
+
 ## [0.0.13-beta.0] - 2026-10-16
 
 ### Added

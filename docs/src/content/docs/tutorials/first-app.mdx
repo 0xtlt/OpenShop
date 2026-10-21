@@ -30,7 +30,7 @@ docker run --name openshop-postgres \
   -e POSTGRES_USER=openshop \
   -e POSTGRES_PASSWORD=openshop \
   -p 5432:5432 \
-  -d postgres:17-alpine
+  -d postgres:17.11-alpine3.24
 ```
 
 Wait until this command reports that PostgreSQL is accepting connections:

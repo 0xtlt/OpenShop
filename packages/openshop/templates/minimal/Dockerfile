@@ -1,4 +1,4 @@
-FROM node:26.12.1-trixie-slim AS base
+FROM node:26.12.0-trixie-slim AS base
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"

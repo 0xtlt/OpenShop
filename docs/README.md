@@ -6,7 +6,7 @@ The public site is built with Astro and Starlight and served at
 
 ## Preview and validate
 
-From the repository root, with Node.js 26 and pnpm 11.21.0:
+From the repository root, with Node.js 26 and pnpm 11.28.6:
 
 ```bash
 pnpm install --frozen-lockfile

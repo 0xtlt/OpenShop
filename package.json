@@ -10,7 +10,7 @@
     "url": "https://github.com/0xtlt/OpenShop/issues"
   },
   "homepage": "https://github.com/0xtlt/OpenShop#readme",
-  "packageManager": "pnpm@11.21.0",
+  "packageManager": "pnpm@11.28.6",
   "engines": {
     "node": ">=26 <27",
     "pnpm": ">=11 <12"

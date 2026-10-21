@@ -1,9 +1,9 @@
-FROM node:26-slim AS base
+FROM node:26.12.1-trixie-slim AS base
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 
-RUN npm install -g pnpm@11.21.0
+RUN npm install -g pnpm@11.28.6
 
 WORKDIR /app
 

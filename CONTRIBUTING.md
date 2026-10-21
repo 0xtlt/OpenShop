@@ -5,7 +5,7 @@ integration. Clone this repository when changing the framework, demo, or docs.
 
 ## Set up the repository
 
-Install Node.js 26 and pnpm 11.21.0, then run:
+Install Node.js 26 and pnpm 11.28.6, then run:
 
 ```bash
 git clone https://github.com/0xtlt/OpenShop.git

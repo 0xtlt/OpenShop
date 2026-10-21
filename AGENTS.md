@@ -5,7 +5,7 @@
 These notes cover non-obvious setup/run caveats for this repo in the Cursor Cloud VM. For standard commands, see `README.md`, `package.json` scripts, and `.github/workflows/ci.yml`.
 
 ### Toolchain
-- Node **26** and pnpm **11.21.0** are required (`engines` enforce `>=26 <27` / `>=11 <12`). They are preinstalled and made the default by symlinks in `/usr/local/cargo/bin` (which wins on `PATH` over the sandbox's built-in Node). `node -v` should report `v26.x`; if it reports v22, the symlinks are missing.
+- Node **26** and pnpm **11.28.6** are required (`engines` enforce `>=26 <27` / `>=11 <12`). They are preinstalled and made the default by symlinks in `/usr/local/cargo/bin` (which wins on `PATH` over the sandbox's built-in Node). `node -v` should report `v26.x`; if it reports v22, the symlinks are missing.
 - The startup update script runs `pnpm install` then `pnpm --filter openshop run build:cli`.
 
 ### PostgreSQL (the only external service)

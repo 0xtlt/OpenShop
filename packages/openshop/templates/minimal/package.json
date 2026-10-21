@@ -2,7 +2,7 @@
   "name": "__PACKAGE_NAME__",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.21.0",
+  "packageManager": "pnpm@11.28.6",
   "imports": {
     "#app": "./openshop.app.ts",
     "#flows/*": "./flows/*.ts",
@@ -34,23 +34,23 @@
     "lint": "pnpm run codegen && tsc --noEmit && eslint ."
   },
   "dependencies": {
-    "arktype": "^2.2.3",
+    "arktype": "^2.2.8",
     "openshop": "__OPENSHOP_VERSION__",
     "preact": "^10.29.8",
-    "pg": "^8.23.0",
+    "pg": "^8.23.1",
     "pm2": "^7.0.3"
   },
   "devDependencies": {
-    "@graphql-codegen/cli": "7.2.0",
+    "@graphql-codegen/cli": "7.4.6",
     "@graphql-codegen/introspection": "6.1.0",
-    "@graphql-codegen/typescript": "6.1.0",
+    "@graphql-codegen/typescript": "6.1.2",
     "@shopify/api-codegen-preset": "3.0.0",
     "@shopify/graphql-codegen": "^0.1.0",
-    "@shopify/polaris-types": "^1.0.7",
-    "@types/node": "^26.2.0",
-    "drizzle-kit": "^0.31.10",
-    "drizzle-orm": "0.45.2",
-    "eslint": "10.8.1",
+    "@shopify/polaris-types": "^1.1.0",
+    "@types/node": "^26.6.5",
+    "drizzle-kit": "^0.31.11",
+    "drizzle-orm": "0.45.4",
+    "eslint": "10.13.0",
     "typescript": "^6.0.3"
   }
 }

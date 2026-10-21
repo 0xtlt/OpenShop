@@ -108,20 +108,20 @@
     }
   },
   "dependencies": {
-    "@hono/node-server": "2.1.1",
+    "@hono/node-server": "2.1.5",
     "@preact/preset-vite": "2.10.6",
-    "@types/pg": "^8.21.0",
-    "arktype": "^2.2.3",
+    "@types/pg": "^8.23.1",
+    "arktype": "^2.2.8",
     "croner": "^10.0.1",
-    "drizzle-kit": "^0.31.10",
-    "drizzle-orm": "0.45.2",
+    "drizzle-kit": "^0.31.11",
+    "drizzle-orm": "0.45.4",
     "esbuild": "0.28.2",
-    "hono": "4.13.7",
-    "pg": "^8.23.0",
+    "hono": "4.13.13",
+    "pg": "^8.23.1",
     "preact": "10.29.8",
     "preact-iso": "2.12.2",
     "ts-cron-validator": "^1.1.5",
-    "vite": "8.2.1"
+    "vite": "8.3.4"
   },
   "peerDependencies": {
     "@graphql-eslint/eslint-plugin": ">=4",
@@ -131,10 +131,10 @@
   "devDependencies": {
     "@japa/api-client": "^3.2.1",
     "@japa/assert": "^4.2.0",
-    "@japa/runner": "^5.3.0",
-    "@shopify/polaris-types": "^1.0.7",
-    "@types/node": "26.2.0",
-    "eslint": "^10.8.1",
+    "@japa/runner": "^5.4.0",
+    "@shopify/polaris-types": "^1.1.0",
+    "@types/node": "26.6.5",
+    "eslint": "^10.13.0",
     "typescript": "^6.0.3"
   }
 }

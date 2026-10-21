@@ -1,0 +1,7 @@
+# The docs image builds from the repo root: keep host installs and build output out of the context
+# so COPY docs docs cannot overwrite the container-built node_modules.
+**/node_modules
+**/dist
+**/.astro
+.git
+.env*

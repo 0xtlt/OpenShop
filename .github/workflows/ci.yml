@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17.11-alpine3.24
         env:
           POSTGRES_DB: openshop
           POSTGRES_USER: openshop
@@ -26,10 +26,10 @@ jobs:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
         with:
-          version: 11.21.0
+          version: 11.28.6
       - uses: actions/setup-node@v6
         with:
-          node-version: 26
+          node-version: 26.12.1
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: node --test .github/scripts/*.test.mjs

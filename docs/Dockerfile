@@ -1,8 +1,8 @@
-FROM node:26-alpine AS build
+FROM node:26.12.0-alpine3.24 AS build
 
 WORKDIR /app
 
-RUN npm install -g pnpm@11.21.0
+RUN npm install -g pnpm@11.28.6
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY docs/package.json docs/package.json
@@ -13,7 +13,7 @@ COPY docs docs
 
 RUN pnpm --filter docs run build
 
-FROM nginx:1.29-alpine
+FROM nginx:1.29.8-alpine3.23
 
 COPY --from=build /app/docs/dist /usr/share/nginx/html
 COPY docs/nginx.conf /etc/nginx/conf.d/default.conf

@@ -4,6 +4,8 @@ All notable changes to OpenShop will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.0-beta.0] - 2026-10-28
+
 ### Fixed
 
 - A fresh install of the `default` app no longer fails with

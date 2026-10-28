@@ -171,7 +171,7 @@ test.group('Static files and SPA fallback', (group) => {
   test('GET with signed Shopify launch redirects uninstalled shops to auth', async ({ assert }) => {
     const res = await app.request(signedLaunchUrl('/', 'uninstalled.myshopify.com'))
     assert.equal(res.status, 302)
-    assert.equal(res.headers.get('location'), '/auth?shop=uninstalled.myshopify.com')
+    assert.equal(res.headers.get('location'), '/auth?shop=uninstalled.myshopify.com&app=default')
     // The signed launch tried the client credentials grant first; it was refused.
     assert.deepEqual(tokenEndpoints.calls, [{ shop: 'uninstalled.myshopify.com', grantType: CLIENT_CREDENTIALS_GRANT }])
   })

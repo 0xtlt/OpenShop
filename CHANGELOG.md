@@ -4,6 +4,19 @@ All notable changes to OpenShop will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- A fresh install of the `default` app no longer fails with
+  `[openshop] Missing Shopify app handle` when `shopify.apps` configures more
+  than one app (#36). An embedded admin launch of a shop without a token now
+  exchanges the session token Shopify passes as `id_token` (Shopify managed
+  installation) for an offline token and renders the app, without the OAuth
+  redirect. The token must be valid for the app that signed the launch and
+  name its shop. The client credentials grant and the `/auth` redirect remain
+  the fallbacks, and the redirect now always names the app, `default`
+  included. The token exchange, at a launch or on an `/api` request, is
+  abandoned after five seconds.
+
 ## [0.0.14-beta.0] - 2026-10-21
 
 ### Security

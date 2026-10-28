@@ -197,14 +197,16 @@ function signQuery(params: Record<string, string>, secret = API_SECRET): Record<
 }
 
 /** A launch URL as Shopify signs it, with a timestamp taken from the test clock. */
-function launchUrl(shop: string, options: { secret?: string; signed?: boolean; ageMs?: number } = {}): string {
+function launchUrl(shop: string, options: { secret?: string; signed?: boolean; ageMs?: number; idToken?: string } = {}): string {
   const timestamp = String(Math.floor((clock - (options.ageMs ?? 0)) / 1000))
-  const params = { host: 'YWRtaW4uc2hvcGlmeS5jb20vc3RvcmUvZGV2LXN0b3Jl', shop, timestamp }
+  const params: Record<string, string> = { host: 'YWRtaW4uc2hvcGlmeS5jb20vc3RvcmUvZGV2LXN0b3Jl', shop, timestamp }
+  // Shopify managed installation opens the app with a session token.
+  if (options.idToken) params.id_token = options.idToken
   const query = options.signed === false ? params : signQuery(params, options.secret)
   return `http://localhost/?${new URLSearchParams(query).toString()}`
 }
 
-function sessionToken(shop: string, options: { apiKey?: string; secret?: string } = {}): string {
+function sessionToken(shop: string, options: { apiKey?: string; secret?: string; expiresIn?: number } = {}): string {
   const now = Math.floor(Date.now() / 1000)
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
   const payload = Buffer.from(JSON.stringify({
@@ -212,7 +214,7 @@ function sessionToken(shop: string, options: { apiKey?: string; secret?: string 
     dest: `https://${shop}`,
     aud: options.apiKey ?? API_KEY,
     sub: '42',
-    exp: now + 3600,
+    exp: now + (options.expiresIn ?? 3600),
     nbf: now - 10,
     iat: now,
     jti: `jti-${shop}`,
@@ -1180,13 +1182,13 @@ test.group('Client credentials: Shopify-signed requests', (group) => {
       const app = await appWith()
       const first = await app.request(launchUrl(OTHER_SHOP), { redirect: 'manual' })
       assert.equal(first.status, 302)
-      assert.equal(first.headers.get('location'), `/auth?shop=${OTHER_SHOP}`)
+      assert.equal(first.headers.get('location'), `/auth?shop=${OTHER_SHOP}&app=default`)
       assert.lengthOf(shopify.tokenRequests, 1)
 
       clock += HOUR_MS - 1000
       const second = await app.request(launchUrl(OTHER_SHOP), { redirect: 'manual' })
       assert.equal(second.status, 302)
-      assert.equal(second.headers.get('location'), `/auth?shop=${OTHER_SHOP}`)
+      assert.equal(second.headers.get('location'), `/auth?shop=${OTHER_SHOP}&app=default`)
       assert.lengthOf(shopify.tokenRequests, 1)
 
       clock += 2000
@@ -1288,7 +1290,7 @@ test.group('Client credentials: Shopify-signed requests', (group) => {
         for (const shop of [SHOP, OTHER_SHOP]) {
           const res = await app.request(launchUrl(shop, { ageMs }), { redirect: 'manual' })
           assert.equal(res.status, 302)
-          assert.equal(res.headers.get('location'), `/auth?shop=${shop}`)
+          assert.equal(res.headers.get('location'), `/auth?shop=${shop}&app=default`)
         }
       }
       assert.lengthOf(shopify.requests, 0)
@@ -1315,7 +1317,7 @@ test.group('Client credentials: Shopify-signed requests', (group) => {
       const res = await app.request(launchUrl(SHOP), { redirect: 'manual' })
       assert.isBelow(Date.now() - started, 2000)
       assert.equal(res.status, 302)
-      assert.equal(res.headers.get('location'), `/auth?shop=${SHOP}`)
+      assert.equal(res.headers.get('location'), `/auth?shop=${SHOP}&app=default`)
       assert.isTrue(shopify.tokenRequests[0]!.signal?.aborted)
 
       // A timeout is transient: tried again after the backoff, not after an hour.
@@ -1571,6 +1573,141 @@ test.group('Client credentials: Shopify-signed requests', (group) => {
       assert.equal(res.status, 200)
       assert.equal(shopify.tokenRequests[0]!.url, `https://${OTHER_SHOP}/admin/oauth/access_token`)
       assert.isUndefined(await storedInstallation(SHOP))
+    } finally {
+      shopify.restore()
+    }
+  })
+})
+
+test.group('Signed launches: Shopify managed installation', (group) => {
+  let staticRoot: string
+  let restoreEnv: () => void = () => {}
+
+  group.setup(() => {
+    staticRoot = mkdtempSync(join(tmpdir(), 'openshop-managed-install-test-'))
+    writeFileSync(
+      join(staticRoot, 'index.html'),
+      '<html><head><meta name="shopify-api-key" content="" /></head><body>spa-shell</body></html>',
+      'utf8',
+    )
+    return () => rmSync(staticRoot, { recursive: true, force: true })
+  })
+
+  group.each.setup(async () => {
+    await freshState()
+    restoreEnv = setClientCredentialsShop(undefined)
+    return () => restoreEnv()
+  })
+
+  async function appWith(config: OpenShopConfig = createConfig({})) {
+    return createServer(() => config, { staticDir: staticRoot })
+  }
+
+  function isTokenExchange(call: Call): boolean {
+    return call.headers.get('content-type') === 'application/json'
+  }
+
+  /** Shopify answers the token exchange with `exchange`, and refuses the grant, as for a merchant's store. */
+  function merchantShopify(exchange: Responder = () => Response.json({ access_token: 'exchanged-token', scope: 'read_orders' })) {
+    return fakeShopify({
+      onToken: (call) => isTokenExchange(call) ? exchange(call) : Response.json({ error: 'shop_not_permitted' }, { status: 400 }),
+    })
+  }
+
+  test('a launch with a session token installs the shop by token exchange and renders the app', async ({ assert }) => {
+    const shopify = merchantShopify()
+    try {
+      const app = await appWith()
+      const idToken = sessionToken(OTHER_SHOP)
+      const res = await app.request(launchUrl(OTHER_SHOP, { idToken }), { redirect: 'manual' })
+
+      assert.equal(res.status, 200)
+      const html = await res.text()
+      assert.include(html, 'spa-shell')
+      assert.include(html, `<meta name="shopify-api-key" content="${API_KEY}" />`)
+      assert.lengthOf(shopify.tokenRequests, 1)
+      const exchange = JSON.parse(shopify.tokenRequests[0]!.body)
+      assert.equal(exchange.grant_type, 'urn:ietf:params:oauth:grant-type:token-exchange')
+      assert.equal(exchange.subject_token, idToken)
+      assert.equal(exchange.requested_token_type, 'urn:shopify:params:oauth:token-type:offline-access-token')
+      const row = await storedInstallation(OTHER_SHOP)
+      assert.equal(decryptString(row!.accessToken), 'exchanged-token')
+      assert.isNull(row!.uninstalledAt)
+
+      // Installed: the next launch asks Shopify for nothing.
+      assert.equal((await app.request(launchUrl(OTHER_SHOP), { redirect: 'manual' })).status, 200)
+      assert.lengthOf(shopify.tokenRequests, 1)
+    } finally {
+      shopify.restore()
+    }
+  })
+
+  test('multi-app: a launch of the default app next to another installs it by token exchange', async ({ assert }) => {
+    const shopify = merchantShopify()
+    try {
+      const app = await appWith(createConfig({}, { shopify: MULTI_APPS }))
+      const idToken = sessionToken(OTHER_SHOP, { apiKey: 'default-app-key', secret: 'default-app-secret' })
+      const res = await app.request(launchUrl(OTHER_SHOP, { secret: 'default-app-secret', idToken }), { redirect: 'manual' })
+
+      assert.equal(res.status, 200)
+      assert.include(await res.text(), '<meta name="shopify-api-key" content="default-app-key" />')
+      assert.equal(JSON.parse(shopify.tokenRequests[0]!.body).client_id, 'default-app-key')
+      assert.equal(decryptString((await storedInstallation(OTHER_SHOP, 'default'))!.accessToken), 'exchanged-token')
+      assert.isUndefined(await storedInstallation(OTHER_SHOP, 'second'))
+    } finally {
+      shopify.restore()
+    }
+  })
+
+  test('multi-app: the OAuth fallback of the default app names it, and /auth installs it', async ({ assert }) => {
+    const shopify = merchantShopify()
+    try {
+      const app = await appWith(createConfig({}, { shopify: MULTI_APPS }))
+      const res = await app.request(launchUrl(OTHER_SHOP, { secret: 'default-app-secret' }), { redirect: 'manual' })
+
+      assert.equal(res.status, 302)
+      const location = res.headers.get('location')!
+      assert.equal(location, `/auth?shop=${OTHER_SHOP}&app=default`)
+      const oauthStart = await app.request(location, { redirect: 'manual' })
+      assert.equal(oauthStart.status, 302)
+      assert.match(oauthStart.headers.get('location') ?? '', /^https:\/\/merchant-store\.myshopify\.com\/admin\/oauth\/authorize\?client_id=default-app-key&/)
+    } finally {
+      shopify.restore()
+    }
+  })
+
+  test('a refused token exchange falls back to the grant, then to OAuth', async ({ assert }) => {
+    const shopify = merchantShopify(() => Response.json({ error: 'invalid_subject_token' }, { status: 400 }))
+    try {
+      const app = await appWith()
+      const res = await app.request(launchUrl(OTHER_SHOP, { idToken: sessionToken(OTHER_SHOP) }), { redirect: 'manual' })
+
+      assert.equal(res.status, 302)
+      assert.equal(res.headers.get('location'), `/auth?shop=${OTHER_SHOP}&app=default`)
+      assert.deepEqual(shopify.tokenRequests.map(isTokenExchange), [true, false])
+      assert.equal(grantForm(shopify.tokenRequests[1]!).get('grant_type'), 'client_credentials')
+      assert.isUndefined(await storedInstallation(OTHER_SHOP))
+    } finally {
+      shopify.restore()
+    }
+  })
+
+  test('a session token of another shop, of another app, or expired is never exchanged', async ({ assert }) => {
+    const shopify = merchantShopify()
+    try {
+      const app = await appWith(createConfig({}, { shopify: MULTI_APPS }))
+      for (const idToken of [
+        sessionToken(SHOP, { apiKey: 'default-app-key', secret: 'default-app-secret' }),
+        sessionToken(OTHER_SHOP, { apiKey: 'second-app-key', secret: 'second-app-secret' }),
+        sessionToken(OTHER_SHOP, { apiKey: 'default-app-key', secret: 'second-app-secret' }),
+        sessionToken(OTHER_SHOP, { apiKey: 'default-app-key', secret: 'default-app-secret', expiresIn: -60 }),
+      ]) {
+        const res = await app.request(launchUrl(OTHER_SHOP, { secret: 'default-app-secret', idToken }), { redirect: 'manual' })
+        assert.equal(res.status, 302)
+        assert.equal(res.headers.get('location'), `/auth?shop=${OTHER_SHOP}&app=default`)
+      }
+      assert.isFalse(shopify.tokenRequests.some(isTokenExchange))
+      assert.isUndefined(await storedInstallation(OTHER_SHOP, 'default'))
     } finally {
       shopify.restore()
     }

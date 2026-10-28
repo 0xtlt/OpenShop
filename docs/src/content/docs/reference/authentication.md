@@ -29,6 +29,27 @@ OpenShop rejects missing, invalid, expired, or wrong-audience tokens with
 `401`. API handlers read the verified shop and app identity from middleware;
 client-supplied `shop` query parameters do not replace that identity.
 
+## Embedded installation
+
+Shopify managed installation installs the app from Shopify, without OAuth,
+then opens it in the admin with a session token in the `id_token` query
+parameter. When a signed launch reaches a shop that has no token for the app
+that signed it, OpenShop verifies that `id_token` for the same app (signature,
+audience, time claims, and a `dest` equal to the launch's `shop`) and
+exchanges it for an offline token. The app renders at once, in single-app and
+multi-app mode alike, and later launches use the stored token. Shopify is
+asked for five seconds at most, and a redirect is never followed.
+
+When the launch has no `id_token`, the token is not valid for that app and
+shop, or Shopify refuses the exchange, the
+[client credentials grant](#on-requests-signed-by-shopify) is tried, then the
+launch redirects to OAuth. The redirect always names the app that signed the
+launch, `default` included:
+
+```text
+/auth?shop=example.myshopify.com&app=default
+```
+
 ## OAuth installation
 
 Single-app mode starts installation at:
@@ -71,7 +92,8 @@ No variable is needed. When the resolved app has no usable token for the shop
 two cases only:
 
 - an embedded admin load whose query HMAC is valid for one of the configured
-  apps; the `shop` parameter must itself be exactly `<name>.myshopify.com`, and
+  apps, once the [token exchange](#embedded-installation) of its `id_token`, if
+  it has one, failed; the `shop` parameter must itself be exactly `<name>.myshopify.com`, and
   the signed `timestamp` must be within 90 seconds of the server's clock, in
   either direction (90 seconds included), the tolerance Shopify's own app
   library uses. A copied launch URL
@@ -221,7 +243,7 @@ requirements.
 
 | Request | App resolution |
 | --- | --- |
-| Manual OAuth start | `?app=<handle>`; optional when exactly one app exists |
+| Manual OAuth start | `?app=<handle>`; optional when exactly one app exists. The launch fallback always sets it |
 | Signed admin launch or OAuth callback | Query HMAC matches exactly one app secret |
 | App proxy | Query signature matches exactly one app secret |
 | Webhook | Raw-body HMAC matches exactly one app secret |

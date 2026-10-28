@@ -73,12 +73,33 @@ async function ensureInstallation(shopifyApp: ResolvedShopifyApp, shop: string, 
   if (destIsExactShop) await grantForSignedRequest(shopifyApp, shop)
 }
 
+/**
+ * Shopify managed installation: Shopify installs the app itself, then opens it
+ * with a session token in the launch's `id_token` parameter. The token must be
+ * valid for the app that signed the launch and name its shop; it is then
+ * exchanged for an offline token, as the first `/api` request would. Returns
+ * whether a token was stored.
+ */
+export async function exchangeLaunchSessionToken(shopifyApp: ResolvedShopifyApp, shop: string, idToken: string | undefined): Promise<boolean> {
+  if (!idToken || !shopifyApp.apiKey || !shopifyApp.apiSecret) return false
+  try {
+    if (verifySessionToken(idToken, shopifyApp.apiSecret, { audience: shopifyApp.apiKey }).shop !== shop) return false
+  } catch {
+    return false
+  }
+  return exchangeSessionToken(shopifyApp, shop, idToken)
+}
+
+/** The token exchange is abandoned after this long: an admin launch waits for it. */
+const TOKEN_EXCHANGE_TIMEOUT_MS = 5_000
+
 /** Token exchange for an offline token. Returns whether a token was stored. */
 async function exchangeSessionToken(shopifyApp: ResolvedShopifyApp, shop: string, sessionToken: string): Promise<boolean> {
   try {
     const response = await fetchWithoutRedirect(`https://${shop}/admin/oauth/access_token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(TOKEN_EXCHANGE_TIMEOUT_MS),
       body: JSON.stringify({
         client_id: shopifyApp.apiKey,
         client_secret: shopifyApp.apiSecret,

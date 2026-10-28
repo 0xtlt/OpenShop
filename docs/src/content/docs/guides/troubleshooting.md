@@ -24,6 +24,10 @@ verification, [run a smoke flow](/guides/operate-app/#2-check-health-and-run-a-s
    the same `HOST`.
 5. Retry from `/auth?shop=<shop>&app=<handle>`.
 
+A `Missing Shopify app handle` response from `/auth` means the URL has no
+`app` parameter while several apps are configured. Launches from Shopify admin
+always name the app; add `app=<handle>` to a URL you build yourself.
+
 An `Invalid HMAC` response means the request was not signed with the selected
 app secret. A state error means the OAuth callback is stale or belongs to a
 different installation attempt.

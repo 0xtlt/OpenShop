@@ -89,7 +89,12 @@ changes may need Shopify approval and renewed authorization by the merchant.
 
 ## 3. Verify each installation
 
-For multiple apps, start installation with an explicit app handle:
+Install each app from Shopify, then open it in Shopify admin. With Shopify
+managed installation, the launch carries a session token that OpenShop
+exchanges for the app's offline token, whatever its handle, `default` included.
+See [Embedded installation](/reference/authentication/#embedded-installation).
+
+To start OAuth yourself, for multiple apps, name the app handle:
 
 ```text
 https://your-app.example.com/auth?shop=example.myshopify.com&app=retail

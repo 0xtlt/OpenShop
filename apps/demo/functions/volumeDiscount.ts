@@ -32,6 +32,7 @@ export const volumeDiscount = app.defineFunction({
       type: 'text',
       label: 'Excluded product tags',
       placeholder: 'gift, sample',
+      description: 'Comma-separated list of product tags.',
     },
   },
 })

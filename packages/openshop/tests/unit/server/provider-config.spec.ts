@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
-import { providerConfigIsComplete } from '#server/provider-config'
+import { type } from 'arktype'
+import { providerConfigIsComplete, providerFieldsForResponse } from '#server/provider-config'
 import type { ProviderDefinition } from '#types'
 
 function provider(fields: ProviderDefinition['ui']['fields']): ProviderDefinition {
@@ -40,5 +41,24 @@ test.group('providerConfigIsComplete', () => {
     assert.isTrue(providerConfigIsComplete(provider({
       note: { type: 'text', label: 'Note', required: false },
     }), {}))
+  })
+})
+
+test.group('providerFieldsForResponse', () => {
+  test('returns the description of a field without its validator', ({ assert }) => {
+    const definition = provider({
+      apiKey: {
+        type: 'password',
+        label: 'API key',
+        description: 'Found in your warehouse dashboard.',
+        validate: type('string > 0'),
+      },
+    })
+
+    const fields = providerFieldsForResponse(definition, { apiKey: 'secret-1' })
+
+    assert.equal(fields.apiKey.description, 'Found in your warehouse dashboard.')
+    assert.isTrue(fields.apiKey.hasValue)
+    assert.notProperty(fields.apiKey, 'validate')
   })
 })

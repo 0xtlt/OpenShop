@@ -26,6 +26,8 @@ export interface ProviderFieldDef<T = unknown> {
   type: 'text' | 'password' | 'number' | 'select' | 'checkbox'
   label: string
   placeholder?: string
+  /** Help text shown below the field, to give context or instructions */
+  description?: string
   options?: { label: string; value: string }[] // for select
   required?: boolean
   validate?: Type<T>

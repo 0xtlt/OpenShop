@@ -86,6 +86,9 @@ function validateField(field: ProviderFieldDef, path: string): void {
   if (!isRecord(field)) fail(`${path} must be an object`)
   if (!fieldTypes.has(field.type)) fail(`${path}.type must be one of ${[...fieldTypes].join(', ')}`)
   if (typeof field.label !== 'string' || field.label.trim() === '') fail(`${path}.label must be a non-empty string`)
+  if (field.description !== undefined && (typeof field.description !== 'string' || field.description.trim() === '')) {
+    fail(`${path}.description must be a non-empty string`)
+  }
 
   if (field.type === 'select') {
     if (!Array.isArray(field.options) || field.options.length === 0) {

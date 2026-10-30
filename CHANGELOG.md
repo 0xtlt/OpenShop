@@ -4,6 +4,8 @@ All notable changes to OpenShop will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0-beta.0] - 2026-10-30
+
 ### Added
 
 - Provider and function config fields accept a `description`, shown below the

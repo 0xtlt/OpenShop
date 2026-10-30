@@ -5,6 +5,7 @@ export interface ProviderFieldMetadata {
   type: ProviderFieldDef['type']
   label: string
   placeholder?: string
+  description?: string
   options?: { label: string; value: string }[]
   required?: boolean
   hasValue?: boolean
@@ -59,6 +60,7 @@ export function providerFieldsForResponse(
       type: field.type,
       label: field.label,
       placeholder: field.placeholder,
+      description: field.description,
       options: field.options,
       required: field.required,
       ...(field.type === 'password' ? { hasValue: !isMissing(storedConfig[fieldName]) } : {}),

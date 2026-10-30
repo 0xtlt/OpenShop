@@ -55,7 +55,8 @@ derives `Active` from the owner's existence. Its creation form exposes
 ## Configuration fields
 
 Function config uses provider-style `text`, `password`, `number`, `select`, and
-`checkbox` field definitions. Fields are required unless `required: false`.
+`checkbox` field definitions. Fields are required unless `required: false`,
+and an optional `description` is shown below the field.
 Numbers and checkboxes are coerced before ArkType validation.
 
 Only declared fields are retained. Missing required fields and ArkType failures

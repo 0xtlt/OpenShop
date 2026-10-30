@@ -16,7 +16,11 @@ export const warehouse = defineProvider({
   ui: {
     fields: {
       apiUrl: { type: 'text', label: 'API URL' },
-      apiKey: { type: 'password', label: 'API key' },
+      apiKey: {
+        type: 'password',
+        label: 'API key',
+        description: 'Found in your warehouse dashboard, under API settings.',
+      },
     },
   },
   async checker({ config }) {
@@ -51,6 +55,10 @@ All fields require `type` and a non-empty `label`.
 | `number` | Number | A non-empty string is converted with `Number()`. |
 | `select` | Selected string | Requires non-empty, uniquely valued `options`. |
 | `checkbox` | Boolean | The string `"true"` is true; other strings are false. |
+
+Every type accepts an optional `description`: help text the admin UI shows
+below the field to give context or instructions. When set, it must be a
+non-empty string.
 
 `required` defaults to `true`. Set `required: false` to make a field optional.
 `validate` accepts an ArkType schema. Its transformed value becomes the saved

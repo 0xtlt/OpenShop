@@ -4,6 +4,11 @@ All notable changes to OpenShop will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Provider and function config fields accept a `description`, shown below the
+  field in the admin UI to give context or instructions (#39).
+
 ## [0.1.0-beta.0] - 2026-10-28
 
 ### Fixed

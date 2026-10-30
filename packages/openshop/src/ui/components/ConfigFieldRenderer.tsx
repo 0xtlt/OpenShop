@@ -4,6 +4,7 @@ export interface ConfigField {
   type: 'text' | 'password' | 'number' | 'select' | 'checkbox'
   label: string
   placeholder?: string
+  description?: string
   options?: { label: string; value: string }[]
   hasValue?: boolean
 }
@@ -20,6 +21,7 @@ export function ConfigFieldRenderer({ fieldKey, field, value, onChange }: Config
     return (
       <s-password-field
         label={field.label}
+        details={field.description}
         placeholder={field.hasValue ? 'Saved; leave blank to keep' : field.placeholder}
         value={value}
         onInput={(event) => onChange(fieldKey, eventValue(event))}
@@ -31,6 +33,7 @@ export function ConfigFieldRenderer({ fieldKey, field, value, onChange }: Config
     return (
       <s-number-field
         label={field.label}
+        details={field.description}
         placeholder={field.placeholder}
         value={value}
         onInput={(event) => onChange(fieldKey, eventValue(event))}
@@ -42,6 +45,7 @@ export function ConfigFieldRenderer({ fieldKey, field, value, onChange }: Config
     return (
       <s-checkbox
         label={field.label}
+        details={field.description}
         checked={value === 'true'}
         onChange={(event) => onChange(fieldKey, String(eventChecked(event)))}
       />
@@ -52,6 +56,7 @@ export function ConfigFieldRenderer({ fieldKey, field, value, onChange }: Config
     return (
       <s-select
         label={field.label}
+        details={field.description}
         value={value}
         onChange={(event) => onChange(fieldKey, eventValue(event))}
       >
@@ -63,6 +68,7 @@ export function ConfigFieldRenderer({ fieldKey, field, value, onChange }: Config
   return (
     <s-text-field
       label={field.label}
+      details={field.description}
       placeholder={field.placeholder}
       value={value}
       onInput={(event) => onChange(fieldKey, eventValue(event))}

@@ -75,6 +75,19 @@ test.group('defineOpenShop config validation', () => {
     }), /label must be a non-empty string/)
   })
 
+  test('rejects an empty field description', ({ assert }) => {
+    const fn = emptyApp.defineFunction({
+      type: 'discount',
+      handle: 'volume-discount',
+      config: { threshold: { type: 'number', label: 'Threshold', description: ' ' } },
+    })
+
+    assert.throws(() => emptyApp.defineConfig({
+      flows: { sync: flow },
+      functions: { fn },
+    }), /functions\.fn\.config\.threshold\.description must be a non-empty string/)
+  })
+
   test('rejects invalid worker numbers', ({ assert }) => {
     assert.throws(() => emptyApp.defineConfig({
       flows: { sync: flow },
